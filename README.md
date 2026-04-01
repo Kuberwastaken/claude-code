@@ -36,6 +36,8 @@ This repo now also includes a packaged multi-backend router in [`contrib/multi-b
 - shared MCP routing for both Claude Code and Cursor
 
 It ships with installable scripts, LiteLLM configs, a shared MCP server, and Cursor-friendly wrappers.
+It should be read as a tested reference setup for this repo and this workflow, not as a claim that this is the only or most advanced Claude Code router in the ecosystem.
+If you want a dedicated standalone router project, see the related-projects section in [`contrib/multi-backend-router`](contrib/multi-backend-router/README.md).
 
 Let's get into it.
 

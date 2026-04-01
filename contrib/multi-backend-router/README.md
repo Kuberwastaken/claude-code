@@ -21,6 +21,35 @@ It also exposes a shared MCP server called `model-router` so both Claude Code an
 - `cursor-backend`: backend switcher alias for Cursor terminals and task runners
 - `model-router`: shared MCP server for Claude Code and Cursor
 
+## Scope
+
+This package is intentionally opinionated and small.
+It is a reference setup for one machine, one shell environment, and one shared Claude Code + Cursor workflow.
+
+Use it when you want:
+
+- a known-good local setup with Ollama, `llama.cpp`, LiteLLM, and optional cheap cloud fallbacks
+- one command to switch backends without replacing your normal `claude` binary
+- one MCP surface that both Claude Code and Cursor can call locally
+
+Do not read it as a claim that this is the most feature-rich router available for Claude Code.
+There are stronger standalone routing projects if you want a larger ecosystem, UI, plugin system, or more advanced request rewriting.
+
+## Related Projects
+
+- Anthropic LLM gateway docs: the official Claude Code docs already support using a gateway through `ANTHROPIC_BASE_URL`; this package builds on that pattern for local and open-model workflows.
+- LiteLLM: the core proxy/routing layer used here; if you already have your own LiteLLM deployment and rules, you may only want the shell wrappers from this package.
+- `musistudio/claude-code-router`: the closest full-featured open-source alternative if you want a standalone router product with richer routing logic, provider catalogs, UI, dynamic `/model`, and automation support.
+- `starbaser/ccproxy`: a stronger fit if you specifically want request hooks, rule evaluation, and deep request or response transformation on top of LiteLLM.
+- `1rgs/claude-code-proxy`: a smaller Anthropic-compatible proxy if you only need simple provider remapping and not the local shell or MCP workflow in this package.
+- OpenHands, Continue, and Aider: better fits if you do not need Claude Code compatibility at all and are happy to adopt a different coding-agent frontend.
+
+In short:
+
+- keep this package if your priority is "working local starter kit for Claude Code and Cursor"
+- use a dedicated router project if your priority is "largest routing feature set"
+- use a different agent product if your priority is "best open-source coding agent overall" rather than preserving Claude Code semantics
+
 ## Routing
 
 | Mode | haiku | sonnet | opus |
