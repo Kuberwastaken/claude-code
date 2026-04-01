@@ -12,6 +12,7 @@
 use async_trait::async_trait;
 use cc_api::client::ClientConfig;
 use cc_api::AnthropicClient;
+use cc_api::LlmClient;
 use cc_core::types::Message;
 use cc_tools::{PermissionLevel, Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -118,7 +119,7 @@ impl Tool for AgentTool {
         };
 
         // Dedicated Anthropic client for the sub-agent.
-        let client = match AnthropicClient::new(ClientConfig {
+        let client: Arc<dyn LlmClient + Send + Sync> = match AnthropicClient::new(ClientConfig {
             api_key,
             ..Default::default()
         }) {

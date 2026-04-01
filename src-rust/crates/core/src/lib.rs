@@ -413,6 +413,8 @@ pub mod config {
     /// Top-level configuration values, merged from CLI args + settings file + env.
     #[derive(Debug, Clone, Serialize, Deserialize, Default)]
     pub struct Config {
+        #[serde(default)]
+        pub provider: ModelProvider,
         pub api_key: Option<String>,
         pub model: Option<String>,
         pub max_tokens: Option<u32>,
@@ -438,6 +440,14 @@ pub mod config {
         /// Event hooks: map of event → list of hook commands.
         #[serde(default)]
         pub hooks: HashMap<HookEvent, Vec<HookEntry>>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ModelProvider {
+        #[default]
+        Anthropic,
+        OpenaiCompat,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -518,6 +528,11 @@ pub mod config {
     }
 
     impl Config {
+        /// Resolve the selected model provider.
+        pub fn effective_provider(&self) -> ModelProvider {
+            self.provider.clone()
+        }
+
         /// Resolve the effective model, falling back to the compile-time default.
         pub fn effective_model(&self) -> &str {
             self.model
@@ -558,11 +573,18 @@ pub mod config {
                 .filter(|prompt| !prompt.trim().is_empty())
         }
 
-        /// Resolve the API key from the config, then from `ANTHROPIC_API_KEY`.
+        /// Resolve the API key from config and provider-specific env vars.
         pub fn resolve_api_key(&self) -> Option<String> {
+            let generic = std::env::var("CLAUDE_CODE_API_KEY").ok();
+            let provider_key = match self.effective_provider() {
+                ModelProvider::Anthropic => std::env::var("ANTHROPIC_API_KEY").ok(),
+                ModelProvider::OpenaiCompat => std::env::var("OPENAI_API_KEY").ok(),
+            };
+
             self.api_key
                 .clone()
-                .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
+                .or(generic)
+                .or(provider_key)
         }
 
         /// Async variant: also checks `~/.claude/oauth_tokens.json`.
@@ -574,6 +596,10 @@ pub mod config {
             // Highest priority: explicit api_key or env var
             if let Some(key) = self.resolve_api_key() {
                 return Some((key, false));
+            }
+            // Non-Anthropic providers currently support API-key auth only.
+            if self.effective_provider() != ModelProvider::Anthropic {
+                return None;
             }
             // Fall back to saved OAuth tokens
             let tokens = crate::oauth::OAuthTokens::load().await?;
@@ -632,10 +658,17 @@ pub mod config {
             }
         }
 
-        /// Resolve the API base URL, checking `ANTHROPIC_BASE_URL` first.
+        /// Resolve API base URL, checking generic and provider-specific env vars.
         pub fn resolve_api_base(&self) -> String {
-            std::env::var("ANTHROPIC_BASE_URL")
-                .unwrap_or_else(|_| crate::constants::ANTHROPIC_API_BASE.to_string())
+            if let Ok(base) = std::env::var("CLAUDE_CODE_API_BASE") {
+                return base;
+            }
+            match self.effective_provider() {
+                ModelProvider::Anthropic => std::env::var("ANTHROPIC_BASE_URL")
+                    .unwrap_or_else(|_| crate::constants::ANTHROPIC_API_BASE.to_string()),
+                ModelProvider::OpenaiCompat => std::env::var("OPENAI_BASE_URL")
+                    .unwrap_or_else(|_| crate::constants::OPENAI_COMPAT_API_BASE.to_string()),
+            }
         }
     }
 
@@ -720,6 +753,7 @@ pub mod constants {
 
     // API endpoints & headers
     pub const ANTHROPIC_API_BASE: &str = "https://api.anthropic.com";
+    pub const OPENAI_COMPAT_API_BASE: &str = "https://api.openai.com";
     pub const ANTHROPIC_API_VERSION: &str = "2023-06-01";
     pub const ANTHROPIC_BETA_HEADER: &str =
         "interleaved-thinking-2025-05-14,token-efficient-tools-2025-02-19,files-api-2025-04-14";

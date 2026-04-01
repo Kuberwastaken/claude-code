@@ -125,7 +125,7 @@ pub enum QueryEvent {
 /// This sends the conversation to the API, handles tool calls in a loop, and
 /// returns when the model issues an end_turn or an error/limit is hit.
 pub async fn run_query_loop(
-    client: &cc_api::AnthropicClient,
+    client: &(dyn cc_api::LlmClient + Send + Sync),
     messages: &mut Vec<Message>,
     tools: &[Box<dyn Tool>],
     tool_ctx: &ToolContext,
@@ -634,7 +634,7 @@ impl StreamHandler for ChannelStreamHandler {
 
 /// Run a single (non-agentic) query – no tool loop, just one API call.
 pub async fn run_single_query(
-    client: &cc_api::AnthropicClient,
+    client: &(dyn cc_api::LlmClient + Send + Sync),
     messages: Vec<Message>,
     config: &QueryConfig,
 ) -> Result<Message, ClaudeError> {

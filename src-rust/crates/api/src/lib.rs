@@ -24,8 +24,18 @@ use tracing::{debug, warn};
 // Public re-exports
 // ---------------------------------------------------------------------------
 pub use client::AnthropicClient;
+pub use openai_compat::OpenAiCompatClient;
 pub use streaming::{StreamEvent, StreamHandler};
 pub use types::*;
+
+#[async_trait::async_trait]
+pub trait LlmClient: Send + Sync {
+    async fn create_message_stream(
+        &self,
+        request: CreateMessageRequest,
+        handler: Arc<dyn StreamHandler>,
+    ) -> Result<mpsc::Receiver<StreamEvent>, ClaudeError>;
+}
 
 // ---------------------------------------------------------------------------
 // request / response types
@@ -664,6 +674,372 @@ pub mod client {
                     None
                 }
             }
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl LlmClient for client::AnthropicClient {
+    async fn create_message_stream(
+        &self,
+        request: CreateMessageRequest,
+        handler: Arc<dyn StreamHandler>,
+    ) -> Result<mpsc::Receiver<StreamEvent>, ClaudeError> {
+        client::AnthropicClient::create_message_stream(self, request, handler).await
+    }
+}
+
+pub mod openai_compat {
+    use super::*;
+    use std::collections::{BTreeMap, HashMap};
+
+    /// OpenAI-compatible chat/completions streaming client.
+    pub struct OpenAiCompatClient {
+        http: reqwest::Client,
+        config: client::ClientConfig,
+    }
+
+    impl OpenAiCompatClient {
+        pub fn new(config: client::ClientConfig) -> anyhow::Result<Self> {
+            if config.api_key.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "API key is required for openai_compat provider."
+                ));
+            }
+            let http = reqwest::Client::builder()
+                .timeout(config.request_timeout)
+                .build()?;
+            Ok(Self { http, config })
+        }
+
+        fn normalize_base(base: &str) -> String {
+            base.trim_end_matches('/').to_string()
+        }
+
+        fn system_to_string(system: Option<SystemPrompt>) -> Option<String> {
+            match system {
+                None => None,
+                Some(SystemPrompt::Text(t)) => Some(t),
+                Some(SystemPrompt::Blocks(blocks)) => {
+                    let mut s = String::new();
+                    for b in blocks {
+                        if !s.is_empty() {
+                            s.push_str("\n\n");
+                        }
+                        s.push_str(&b.text);
+                    }
+                    if s.trim().is_empty() { None } else { Some(s) }
+                }
+            }
+        }
+
+        fn map_messages(request: &CreateMessageRequest) -> Vec<Value> {
+            let mut out = Vec::new();
+            if let Some(system_text) = Self::system_to_string(request.system.clone()) {
+                out.push(serde_json::json!({ "role": "system", "content": system_text }));
+            }
+            for m in &request.messages {
+                let content = if let Some(s) = m.content.as_str() {
+                    Value::String(s.to_string())
+                } else {
+                    // Keep compatibility for non-text content blocks by passing JSON.
+                    Value::String(m.content.to_string())
+                };
+                out.push(serde_json::json!({
+                    "role": m.role,
+                    "content": content
+                }));
+            }
+            out
+        }
+
+        fn map_tools(request: &CreateMessageRequest) -> Option<Value> {
+            let tools = request.tools.as_ref()?;
+            let mapped: Vec<Value> = tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.input_schema
+                        }
+                    })
+                })
+                .collect();
+            Some(Value::Array(mapped))
+        }
+
+        fn map_finish_reason(reason: Option<&str>) -> Option<String> {
+            match reason {
+                Some("tool_calls") => Some("tool_use".to_string()),
+                Some("length") => Some("max_tokens".to_string()),
+                Some("stop") => Some("end_turn".to_string()),
+                Some(v) => Some(v.to_string()),
+                None => None,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LlmClient for OpenAiCompatClient {
+        async fn create_message_stream(
+            &self,
+            request: CreateMessageRequest,
+            handler: Arc<dyn StreamHandler>,
+        ) -> Result<mpsc::Receiver<StreamEvent>, ClaudeError> {
+            let url = format!(
+                "{}/v1/chat/completions",
+                Self::normalize_base(&self.config.api_base)
+            );
+
+            let mut body = serde_json::json!({
+                "model": request.model,
+                "messages": Self::map_messages(&request),
+                "stream": true,
+                "max_tokens": request.max_tokens,
+            });
+            if let Some(temp) = request.temperature {
+                body["temperature"] = serde_json::json!(temp);
+            }
+            if let Some(top_p) = request.top_p {
+                body["top_p"] = serde_json::json!(top_p);
+            }
+            if let Some(stop) = request.stop_sequences.clone() {
+                body["stop"] = serde_json::json!(stop);
+            }
+            if let Some(tools) = Self::map_tools(&request) {
+                body["tools"] = tools;
+            }
+
+            let resp = self
+                .http
+                .post(&url)
+                .header("content-type", "application/json")
+                .header("accept", "text/event-stream")
+                .bearer_auth(&self.config.api_key)
+                .json(&body)
+                .send()
+                .await
+                .map_err(ClaudeError::Http)?;
+
+            if !resp.status().is_success() {
+                let status = resp.status().as_u16();
+                let text = resp.text().await.unwrap_or_default();
+                if status == 401 || status == 403 {
+                    return Err(ClaudeError::Auth(text));
+                }
+                if status == 429 {
+                    return Err(ClaudeError::RateLimit);
+                }
+                return Err(ClaudeError::ApiStatus {
+                    status,
+                    message: text,
+                });
+            }
+
+            let (tx, rx) = mpsc::channel(256);
+            tokio::spawn(async move {
+                use sse_parser::SseLineParser;
+
+                let mut parser = SseLineParser::new();
+                let mut byte_stream = resp.bytes_stream();
+                let mut leftover = String::new();
+                let mut started = false;
+                let mut text_block_index: Option<usize> = None;
+                let mut next_index: usize = 0;
+                let mut tool_blocks: HashMap<u64, (usize, String, String)> = HashMap::new();
+                let mut stop_reason: Option<String> = None;
+
+                while let Some(chunk_result) = byte_stream.next().await {
+                    let chunk = match chunk_result {
+                        Ok(c) => c,
+                        Err(e) => {
+                            let _ = tx.send(StreamEvent::Error {
+                                error_type: "stream_error".to_string(),
+                                message: e.to_string(),
+                            }).await;
+                            return;
+                        }
+                    };
+                    let text = String::from_utf8_lossy(&chunk);
+                    let combined = if leftover.is_empty() {
+                        text.to_string()
+                    } else {
+                        let mut s = std::mem::take(&mut leftover);
+                        s.push_str(&text);
+                        s
+                    };
+                    let mut lines: Vec<&str> = combined.split('\n').collect();
+                    if !combined.ends_with('\n') {
+                        leftover = lines.pop().unwrap_or("").to_string();
+                    }
+                    for line in lines {
+                        let line = line.trim_end_matches('\r');
+                        let Some(frame) = parser.feed_line(line) else { continue; };
+                        if frame.data.trim() == "[DONE]" {
+                            break;
+                        }
+
+                        let Ok(v) = serde_json::from_str::<Value>(&frame.data) else {
+                            continue;
+                        };
+                        if let Some(err) = v.get("error") {
+                            let error_type = err
+                                .get("type")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("api_error")
+                                .to_string();
+                            let message = err
+                                .get("message")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("Unknown provider error")
+                                .to_string();
+                            let evt = StreamEvent::Error { error_type, message };
+                            handler.on_event(&evt);
+                            let _ = tx.send(evt).await;
+                            let stop_evt = StreamEvent::MessageStop;
+                            handler.on_event(&stop_evt);
+                            let _ = tx.send(stop_evt).await;
+                            return;
+                        }
+                        if !started {
+                            let message_id = v.get("id").and_then(|x| x.as_str()).map(str::to_string);
+                            let message_model = v.get("model").and_then(|x| x.as_str()).map(str::to_string);
+                            let evt = StreamEvent::MessageStart {
+                                id: message_id.clone().unwrap_or_else(|| "openai-chat".to_string()),
+                                model: message_model.clone().unwrap_or_else(|| "openai".to_string()),
+                                usage: UsageInfo::default(),
+                            };
+                            handler.on_event(&evt);
+                            if tx.send(evt).await.is_err() { return; }
+                            started = true;
+                        }
+
+                        let choice = v.get("choices")
+                            .and_then(|c| c.as_array())
+                            .and_then(|arr| arr.first());
+                        let Some(choice) = choice else { continue; };
+                        let mut should_terminate = false;
+
+                        if let Some(reason) = choice.get("finish_reason").and_then(|r| r.as_str()) {
+                            stop_reason = Self::map_finish_reason(Some(reason));
+                            should_terminate = true;
+                        }
+                        let delta = choice.get("delta").cloned().unwrap_or(Value::Null);
+
+                        if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                            if !content.is_empty() {
+                                if text_block_index.is_none() {
+                                    let idx = next_index;
+                                    next_index += 1;
+                                    text_block_index = Some(idx);
+                                    let start_evt = StreamEvent::ContentBlockStart {
+                                        index: idx,
+                                        content_block: ContentBlock::Text { text: String::new() },
+                                    };
+                                    handler.on_event(&start_evt);
+                                    if tx.send(start_evt).await.is_err() { return; }
+                                }
+                                let idx = text_block_index.unwrap_or(0);
+                                let delta_evt = StreamEvent::ContentBlockDelta {
+                                    index: idx,
+                                    delta: streaming::ContentDelta::TextDelta { text: content.to_string() },
+                                };
+                                handler.on_event(&delta_evt);
+                                if tx.send(delta_evt).await.is_err() { return; }
+                            }
+                        }
+
+                        if let Some(tool_calls) = delta.get("tool_calls").and_then(|t| t.as_array()) {
+                            for tc in tool_calls {
+                                let tool_idx = tc.get("index").and_then(|x| x.as_u64()).unwrap_or(0);
+                                if !tool_blocks.contains_key(&tool_idx) {
+                                    let idx = next_index;
+                                    next_index += 1;
+                                    let id = tc.get("id")
+                                        .and_then(|x| x.as_str())
+                                        .map(str::to_string)
+                                        .unwrap_or_else(|| format!("tool_call_{}", tool_idx));
+                                    let name = tc.get("function")
+                                        .and_then(|f| f.get("name"))
+                                        .and_then(|x| x.as_str())
+                                        .map(str::to_string)
+                                        .unwrap_or_else(|| "tool".to_string());
+                                    let start_evt = StreamEvent::ContentBlockStart {
+                                        index: idx,
+                                        content_block: ContentBlock::ToolUse {
+                                            id: id.clone(),
+                                            name: name.clone(),
+                                            input: Value::Object(Default::default()),
+                                        },
+                                    };
+                                    handler.on_event(&start_evt);
+                                    if tx.send(start_evt).await.is_err() { return; }
+                                    tool_blocks.insert(tool_idx, (idx, id, name));
+                                }
+                                let entry = match tool_blocks.get_mut(&tool_idx) {
+                                    Some(e) => e,
+                                    None => continue,
+                                };
+
+                                if let Some(name) = tc.get("function")
+                                    .and_then(|f| f.get("name"))
+                                    .and_then(|x| x.as_str()) {
+                                    entry.2 = name.to_string();
+                                }
+                                if let Some(args) = tc.get("function")
+                                    .and_then(|f| f.get("arguments"))
+                                    .and_then(|x| x.as_str()) {
+                                    if !args.is_empty() {
+                                        let delta_evt = StreamEvent::ContentBlockDelta {
+                                            index: entry.0,
+                                            delta: streaming::ContentDelta::InputJsonDelta {
+                                                partial_json: args.to_string(),
+                                            },
+                                        };
+                                        handler.on_event(&delta_evt);
+                                        if tx.send(delta_evt).await.is_err() { return; }
+                                    }
+                                }
+                            }
+                        }
+                        if should_terminate {
+                            break;
+                        }
+                    }
+                }
+
+                if let Some(idx) = text_block_index {
+                    let stop_evt = StreamEvent::ContentBlockStop { index: idx };
+                    handler.on_event(&stop_evt);
+                    if tx.send(stop_evt).await.is_err() { return; }
+                }
+
+                let mut ordered_tool_blocks: BTreeMap<usize, ()> = BTreeMap::new();
+                for (idx, _, _) in tool_blocks.values() {
+                    ordered_tool_blocks.insert(*idx, ());
+                }
+                for idx in ordered_tool_blocks.keys() {
+                    let stop_evt = StreamEvent::ContentBlockStop { index: *idx };
+                    handler.on_event(&stop_evt);
+                    if tx.send(stop_evt).await.is_err() { return; }
+                }
+
+                let delta_evt = StreamEvent::MessageDelta {
+                    stop_reason: stop_reason.or_else(|| Some("end_turn".to_string())),
+                    usage: None,
+                };
+                handler.on_event(&delta_evt);
+                if tx.send(delta_evt).await.is_err() { return; }
+
+                let stop_evt = StreamEvent::MessageStop;
+                handler.on_event(&stop_evt);
+                let _ = tx.send(stop_evt).await;
+            });
+
+            Ok(rx)
         }
     }
 }

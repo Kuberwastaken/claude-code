@@ -566,7 +566,7 @@ impl SlashCommand for ConfigCommand {
         if args.is_empty() || matches!(args, "show" | "get") {
             let json = serde_json::to_string_pretty(&ctx.config).unwrap_or_default();
             return CommandResult::Message(format!(
-                "Current configuration:\n{}\n\nUsage:\n  /config\n  /config set theme <default|dark|light>\n  /config set output-style <default|concise|explanatory|learning|formal|casual>\n  /config set model <model>\n  /config set permission-mode <default|accept-edits|bypass-permissions|plan>\n  /config unset <model|output-style>",
+                "Current configuration:\n{}\n\nUsage:\n  /config\n  /config set theme <default|dark|light>\n  /config set output-style <default|concise|explanatory|learning|formal|casual>\n  /config set model <model>\n  /config set provider <anthropic|openai-compat>\n  /config set permission-mode <default|accept-edits|bypass-permissions|plan>\n  /config unset <model|output-style>",
                 json
             ));
         }
@@ -581,6 +581,10 @@ impl SlashCommand for ConfigCommand {
                 "model" => CommandResult::Message(format!(
                     "model = {}",
                     ctx.config.effective_model()
+                )),
+                "provider" => CommandResult::Message(format!(
+                    "provider = {:?}",
+                    ctx.config.effective_provider()
                 )),
                 "permission-mode" | "permission_mode" => CommandResult::Message(format!(
                     "permission-mode = {:?}",
@@ -693,6 +697,30 @@ impl SlashCommand for ConfigCommand {
                 CommandResult::ConfigChangeMessage(
                     new_config,
                     format!("Model set to {}.", value),
+                )
+            }
+            "provider" => {
+                let provider = match value.trim().to_lowercase().as_str() {
+                    "anthropic" => cc_core::config::ModelProvider::Anthropic,
+                    "openai-compat" | "openai_compat" => {
+                        cc_core::config::ModelProvider::OpenaiCompat
+                    }
+                    _ => {
+                        return CommandResult::Error(
+                            "Provider must be one of: anthropic, openai-compat".to_string(),
+                        )
+                    }
+                };
+                let mut new_config = ctx.config.clone();
+                new_config.provider = provider.clone();
+                if let Err(err) = save_settings_mutation(|settings| {
+                    settings.config.provider = provider.clone();
+                }) {
+                    return CommandResult::Error(format!("Failed to save configuration: {}", err));
+                }
+                CommandResult::ConfigChangeMessage(
+                    new_config,
+                    format!("Provider set to {}.", value.trim().to_lowercase()),
                 )
             }
             "permission-mode" | "permission_mode" => {

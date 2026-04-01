@@ -23,7 +23,7 @@ use tracing::{debug, error, info};
 /// Returns immediately; the scheduler runs as a detached tokio task.
 /// Call `cancel.cancel()` to stop it gracefully.
 pub fn start_cron_scheduler(
-    client: Arc<cc_api::AnthropicClient>,
+    client: Arc<dyn cc_api::LlmClient + Send + Sync>,
     tools: Arc<Vec<Box<dyn Tool>>>,
     tool_ctx: ToolContext,
     query_config: QueryConfig,
@@ -35,7 +35,7 @@ pub fn start_cron_scheduler(
 }
 
 async fn run_scheduler_loop(
-    client: Arc<cc_api::AnthropicClient>,
+    client: Arc<dyn cc_api::LlmClient + Send + Sync>,
     tools: Arc<Vec<Box<dyn Tool>>>,
     tool_ctx: ToolContext,
     query_config: QueryConfig,

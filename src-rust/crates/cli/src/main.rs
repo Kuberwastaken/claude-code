@@ -12,7 +12,7 @@ mod oauth_flow;
 
 use anyhow::Context;
 use cc_core::{
-    config::{Config, PermissionMode, Settings},
+    config::{Config, ModelProvider, PermissionMode, Settings},
     constants::{APP_VERSION, DEFAULT_MODEL},
     context::ContextBuilder,
     cost::CostTracker,
@@ -103,6 +103,10 @@ struct Cli {
     #[arg(short = 'm', long = "model", default_value = DEFAULT_MODEL)]
     model: String,
 
+    /// Model provider backend
+    #[arg(long = "provider", value_enum)]
+    provider: Option<CliProvider>,
+
     /// Permission mode
     #[arg(long = "permission-mode", value_enum, default_value_t = CliPermissionMode::Default)]
     permission_mode: CliPermissionMode,
@@ -189,6 +193,22 @@ enum CliOutputFormat {
     Json,
     #[value(name = "stream-json")]
     StreamJson,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum CliProvider {
+    Anthropic,
+    #[value(name = "openai-compat")]
+    OpenaiCompat,
+}
+
+impl From<CliProvider> for ModelProvider {
+    fn from(p: CliProvider) -> Self {
+        match p {
+            CliProvider::Anthropic => ModelProvider::Anthropic,
+            CliProvider::OpenaiCompat => ModelProvider::OpenaiCompat,
+        }
+    }
 }
 
 impl From<CliOutputFormat> for cc_core::config::OutputFormat {
@@ -312,6 +332,9 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref key) = cli.api_key {
         config.api_key = Some(key.clone());
     }
+    if let Some(provider) = cli.provider {
+        config.provider = provider.into();
+    }
     config.model = Some(cli.model.clone());
     if let Some(mt) = cli.max_tokens {
         config.max_tokens = Some(mt);
@@ -377,15 +400,22 @@ async fn main() -> anyhow::Result<()> {
             // No credential found — run interactive OAuth login (non-headless) or error.
             if is_headless {
                 anyhow::bail!(
-                    "No API key found. Set ANTHROPIC_API_KEY, use --api-key, or run `claude login`."
+                    "No API key found. Set provider key env var (e.g. ANTHROPIC_API_KEY/OPENAI_API_KEY), use --api-key, or configure settings."
                 );
             }
-            eprintln!("No authentication found. Starting login flow...");
-            let result = oauth_flow::run_oauth_login_flow(true)
-                .await
-                .context("Login failed")?;
-            println!("Login successful!");
-            (result.credential, result.use_bearer_auth)
+            if config.effective_provider() == ModelProvider::Anthropic {
+                eprintln!("No authentication found. Starting login flow...");
+                let result = oauth_flow::run_oauth_login_flow(true)
+                    .await
+                    .context("Login failed")?;
+                println!("Login successful!");
+                (result.credential, result.use_bearer_auth)
+            } else {
+                anyhow::bail!(
+                    "No API key found for provider {:?}. Set --api-key, OPENAI_API_KEY, or CLAUDE_CODE_API_KEY.",
+                    config.effective_provider()
+                );
+            }
         }
     };
 
@@ -395,10 +425,16 @@ async fn main() -> anyhow::Result<()> {
         use_bearer_auth,
         ..Default::default()
     };
-    let client = Arc::new(
-        cc_api::AnthropicClient::new(client_config)
-            .context("Failed to create API client")?,
-    );
+    let client: Arc<dyn cc_api::LlmClient + Send + Sync> = match config.effective_provider() {
+        ModelProvider::Anthropic => Arc::new(
+            cc_api::AnthropicClient::new(client_config)
+                .context("Failed to create Anthropic API client")?,
+        ),
+        ModelProvider::OpenaiCompat => Arc::new(
+            cc_api::OpenAiCompatClient::new(client_config)
+                .context("Failed to create OpenAI-compatible API client")?,
+        ),
+    };
 
     let bridge_config = resolve_bridge_config(&settings, &api_key, use_bearer_auth, is_headless);
     if let Some(cfg) = bridge_config.as_ref() {
@@ -563,7 +599,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn run_headless(
     cli: &Cli,
-    client: Arc<cc_api::AnthropicClient>,
+    client: Arc<dyn cc_api::LlmClient + Send + Sync>,
     tools: Arc<Vec<Box<dyn cc_tools::Tool>>>,
     tool_ctx: ToolContext,
     query_config: cc_query::QueryConfig,
@@ -746,7 +782,7 @@ async fn run_headless(
 
 async fn run_interactive(
     config: Config,
-    client: Arc<cc_api::AnthropicClient>,
+    client: Arc<dyn cc_api::LlmClient + Send + Sync>,
     tools: Arc<Vec<Box<dyn cc_tools::Tool>>>,
     tool_ctx: ToolContext,
     query_config: cc_query::QueryConfig,
