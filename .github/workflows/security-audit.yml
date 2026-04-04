@@ -1,0 +1,27 @@
+name: Security Audit
+
+on:
+  workflow_dispatch:
+  pull_request:
+  schedule:
+    - cron: "0 3 * * 1"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain: [stable]
+    defaults:
+      run:
+        working-directory: src-rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Audit
+        run: cargo audit
