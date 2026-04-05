@@ -2860,7 +2860,7 @@ impl App {
                 self.show_help = !self.show_help;
                 self.help_overlay.toggle();
             }
-            KeyCode::Char('?') if key.modifiers.is_empty() && !self.is_streaming => {
+            KeyCode::Char('?') if key.modifiers.is_empty() && !self.is_streaming && self.prompt_input.text.is_empty() => {
                 self.show_help = !self.show_help;
                 self.help_overlay.toggle();
             }
