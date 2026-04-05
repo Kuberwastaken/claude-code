@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Release (${{ matrix.asset }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: linux
+            bin: claurst
+          - os: windows-latest
+            asset: windows
+            bin: claurst.exe
+          - os: macos-latest
+            asset: macos
+            bin: claurst
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-rust -> src-rust/target
+
+      - name: Generate release notes (git-cliff)
+        id: git-cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: CHANGES.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Build
+        working-directory: src-rust
+        run: cargo build -p claurst --release
+
+      - name: Package (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          tar -C src-rust/target/release -czf dist/claurst-${{ github.ref_name }}-${{ matrix.asset }}.tar.gz ${{ matrix.bin }}
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path src-rust/target/release/${{ matrix.bin }} -DestinationPath dist/claurst-${{ github.ref_name }}-${{ matrix.asset }}.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.git-cliff.outputs.content }}
+          files: dist/*
+          fail_on_unmatched_files: true

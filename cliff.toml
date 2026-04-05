@@ -1,0 +1,34 @@
+[changelog]
+header = ""
+body = """
+{% if version %}## {{ version }}{% endif %}
+{% if description %}{{ description }}{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+{% for commit in commits %}
+- {{ commit.message | split(pat="\\n") | first }}
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->🚀 Enhancements" },
+  { message = "^fix|^bug", group = "<!-- 1 -->🛠 Fixes" },
+  { body = ".*security", group = "<!-- 2 -->🛡️ Security" },
+  { message = "^perf", group = "<!-- 3 -->⚡️ Performance" },
+  { message = "^style", group = "<!-- 4 -->🎨 Styling" },
+  { message = "^refactor", group = "<!-- 5 -->🚜 Refactor" },
+  { message = "^test", group = "<!-- 6 -->🧪 Testing" },
+  { message = "^doc", group = "<!-- 7 -->📚 Documentation" },
+  { message = "^revert", group = "<!-- 8 -->◀️ Revert" },
+  { message = "^ci", group = "<!-- 9 -->🏗️ CI/CD" },
+  { message = "^review", skip = true },
+  { message = "^release", skip = true },
+  { message = "^chore|^ci", skip = true },
+  { message = ".*", group = "<!-- 10 -->💼 Other" },
+]
