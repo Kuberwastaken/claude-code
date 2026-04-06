@@ -442,6 +442,12 @@ pub mod client {
     }
 
     impl AnthropicClient {
+        pub fn with_provider(&self, provider: Provider) -> anyhow::Result<Self> {
+            let mut config = self.config.clone();
+            config.provider = provider;
+            Self::new(config)
+        }
+
         async fn resolve_codex_auth(&self) -> Result<(String, Option<String>), ClaudeError> {
             let mut tokens = claurst_core::oauth_config::get_codex_tokens();
 
@@ -668,6 +674,7 @@ pub mod client {
             let mut req = client
                 .post(codex_adapter::CODEX_RESPONSES_ENDPOINT)
                 .header("Authorization", format!("Bearer {}", access_token))
+                .header("Accept", "text/event-stream")
                 .header("Content-Type", "application/json")
                 .json(&openai_req);
             if let Some(account_id) = account_id
@@ -689,6 +696,10 @@ pub mod client {
                 return Err(self.parse_api_error(status.as_u16(), &text));
             }
 
+            if text.contains("response.output_text.delta") || text.contains("response.completed") {
+                return Self::parse_codex_stream_text(&text, &model);
+            }
+
             // Parse OpenAI response and convert to Anthropic format
             let openai_resp: Value = serde_json::from_str(&text).map_err(ClaudeError::Json)?;
             let (content, stop_reason, input_tokens, output_tokens) =
@@ -702,6 +713,94 @@ pub mod client {
                 &model,
             );
 
+            Ok(response)
+        }
+
+        fn parse_codex_stream_text(
+            text: &str,
+            model: &str,
+        ) -> Result<CreateMessageResponse, ClaudeError> {
+            use sse_parser::SseLineParser;
+
+            let mut parser = SseLineParser::new();
+            let mut content = String::new();
+            let mut stop_reason = "end_turn".to_string();
+            let mut usage = UsageInfo::default();
+            let mut response_id: Option<String> = None;
+
+            for raw_line in text.lines() {
+                let line = raw_line.trim_end_matches('\r');
+                if let Some(frame) = parser.feed_line(line) {
+                    if frame.data == "[DONE]" {
+                        continue;
+                    }
+
+                    let value: Value = match serde_json::from_str(&frame.data) {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    };
+                    let chunk_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+                    match chunk_type {
+                        "response.created" => {
+                            response_id = value
+                                .get("response")
+                                .and_then(|response| response.get("id"))
+                                .and_then(|id| id.as_str())
+                                .map(|id| id.to_string());
+                        }
+                        "response.output_text.delta" => {
+                            if let Some(delta) = value.get("delta").and_then(|delta| delta.as_str())
+                            {
+                                content.push_str(delta);
+                            }
+                        }
+                        "response.completed" | "response.incomplete" => {
+                            stop_reason = codex_adapter::parse_openai_response(&value).1;
+                            usage.input_tokens = value
+                                .get("response")
+                                .and_then(|response| response.get("usage"))
+                                .and_then(|usage| usage.get("input_tokens"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            usage.output_tokens = value
+                                .get("response")
+                                .and_then(|response| response.get("usage"))
+                                .and_then(|usage| usage.get("output_tokens"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            usage.cache_read_input_tokens = value
+                                .get("response")
+                                .and_then(|response| response.get("usage"))
+                                .and_then(|usage| usage.get("input_tokens_details"))
+                                .and_then(|details| details.get("cached_tokens"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                        }
+                        "error" => {
+                            let message = value
+                                .get("message")
+                                .and_then(|message| message.as_str())
+                                .unwrap_or("Unknown Codex streaming error")
+                                .to_string();
+                            return Err(ClaudeError::Api(message));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            let mut response = codex_adapter::build_anthropic_response(
+                &content,
+                &stop_reason,
+                usage.input_tokens,
+                usage.output_tokens,
+                model,
+            );
+            response.usage.cache_read_input_tokens = usage.cache_read_input_tokens;
+            if let Some(id) = response_id {
+                response.id = id;
+            }
             Ok(response)
         }
 

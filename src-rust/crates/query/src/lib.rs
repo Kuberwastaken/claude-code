@@ -1363,7 +1363,23 @@ pub async fn run_query_loop(
 
         // Send to API
         debug!(turn, model = %effective_model, "Sending API request");
-        let mut stream_rx = match client.create_message_stream(request, handler).await {
+        let codex_selected = tool_ctx.config.provider.as_deref() == Some("openai-codex")
+            || effective_model.starts_with("openai-codex/");
+        let codex_client;
+        let active_client = if codex_selected {
+            codex_client = match client.with_provider(claurst_api::client::Provider::Codex) {
+                Ok(client) => Some(client),
+                Err(e) => {
+                    error!(error = %e, "Failed to construct Codex client");
+                    return QueryOutcome::Error(ClaudeError::Api(e.to_string()));
+                }
+            };
+            codex_client.as_ref().unwrap()
+        } else {
+            client
+        };
+
+        let mut stream_rx = match active_client.create_message_stream(request, handler).await {
             Ok(rx) => rx,
             Err(e) => {
                 // On overloaded/rate-limit errors, attempt one switch to the fallback model.
