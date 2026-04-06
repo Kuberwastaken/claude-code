@@ -7,11 +7,14 @@
 
 use anyhow::{anyhow, bail};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use claurst_core::codex_oauth::{
+    CODEX_AUTHORIZE_URL, CODEX_CLIENT_ID, CODEX_OAUTH_PORT, CODEX_REDIRECT_URI, CODEX_SCOPES,
+    CODEX_TOKEN_URL,
+};
+use claurst_core::oauth_config::CodexTokens;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::TcpListener;
-use claurst_core::oauth_config::CodexTokens;
-use claurst_core::codex_oauth::{CODEX_CLIENT_ID, CODEX_AUTHORIZE_URL, CODEX_OAUTH_PORT, CODEX_REDIRECT_URI, CODEX_SCOPES, CODEX_TOKEN_URL};
 
 /// Generate a PKCE code verifier (random 64-byte base64url string).
 pub fn generate_code_verifier() -> String {
@@ -37,7 +40,8 @@ pub fn compute_code_challenge(verifier: &str) -> String {
 /// Generate a random OAuth state parameter.
 pub fn generate_state() -> String {
     let bytes = uuid::Uuid::new_v4();
-    URL_SAFE_NO_PAD.encode(bytes.as_bytes())
+    URL_SAFE_NO_PAD
+        .encode(bytes.as_bytes())
         .chars()
         .take(32)
         .collect()
@@ -115,7 +119,9 @@ async fn wait_for_callback(listener: TcpListener) -> anyhow::Result<(String, Str
     }
 
     let path = parts[1];
-    let query_start = path.find('?').ok_or_else(|| anyhow!("No query string in callback"))?;
+    let query_start = path
+        .find('?')
+        .ok_or_else(|| anyhow!("No query string in callback"))?;
     let query = &path[query_start + 1..];
 
     let mut code = String::new();
@@ -194,37 +200,25 @@ async fn exchange_code_for_tokens(code: &str, verifier: &str) -> anyhow::Result<
         .await
         .map_err(|e| anyhow!("Failed to parse token response: {}", e))?;
 
-    let access_token = body["access_token"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let access_token = body["access_token"].as_str().unwrap_or("").to_string();
 
     if access_token.is_empty() {
         bail!("No access_token in response");
     }
 
     let refresh_token = body["refresh_token"].as_str().map(|s| s.to_string());
-    let account_id = extract_account_id_from_jwt(&access_token);
+    let expires_at = claurst_core::codex_oauth::expires_at_from_now(body["expires_in"].as_u64());
+    let account_id = body["id_token"]
+        .as_str()
+        .and_then(claurst_core::codex_oauth::extract_account_id_from_jwt)
+        .or_else(|| claurst_core::codex_oauth::extract_account_id_from_jwt(&access_token));
 
     Ok(CodexTokens {
         access_token,
         refresh_token,
         account_id,
-        expires_at: None,
+        expires_at,
     })
-}
-
-/// Extract chatgpt-account-id from the JWT access token.
-/// The account_id is in the middle segment (payload) under
-/// https://api.openai.com/auth.account_id
-fn extract_account_id_from_jwt(token: &str) -> Option<String> {
-    let parts: Vec<&str> = token.splitn(3, '.').collect();
-    let payload_b64 = parts.get(1)?;
-    let payload = URL_SAFE_NO_PAD.decode(payload_b64).ok()?;
-    let json: serde_json::Value = serde_json::from_slice(&payload).ok()?;
-    json["https://api.openai.com/auth"]["account_id"]
-        .as_str()
-        .map(|s| s.to_string())
 }
 
 #[cfg(test)]
@@ -235,7 +229,9 @@ mod tests {
     fn test_generate_code_verifier_format() {
         let verifier = generate_code_verifier();
         // Base64url encoding: [A-Za-z0-9_-]
-        assert!(verifier.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
+        assert!(verifier
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
         assert!(!verifier.is_empty());
     }
 
@@ -246,14 +242,18 @@ mod tests {
         let challenge2 = compute_code_challenge(verifier);
         assert_eq!(challenge1, challenge2);
         // Base64url format
-        assert!(challenge1.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
+        assert!(challenge1
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
     }
 
     #[test]
     fn test_generate_state_format() {
         let state = generate_state();
         assert!(!state.is_empty());
-        assert!(state.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
+        assert!(state
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
     }
 
     #[test]
@@ -273,7 +273,7 @@ mod tests {
         // For testing we'd need to create a valid JWT structure, which is complex
         // In practice, this function is tested via integration tests
         let invalid_token = "not.a.jwt";
-        let result = extract_account_id_from_jwt(invalid_token);
+        let result = claurst_core::codex_oauth::extract_account_id_from_jwt(invalid_token);
         // Invalid JWT should return None
         assert!(result.is_none() || result.unwrap().is_empty());
     }

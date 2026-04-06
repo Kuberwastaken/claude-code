@@ -1,63 +1,82 @@
-//! Codex schema adapter — translates between Anthropic Messages API and OpenAI API formats.
+//! Codex schema adapter — translates between Anthropic Messages API and OpenAI Responses formats.
 //!
 //! When using OpenAI Codex provider, requests are translated from Anthropic's
-//! CreateMessageRequest format to OpenAI's ChatCompletion API format, and responses
-//! are translated back to Anthropic's CreateMessageResponse format.
+//! CreateMessageRequest format to the OpenAI Responses API shape used by the
+//! ChatGPT Codex backend, and responses are translated back to Anthropic's
+//! CreateMessageResponse format.
 
-use serde_json::{json, Value};
 use super::types::{CreateMessageRequest, CreateMessageResponse, SystemPrompt};
 use claurst_core::types::UsageInfo;
+use serde_json::{json, Value};
 
 /// OpenAI Codex API endpoint for responses
 pub const CODEX_RESPONSES_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex/responses";
 
-/// Convert an Anthropic CreateMessageRequest to OpenAI ChatCompletion request format.
+fn system_text(system: &Option<SystemPrompt>) -> String {
+    match system {
+        Some(SystemPrompt::Text(text)) => text.clone(),
+        Some(SystemPrompt::Blocks(blocks)) => blocks
+            .iter()
+            .map(|b| b.text.clone())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        None => String::new(),
+    }
+}
+
+fn content_text(content: &Value) -> String {
+    match content {
+        Value::String(text) => text.clone(),
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| {
+                item.get("text")
+                    .and_then(|text| text.as_str())
+                    .map(|text| text.to_string())
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => content.as_str().unwrap_or("").to_string(),
+    }
+}
+
+/// Convert an Anthropic CreateMessageRequest to OpenAI Responses request format.
 pub fn anthropic_to_openai_request(request: &CreateMessageRequest) -> Value {
-    // Convert Anthropic messages to OpenAI format
-    let messages: Vec<Value> = request
+    let input: Vec<Value> = request
         .messages
         .iter()
         .map(|msg| {
-            json!({
-                "role": msg.role.to_lowercase(),
-                "content": msg.content,
-            })
+            let role = msg.role.to_lowercase();
+            let text = content_text(&msg.content);
+
+            if role == "assistant" {
+                json!({
+                    "role": "assistant",
+                    "content": [{
+                        "type": "output_text",
+                        "text": text,
+                    }],
+                })
+            } else {
+                json!({
+                    "role": role,
+                    "content": [{
+                        "type": "input_text",
+                        "text": text,
+                    }],
+                })
+            }
         })
         .collect();
 
-    // Build system message from prompt if present
-    let mut openai_messages = vec![];
-
-    if let Some(system) = &request.system {
-        let system_text = match system {
-            SystemPrompt::Text(text) => text.clone(),
-            SystemPrompt::Blocks(blocks) => {
-                blocks
-                    .iter()
-                    .map(|b| b.text.clone())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }
-        };
-
-        openai_messages.push(json!({
-            "role": "system",
-            "content": system_text,
-        }));
-    }
-
-    // Add regular messages
-    openai_messages.extend(messages);
-
-    // Build OpenAI request
     let mut openai_req = json!({
         "model": request.model,
-        "messages": openai_messages,
-        "max_tokens": request.max_tokens,
-        "stream": request.stream,
+        "instructions": system_text(&request.system),
+        "input": input,
+        "store": false,
+        "stream": true,
     });
 
-    // Add optional parameters
     if let Some(temperature) = request.temperature {
         openai_req["temperature"] = json!(temperature);
     }
@@ -65,29 +84,67 @@ pub fn anthropic_to_openai_request(request: &CreateMessageRequest) -> Value {
         openai_req["top_p"] = json!(top_p);
     }
 
-    // Note: OpenAI Codex doesn't support thinking blocks or tools in the same way
-    // Skip those fields for now — they would need special handling
-
     openai_req
 }
 
-/// Convert an OpenAI ChatCompletion response to Anthropic format fields.
+fn extract_output_text(response: &Value) -> Option<String> {
+    if let Some(text) = response.get("output_text").and_then(|text| text.as_str()) {
+        return Some(text.to_string());
+    }
+
+    response
+        .get("output")
+        .and_then(|output| output.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .flat_map(|item| {
+                    if item.get("type").and_then(|v| v.as_str()) == Some("message") {
+                        item.get("content")
+                            .and_then(|content| content.as_array())
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|part| {
+                                part.get("text")
+                                    .and_then(|text| text.as_str())
+                                    .map(|text| text.to_string())
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .filter(|text| !text.is_empty())
+}
+
+/// Convert an OpenAI response to Anthropic format fields.
 /// Returns (content_text, finish_reason, input_tokens, output_tokens)
 pub fn parse_openai_response(response: &Value) -> (String, String, u64, u64) {
-    let content = response
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("message"))
-        .and_then(|m| m.get("content"))
-        .and_then(|c| c.as_str())
-        .unwrap_or("")
-        .to_string();
+    let content = extract_output_text(response).unwrap_or_else(|| {
+        response
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_string()
+    });
 
     let finish_reason = response
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("finish_reason"))
-        .and_then(|f| f.as_str())
+        .get("incomplete_details")
+        .and_then(|details| details.get("reason"))
+        .and_then(|reason| reason.as_str())
+        .or_else(|| {
+            response
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("finish_reason"))
+                .and_then(|f| f.as_str())
+        })
         .unwrap_or("stop");
 
     // Map OpenAI finish_reason to Anthropic stop_reason
@@ -103,13 +160,16 @@ pub fn parse_openai_response(response: &Value) -> (String, String, u64, u64) {
     // Extract usage info
     let input_tokens = response
         .get("usage")
-        .and_then(|u| u.get("prompt_tokens"))
+        .and_then(|u| u.get("input_tokens").or_else(|| u.get("prompt_tokens")))
         .and_then(|t| t.as_u64())
         .unwrap_or(0);
 
     let output_tokens = response
         .get("usage")
-        .and_then(|u| u.get("completion_tokens"))
+        .and_then(|u| {
+            u.get("output_tokens")
+                .or_else(|| u.get("completion_tokens"))
+        })
         .and_then(|t| t.as_u64())
         .unwrap_or(0);
 
@@ -181,28 +241,35 @@ mod tests {
 
         // Verify structure
         assert_eq!(openai_req["model"], "gpt-5.2-codex");
-        assert_eq!(openai_req["max_tokens"], 1024);
-        assert_eq!(openai_req["temperature"], 0.7);
-        assert!(openai_req["messages"].is_array());
+        assert_eq!(openai_req["instructions"], "You are helpful");
+        assert!(openai_req.get("max_completion_tokens").is_none());
+        assert!(openai_req.get("max_output_tokens").is_none());
+        assert!(openai_req.get("max_tokens").is_none());
+        assert_eq!(openai_req["store"], false);
+        assert_eq!(openai_req["stream"], true);
+        let temp = openai_req["temperature"].as_f64().unwrap();
+        assert!((temp - 0.7).abs() < 1e-6);
+        assert!(openai_req["input"].is_array());
 
-        let messages = openai_req["messages"].as_array().unwrap();
-        assert_eq!(messages.len(), 2); // system + user
-        assert_eq!(messages[0]["role"], "system");
-        assert_eq!(messages[1]["role"], "user");
+        let input = openai_req["input"].as_array().unwrap();
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["role"], "user");
+        assert_eq!(input[0]["content"][0]["type"], "input_text");
     }
 
     #[test]
     fn test_parse_openai_response_basic() {
         let openai_resp = json!({
-            "choices": [{
-                "message": {
-                    "content": "Hello, world!"
-                },
-                "finish_reason": "stop"
+            "output": [{
+                "type": "message",
+                "content": [{
+                    "type": "output_text",
+                    "text": "Hello, world!"
+                }]
             }],
             "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
+                "input_tokens": 10,
+                "output_tokens": 5,
                 "total_tokens": 15
             }
         });
@@ -218,13 +285,8 @@ mod tests {
 
     #[test]
     fn test_build_anthropic_response() {
-        let response = build_anthropic_response(
-            "Test response",
-            "end_turn",
-            100,
-            50,
-            "gpt-5.2-codex",
-        );
+        let response =
+            build_anthropic_response("Test response", "end_turn", 100, 50, "gpt-5.2-codex");
 
         assert_eq!(response.response_type, "message");
         assert_eq!(response.role, "assistant");

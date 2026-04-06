@@ -27,12 +27,12 @@ pub mod cch;
 pub mod codex_adapter;
 
 // Provider-agnostic unified types (Phase 1A).
-pub mod provider_types;
 pub mod provider_error;
+pub mod provider_types;
 
 // Provider abstraction traits (Phase 1B).
-pub mod provider;
 pub mod auth;
+pub mod provider;
 pub mod stream_parser;
 pub mod transform;
 
@@ -59,13 +59,13 @@ pub use streaming::{AnthropicStreamEvent, StreamHandler};
 pub use types::*;
 
 // Phase 1A re-exports — provider-agnostic layer.
-pub use provider_types::*;
 pub use provider_error::ProviderError;
+pub use provider_types::*;
 
 // Phase 1B re-exports — provider abstraction traits.
-pub use provider::{LlmProvider, ModelInfo};
 pub use auth::{AuthProvider, LoginFlow};
-pub use stream_parser::{StreamParser, SseStreamParser, JsonLinesStreamParser};
+pub use provider::{LlmProvider, ModelInfo};
+pub use stream_parser::{JsonLinesStreamParser, SseStreamParser, StreamParser};
 pub use transform::MessageTransformer;
 
 // Phase 1C re-exports — provider registry.
@@ -77,7 +77,7 @@ pub use providers::GoogleProvider;
 pub use providers::OpenAiProvider;
 
 // Phase 3 re-exports — model registry.
-pub use model_registry::{ModelEntry, ModelRegistry, effective_model_for_config};
+pub use model_registry::{effective_model_for_config, ModelEntry, ModelRegistry};
 
 // Phase 6 re-exports — provider-aware error handling.
 pub use error_handling::{is_context_overflow, parse_error_response, RetryConfig};
@@ -89,8 +89,7 @@ pub use providers::CopilotProvider;
 
 // Phase 2B re-exports — OpenAI-compatible generic adapter + common factories.
 pub use providers::{
-    OpenAiCompatProvider,
-    ollama, lm_studio, deepseek, groq, xai, openrouter, mistral,
+    deepseek, groq, lm_studio, mistral, ollama, openrouter, xai, OpenAiCompatProvider,
 };
 
 // Phase 2D re-exports — Cohere native provider.
@@ -273,14 +272,9 @@ pub mod streaming {
             content_block: ContentBlock,
         },
         /// Incremental delta for an existing content block.
-        ContentBlockDelta {
-            index: usize,
-            delta: ContentDelta,
-        },
+        ContentBlockDelta { index: usize, delta: ContentDelta },
         /// A content block is finished.
-        ContentBlockStop {
-            index: usize,
-        },
+        ContentBlockStop { index: usize },
         /// Final message-level delta (stop_reason, usage).
         MessageDelta {
             stop_reason: Option<String>,
@@ -289,14 +283,10 @@ pub mod streaming {
         /// The message is complete.
         MessageStop,
         /// An error occurred during streaming.
-        Error {
-            error_type: String,
-            message: String,
-        },
+        Error { error_type: String, message: String },
         /// A ping/keep-alive event.
         Ping,
     }
-
 
     /// The delta payload inside a `content_block_delta` event.
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -452,6 +442,102 @@ pub mod client {
     }
 
     impl AnthropicClient {
+        pub fn with_provider(&self, provider: Provider) -> anyhow::Result<Self> {
+            let mut config = self.config.clone();
+            config.provider = provider;
+            Self::new(config)
+        }
+
+        async fn resolve_codex_auth(&self) -> Result<(String, Option<String>), ClaudeError> {
+            let mut tokens = claurst_core::oauth_config::get_codex_tokens();
+
+            if let Some(current) = tokens.as_mut() {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let expired = current
+                    .expires_at
+                    .map(|expires_at| now >= expires_at.saturating_sub(60))
+                    .unwrap_or(false);
+
+                if expired {
+                    let refresh = current.refresh_token.clone().ok_or_else(|| {
+                        ClaudeError::Auth(
+                            "OpenAI Codex login expired. Run /connect and choose OpenAI Codex again."
+                                .to_string(),
+                        )
+                    })?;
+
+                    let body: Value = reqwest::Client::new()
+                        .post(claurst_core::codex_oauth::CODEX_TOKEN_URL)
+                        .form(&[
+                            ("grant_type", "refresh_token"),
+                            ("refresh_token", refresh.as_str()),
+                            ("client_id", claurst_core::codex_oauth::CODEX_CLIENT_ID),
+                        ])
+                        .send()
+                        .await
+                        .map_err(|e| {
+                            ClaudeError::Other(format!("Codex token refresh failed: {}", e))
+                        })?
+                        .error_for_status()
+                        .map_err(|e| {
+                            ClaudeError::Auth(format!("Codex token refresh failed: {}", e))
+                        })?
+                        .json()
+                        .await
+                        .map_err(|e| {
+                            ClaudeError::Other(format!(
+                                "Failed to parse Codex token refresh response: {}",
+                                e
+                            ))
+                        })?;
+
+                    current.access_token = body["access_token"].as_str().unwrap_or("").to_string();
+                    if current.access_token.is_empty() {
+                        return Err(ClaudeError::Auth(
+                            "Codex token refresh returned no access token.".to_string(),
+                        ));
+                    }
+                    if let Some(refresh_token) = body["refresh_token"].as_str() {
+                        current.refresh_token = Some(refresh_token.to_string());
+                    }
+                    current.expires_at =
+                        claurst_core::codex_oauth::expires_at_from_now(body["expires_in"].as_u64());
+                    current.account_id = body["id_token"]
+                        .as_str()
+                        .and_then(claurst_core::codex_oauth::extract_account_id_from_jwt)
+                        .or_else(|| {
+                            claurst_core::codex_oauth::extract_account_id_from_jwt(
+                                &current.access_token,
+                            )
+                        })
+                        .or_else(|| current.account_id.clone());
+                    claurst_core::oauth_config::save_codex_tokens(current).map_err(|e| {
+                        ClaudeError::Other(format!("Failed to save refreshed Codex token: {}", e))
+                    })?;
+                }
+            }
+
+            let access_token = tokens
+                .as_ref()
+                .map(|tokens| tokens.access_token.as_str())
+                .filter(|token| !token.is_empty())
+                .or_else(|| {
+                    (!self.config.api_key.is_empty()).then_some(self.config.api_key.as_str())
+                })
+                .ok_or_else(|| {
+                    ClaudeError::Auth(
+                        "No OpenAI Codex login found. Run /connect and choose OpenAI Codex."
+                            .to_string(),
+                    )
+                })?
+                .to_string();
+
+            Ok((access_token, tokens.and_then(|tokens| tokens.account_id)))
+        }
+
         /// Returns `true` when the client was constructed without an API key.
         ///
         /// The query loop checks this to know whether it should fall back to
@@ -504,7 +590,11 @@ pub mod client {
                         "Model '{}' is a Google model. Use `--provider google` or set GOOGLE_API_KEY.",
                         model
                     )
-                } else if model.starts_with("gpt-") || model.starts_with("o1") || model.starts_with("o3") || model.starts_with("o4") {
+                } else if model.starts_with("gpt-")
+                    || model.starts_with("o1")
+                    || model.starts_with("o3")
+                    || model.starts_with("o4")
+                {
                     format!(
                         "Model '{}' is an OpenAI model. Use `--provider openai` or set OPENAI_API_KEY.",
                         model
@@ -536,11 +626,13 @@ pub mod client {
                     )
                 } else {
                     "Set ANTHROPIC_API_KEY, run `claurst auth login`, \
-                     or use --provider to select a different provider (e.g. --provider openai).".to_string()
+                     or use --provider to select a different provider (e.g. --provider openai)."
+                        .to_string()
                 };
-                return Err(ClaudeError::Auth(
-                    format!("No API key for the selected model. {}", hint)
-                ));
+                return Err(ClaudeError::Auth(format!(
+                    "No API key for the selected model. {}",
+                    hint
+                )));
             }
             // Route to Codex if configured
             if self.config.provider == Provider::Codex {
@@ -566,16 +658,32 @@ pub mod client {
             &self,
             request: &CreateMessageRequest,
         ) -> Result<CreateMessageResponse, ClaudeError> {
+            let (access_token, account_id) = self.resolve_codex_auth().await?;
+            let model = request
+                .model
+                .strip_prefix("openai-codex/")
+                .unwrap_or(&request.model)
+                .to_string();
+
             // Convert Anthropic format to OpenAI format
-            let openai_req = codex_adapter::anthropic_to_openai_request(request);
+            let mut openai_req = codex_adapter::anthropic_to_openai_request(request);
+            openai_req["model"] = Value::String(model.clone());
 
             // Send to Codex endpoint
             let client = reqwest::Client::new();
-            let resp = client
+            let mut req = client
                 .post(codex_adapter::CODEX_RESPONSES_ENDPOINT)
-                .header("Authorization", format!("Bearer {}", self.config.api_key))
+                .header("Authorization", format!("Bearer {}", access_token))
+                .header("Accept", "text/event-stream")
                 .header("Content-Type", "application/json")
-                .json(&openai_req)
+                .json(&openai_req);
+            if let Some(account_id) = account_id
+                .as_deref()
+                .filter(|account_id| !account_id.is_empty())
+            {
+                req = req.header("ChatGPT-Account-Id", account_id);
+            }
+            let resp = req
                 .timeout(self.config.request_timeout)
                 .send()
                 .await
@@ -588,6 +696,10 @@ pub mod client {
                 return Err(self.parse_api_error(status.as_u16(), &text));
             }
 
+            if text.contains("response.output_text.delta") || text.contains("response.completed") {
+                return Self::parse_codex_stream_text(&text, &model);
+            }
+
             // Parse OpenAI response and convert to Anthropic format
             let openai_resp: Value = serde_json::from_str(&text).map_err(ClaudeError::Json)?;
             let (content, stop_reason, input_tokens, output_tokens) =
@@ -598,9 +710,97 @@ pub mod client {
                 &stop_reason,
                 input_tokens,
                 output_tokens,
-                &request.model,
+                &model,
             );
 
+            Ok(response)
+        }
+
+        fn parse_codex_stream_text(
+            text: &str,
+            model: &str,
+        ) -> Result<CreateMessageResponse, ClaudeError> {
+            use sse_parser::SseLineParser;
+
+            let mut parser = SseLineParser::new();
+            let mut content = String::new();
+            let mut stop_reason = "end_turn".to_string();
+            let mut usage = UsageInfo::default();
+            let mut response_id: Option<String> = None;
+
+            for raw_line in text.lines() {
+                let line = raw_line.trim_end_matches('\r');
+                if let Some(frame) = parser.feed_line(line) {
+                    if frame.data == "[DONE]" {
+                        continue;
+                    }
+
+                    let value: Value = match serde_json::from_str(&frame.data) {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    };
+                    let chunk_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+                    match chunk_type {
+                        "response.created" => {
+                            response_id = value
+                                .get("response")
+                                .and_then(|response| response.get("id"))
+                                .and_then(|id| id.as_str())
+                                .map(|id| id.to_string());
+                        }
+                        "response.output_text.delta" => {
+                            if let Some(delta) = value.get("delta").and_then(|delta| delta.as_str())
+                            {
+                                content.push_str(delta);
+                            }
+                        }
+                        "response.completed" | "response.incomplete" => {
+                            stop_reason = codex_adapter::parse_openai_response(&value).1;
+                            usage.input_tokens = value
+                                .get("response")
+                                .and_then(|response| response.get("usage"))
+                                .and_then(|usage| usage.get("input_tokens"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            usage.output_tokens = value
+                                .get("response")
+                                .and_then(|response| response.get("usage"))
+                                .and_then(|usage| usage.get("output_tokens"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            usage.cache_read_input_tokens = value
+                                .get("response")
+                                .and_then(|response| response.get("usage"))
+                                .and_then(|usage| usage.get("input_tokens_details"))
+                                .and_then(|details| details.get("cached_tokens"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                        }
+                        "error" => {
+                            let message = value
+                                .get("message")
+                                .and_then(|message| message.as_str())
+                                .unwrap_or("Unknown Codex streaming error")
+                                .to_string();
+                            return Err(ClaudeError::Api(message));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            let mut response = codex_adapter::build_anthropic_response(
+                &content,
+                &stop_reason,
+                usage.input_tokens,
+                usage.output_tokens,
+                model,
+            );
+            response.usage.cache_read_input_tokens = usage.cache_read_input_tokens;
+            if let Some(id) = response_id {
+                response.id = id;
+            }
             Ok(response)
         }
 
@@ -622,7 +822,11 @@ pub mod client {
                         "Model '{}' is a Google model. Use `--provider google` or set GOOGLE_API_KEY.",
                         model
                     )
-                } else if model.starts_with("gpt-") || model.starts_with("o1") || model.starts_with("o3") || model.starts_with("o4") {
+                } else if model.starts_with("gpt-")
+                    || model.starts_with("o1")
+                    || model.starts_with("o3")
+                    || model.starts_with("o4")
+                {
                     format!(
                         "Model '{}' is an OpenAI model. Use `--provider openai` or set OPENAI_API_KEY.",
                         model
@@ -630,7 +834,10 @@ pub mod client {
                 } else if model.starts_with("deepseek") {
                     format!("Model '{}' is a DeepSeek model. Use `--provider deepseek` or set DEEPSEEK_API_KEY.", model)
                 } else if model.starts_with("grok") {
-                    format!("Model '{}' is an xAI model. Use `--provider xai` or set XAI_API_KEY.", model)
+                    format!(
+                        "Model '{}' is an xAI model. Use `--provider xai` or set XAI_API_KEY.",
+                        model
+                    )
                 } else if model.starts_with("mistral") || model.starts_with("codestral") {
                     format!("Model '{}' is a Mistral model. Use `--provider mistral` or set MISTRAL_API_KEY.", model)
                 } else if model.starts_with("command-") {
@@ -639,17 +846,62 @@ pub mod client {
                     format!("Model '{}' looks like a Llama model. Use `--provider groq` or `--provider ollama` for local.", model)
                 } else {
                     "Set ANTHROPIC_API_KEY, run `claurst auth login`, \
-                     or use --provider to select a different provider (e.g. --provider openai).".to_string()
+                     or use --provider to select a different provider (e.g. --provider openai)."
+                        .to_string()
                 };
-                return Err(ClaudeError::Auth(
-                    format!("No API key for the selected model. {}", hint)
-                ));
+                return Err(ClaudeError::Auth(format!(
+                    "No API key for the selected model. {}",
+                    hint
+                )));
             }
-            // Codex provider doesn't support streaming yet
+            // Codex uses a non-streaming endpoint. Synthesize a streaming event
+            // sequence so the rest of the app can keep using the streaming path.
             if self.config.provider == Provider::Codex {
-                return Err(ClaudeError::Other(
-                    "Codex provider does not support streaming yet".to_string(),
-                ));
+                request.stream = false;
+                let response = self.create_message_codex(&request).await?;
+                let stop_reason = response.stop_reason.clone();
+                let usage = response.usage.clone();
+                let text = response
+                    .content
+                    .iter()
+                    .filter_map(|block| block.get("text").and_then(|text| text.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("");
+                let events = vec![
+                    streaming::AnthropicStreamEvent::MessageStart {
+                        id: response.id.clone(),
+                        model: response.model.clone(),
+                        usage: usage.clone(),
+                    },
+                    streaming::AnthropicStreamEvent::ContentBlockStart {
+                        index: 0,
+                        content_block: ContentBlock::Text {
+                            text: String::new(),
+                        },
+                    },
+                    streaming::AnthropicStreamEvent::ContentBlockDelta {
+                        index: 0,
+                        delta: streaming::ContentDelta::TextDelta { text },
+                    },
+                    streaming::AnthropicStreamEvent::ContentBlockStop { index: 0 },
+                    streaming::AnthropicStreamEvent::MessageDelta {
+                        stop_reason,
+                        usage: Some(usage),
+                    },
+                    streaming::AnthropicStreamEvent::MessageStop,
+                ];
+                let (tx, rx) = mpsc::channel(16);
+
+                tokio::spawn(async move {
+                    for event in events {
+                        handler.on_event(&event);
+                        if tx.send(event).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+
+                return Ok(rx);
             }
 
             request.stream = true;
@@ -720,10 +972,7 @@ pub mod client {
         // ---- Internal helpers --------------------------------------------
 
         /// Build the common request and execute with retry logic.
-        async fn send_with_retry(
-            &self,
-            body: &Value,
-        ) -> Result<reqwest::Response, ClaudeError> {
+        async fn send_with_retry(&self, body: &Value) -> Result<reqwest::Response, ClaudeError> {
             let url = format!("{}/v1/messages", self.config.api_base);
             let mut attempts = 0u32;
             let mut delay = self.config.initial_retry_delay;
@@ -738,7 +987,10 @@ pub mod client {
 
                 // Compute CCH hash and build billing header
                 let cch_hash = cch::compute_cch(body_bytes);
-                let billing_header = format!("cc_version=0.1; cc_entrypoint=claude_code; {}; cc_workload=claude_code;", cch_hash);
+                let billing_header = format!(
+                    "cc_version=0.1; cc_entrypoint=claude_code; {}; cc_workload=claude_code;",
+                    cch_hash
+                );
 
                 // Use Bearer auth for Claude.ai OAuth tokens; x-api-key for regular keys.
                 let mut req = self
@@ -850,9 +1102,7 @@ pub mod client {
                 for line in lines {
                     let line = line.trim_end_matches('\r');
                     if let Some(frame) = parser.feed_line(line) {
-                        if let Some(event) =
-                            Self::frame_to_event(&frame.event, &frame.data)
-                        {
+                        if let Some(event) = Self::frame_to_event(&frame.event, &frame.data) {
                             handler.on_event(&event);
                             if tx.send(event).await.is_err() {
                                 // Receiver dropped – stop reading.
@@ -1124,7 +1374,10 @@ impl StreamAccumulator {
                         name: name.clone(),
                         json_buf: String::new(),
                     },
-                    ContentBlock::Thinking { thinking, signature } => PartialBlock::Thinking {
+                    ContentBlock::Thinking {
+                        thinking,
+                        signature,
+                    } => PartialBlock::Thinking {
                         thinking_buf: thinking.clone(),
                         signature_buf: signature.clone(),
                     },

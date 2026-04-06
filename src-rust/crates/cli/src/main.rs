@@ -8,8 +8,8 @@
 //    - Headless (--print / -p) mode: single query, output to stdout
 //    - Interactive REPL mode: full TUI with ratatui
 
-mod oauth_flow;
 mod codex_oauth_flow;
+mod oauth_flow;
 
 // ---------------------------------------------------------------------------
 // Build-time metadata (embedded via build.rs)
@@ -31,6 +31,9 @@ pub const FEEDBACK_CHANNEL: &str = env!("FEEDBACK_CHANNEL");
 pub const ISSUES_EXPLAINER: &str = env!("ISSUES_EXPLAINER");
 
 use anyhow::Context;
+use async_trait::async_trait;
+use clap::{ArgAction, Parser, ValueEnum};
+use claurst_core::types::ToolDefinition;
 use claurst_core::{
     config::{Config, PermissionMode, Settings},
     constants::APP_VERSION,
@@ -38,10 +41,7 @@ use claurst_core::{
     cost::CostTracker,
     permissions::{AutoPermissionHandler, InteractivePermissionHandler},
 };
-use async_trait::async_trait;
-use claurst_core::types::ToolDefinition;
 use claurst_tools::{PermissionLevel, Tool, ToolContext, ToolResult};
-use clap::{ArgAction, Parser, ValueEnum};
 use parking_lot::Mutex as ParkingMutex;
 use std::{path::PathBuf, sync::Arc};
 use tracing::{debug, info, warn};
@@ -361,7 +361,8 @@ async fn main() -> anyhow::Result<()> {
         let mut entries = registry.list_all();
         // Sort by provider then model id for stable output.
         entries.sort_by(|a, b| {
-            (&*a.info.provider_id).cmp(&*b.info.provider_id)
+            (&*a.info.provider_id)
+                .cmp(&*b.info.provider_id)
                 .then_with(|| (&*a.info.id).cmp(&*b.info.id))
         });
         for entry in entries {
@@ -383,7 +384,8 @@ async fn main() -> anyhow::Result<()> {
     if let Some(cmd_name) = raw_args.get(1).map(|s| s.as_str()) {
         // Only intercept if it looks like a subcommand (no leading `-` or `/`)
         if !cmd_name.starts_with('-') && !cmd_name.starts_with('/') {
-            if let Some(named_cmd) = claurst_commands::named_commands::find_named_command(cmd_name) {
+            if let Some(named_cmd) = claurst_commands::named_commands::find_named_command(cmd_name)
+            {
                 // Build a minimal CommandContext (named commands are pre-session)
                 let settings = Settings::load().await.unwrap_or_default();
                 let config = settings.effective_config();
@@ -427,8 +429,7 @@ async fn main() -> anyhow::Result<()> {
     let log_level = if cli.verbose { "debug" } else { "warn" };
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new(log_level)),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level)),
         )
         .with_target(false)
         .without_time()
@@ -487,7 +488,10 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Some(base) = &cli.api_base {
         // Store in the provider's config entry
-        let provider_id = config.provider.clone().unwrap_or_else(|| "anthropic".to_string());
+        let provider_id = config
+            .provider
+            .clone()
+            .unwrap_or_else(|| "anthropic".to_string());
         config
             .provider_configs
             .entry(provider_id)
@@ -497,8 +501,7 @@ async fn main() -> anyhow::Result<()> {
 
     // --dump-system-prompt fast path
     if cli.dump_system_prompt {
-        let ctx = ContextBuilder::new(cwd.clone())
-            .disable_claude_mds(config.disable_claude_mds);
+        let ctx = ContextBuilder::new(cwd.clone()).disable_claude_mds(config.disable_claude_mds);
         let sys = ctx.build_system_context().await;
         let user = ctx.build_user_context().await;
         println!("{}\n\n{}", sys, user);
@@ -506,8 +509,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Build context
-    let ctx_builder = ContextBuilder::new(cwd.clone())
-        .disable_claude_mds(config.disable_claude_mds);
+    let ctx_builder =
+        ContextBuilder::new(cwd.clone()).disable_claude_mds(config.disable_claude_mds);
     let system_ctx = ctx_builder.build_system_context().await;
     let user_ctx = ctx_builder.build_user_context().await;
 
@@ -537,8 +540,7 @@ async fn main() -> anyhow::Result<()> {
     // explicitly the intended provider and no key exists at all.
     let other_provider_configured = {
         let active_provider = config.provider.as_deref().unwrap_or("anthropic");
-        let has_non_anthropic_env =
-            std::env::var("OPENAI_API_KEY").is_ok()
+        let has_non_anthropic_env = std::env::var("OPENAI_API_KEY").is_ok()
             || std::env::var("GOOGLE_API_KEY").is_ok()
             || std::env::var("GOOGLE_GENERATIVE_AI_API_KEY").is_ok()
             || std::env::var("GROQ_API_KEY").is_ok()
@@ -564,7 +566,9 @@ async fn main() -> anyhow::Result<()> {
 
     let (api_key, use_bearer_auth) = match config.resolve_auth_async().await {
         Some(auth) => auth,
-        None if other_provider_configured && config.provider.as_deref().unwrap_or("anthropic") != "anthropic" => {
+        None if other_provider_configured
+            && config.provider.as_deref().unwrap_or("anthropic") != "anthropic" =>
+        {
             // Non-Anthropic provider selected — no Anthropic key needed.
             (String::new(), false)
         }
@@ -593,6 +597,11 @@ async fn main() -> anyhow::Result<()> {
         api_key: api_key.clone(),
         api_base: config.resolve_api_base(),
         use_bearer_auth,
+        provider: if config.provider.as_deref() == Some("openai-codex") {
+            claurst_api::client::Provider::Codex
+        } else {
+            claurst_api::client::Provider::Anthropic
+        },
         ..Default::default()
     };
     let client = Arc::new(
@@ -690,11 +699,8 @@ async fn main() -> anyhow::Result<()> {
 
         // Register plugin MCP servers into the in-memory config so they are
         // picked up by any subsequent MCP manager construction.
-        let existing_names: std::collections::HashSet<String> = config
-            .mcp_servers
-            .iter()
-            .map(|s| s.name.clone())
-            .collect();
+        let existing_names: std::collections::HashSet<String> =
+            config.mcp_servers.iter().map(|s| s.name.clone()).collect();
         for mcp_server in plugin_registry.all_mcp_servers() {
             if !existing_names.contains(&mcp_server.name) {
                 config.mcp_servers.push(mcp_server);
@@ -708,7 +714,8 @@ async fn main() -> anyhow::Result<()> {
     let model_registry = load_cached_model_registry();
 
     // Build query config
-    let mut query_config = claurst_query::QueryConfig::from_config_with_registry(&config, &model_registry);
+    let mut query_config =
+        claurst_query::QueryConfig::from_config_with_registry(&config, &model_registry);
     query_config.model_registry = Some(model_registry.clone());
     query_config.max_turns = cli.max_turns;
     query_config.system_prompt = Some(system_prompt);
@@ -721,7 +728,10 @@ async fn main() -> anyhow::Result<()> {
         if let Some(level) = claurst_core::effort::EffortLevel::from_str(level_str) {
             query_config.effort_level = Some(level);
         } else {
-            eprintln!("Warning: unknown effort level '{}' — expected low/medium/high/max", level_str);
+            eprintln!(
+                "Warning: unknown effort level '{}' — expected low/medium/high/max",
+                level_str
+            );
         }
     }
     if let Some(usd) = cli.max_budget_usd {
@@ -749,7 +759,10 @@ async fn main() -> anyhow::Result<()> {
             }
             filter_tools_for_agent(tools, &access)
         } else {
-            eprintln!("Warning: unknown agent '{}'. Run /agent to see available agents.", agent_name);
+            eprintln!(
+                "Warning: unknown agent '{}'. Run /agent to see available agents.",
+                agent_name
+            );
             tools
         }
     } else {
@@ -769,18 +782,10 @@ async fn main() -> anyhow::Result<()> {
 
     // --print mode (headless)
     let result = if is_headless {
-        run_headless(
-            &cli,
-            client,
-            tools,
-            tool_ctx,
-            query_config,
-            cost_tracker,
-        )
-        .await
+        run_headless(&cli, client, tools, tool_ctx, query_config, cost_tracker).await
     } else {
-        let has_credentials = !api_key.is_empty()
-            || config.provider.as_deref().is_some_and(|p| p != "anthropic");
+        let has_credentials =
+            !api_key.is_empty() || config.provider.as_deref().is_some_and(|p| p != "anthropic");
         run_interactive(
             config,
             settings,
@@ -801,14 +806,15 @@ async fn main() -> anyhow::Result<()> {
     result
 }
 
-async fn connect_mcp_manager_arc(
-    config: &Config,
-) -> Option<Arc<claurst_mcp::McpManager>> {
+async fn connect_mcp_manager_arc(config: &Config) -> Option<Arc<claurst_mcp::McpManager>> {
     if config.mcp_servers.is_empty() {
         return None;
     }
 
-    info!(count = config.mcp_servers.len(), "Connecting to MCP servers");
+    info!(
+        count = config.mcp_servers.len(),
+        "Connecting to MCP servers"
+    );
     let mcp_manager = claurst_mcp::McpManager::connect_all(&config.mcp_servers).await;
     Some(Arc::new(mcp_manager))
 }
@@ -950,9 +956,8 @@ async fn refresh_provider_runtime_state(
         claurst_api::AnthropicClient::new(client_config.clone())
             .context("Failed to rebuild Anthropic client")?,
     );
-    let provider_registry = Arc::new(
-        claurst_api::ProviderRegistry::from_environment_with_auth_store(client_config),
-    );
+    let provider_registry =
+        Arc::new(claurst_api::ProviderRegistry::from_environment_with_auth_store(client_config));
     let model_registry = load_cached_model_registry();
 
     spawn_models_cache_refresh();
@@ -1025,72 +1030,78 @@ async fn run_headless(
     // --input-format stream-json: stdin is newline-delimited JSON, each line is
     //   {"role":"user"|"assistant","content":"..."} (mirrors TS --input-format stream-json).
     // --input-format text (default): read prompt from positional arg or entire stdin as text.
-    let mut messages: Vec<claurst_core::types::Message> = if cli.input_format == CliInputFormat::StreamJson {
-        use tokio::io::{self, AsyncBufReadExt, BufReader};
-        let stdin = io::stdin();
-        let mut reader = BufReader::new(stdin);
-        let mut line = String::new();
-        let mut parsed: Vec<claurst_core::types::Message> = Vec::new();
-        loop {
-            line.clear();
-            let n = reader.read_line(&mut line).await?;
-            if n == 0 {
-                break;
-            }
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            match serde_json::from_str::<serde_json::Value>(trimmed) {
-                Ok(v) => {
-                    let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("user");
-                    let content = v
-                        .get("content")
-                        .and_then(|c| c.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if role == "assistant" {
-                        parsed.push(claurst_core::types::Message::assistant(content));
-                    } else {
-                        parsed.push(claurst_core::types::Message::user(content));
+    let mut messages: Vec<claurst_core::types::Message> =
+        if cli.input_format == CliInputFormat::StreamJson {
+            use tokio::io::{self, AsyncBufReadExt, BufReader};
+            let stdin = io::stdin();
+            let mut reader = BufReader::new(stdin);
+            let mut line = String::new();
+            let mut parsed: Vec<claurst_core::types::Message> = Vec::new();
+            loop {
+                line.clear();
+                let n = reader.read_line(&mut line).await?;
+                if n == 0 {
+                    break;
+                }
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                match serde_json::from_str::<serde_json::Value>(trimmed) {
+                    Ok(v) => {
+                        let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+                        let content = v
+                            .get("content")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if role == "assistant" {
+                            parsed.push(claurst_core::types::Message::assistant(content));
+                        } else {
+                            parsed.push(claurst_core::types::Message::user(content));
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: skipping malformed JSON line: {} ({:?})",
+                            trimmed, e
+                        );
                     }
                 }
-                Err(e) => {
-                    eprintln!("Warning: skipping malformed JSON line: {} ({:?})", trimmed, e);
+            }
+            if parsed.is_empty() {
+                // Also check positional arg as fallback
+                if let Some(ref p) = cli.prompt {
+                    parsed.push(claurst_core::types::Message::user(p.clone()));
                 }
             }
-        }
-        if parsed.is_empty() {
-            // Also check positional arg as fallback
-            if let Some(ref p) = cli.prompt {
-                parsed.push(claurst_core::types::Message::user(p.clone()));
-            }
-        }
-        parsed
-    } else {
-        // Plain text mode
-        let prompt = if let Some(ref p) = cli.prompt {
-            p.clone()
+            parsed
         } else {
-            use tokio::io::{self, AsyncReadExt};
-            let mut stdin = io::stdin();
-            let mut buf = String::new();
-            stdin.read_to_string(&mut buf).await?;
-            buf.trim().to_string()
+            // Plain text mode
+            let prompt = if let Some(ref p) = cli.prompt {
+                p.clone()
+            } else {
+                use tokio::io::{self, AsyncReadExt};
+                let mut stdin = io::stdin();
+                let mut buf = String::new();
+                stdin.read_to_string(&mut buf).await?;
+                buf.trim().to_string()
+            };
+
+            if prompt.is_empty() {
+                eprintln!("Error: No prompt provided. Use --print <prompt> or pipe text to stdin.");
+                std::process::exit(1);
+            }
+
+            vec![claurst_core::types::Message::user(prompt)]
         };
-
-        if prompt.is_empty() {
-            eprintln!("Error: No prompt provided. Use --print <prompt> or pipe text to stdin.");
-            std::process::exit(1);
-        }
-
-        vec![claurst_core::types::Message::user(prompt)]
-    };
 
     // --prefill: inject a partial assistant turn before the query so the model
     // continues from that text (mirrors TS --prefill flag).
     if let Some(ref prefill_text) = cli.prefill {
-        messages.push(claurst_core::types::Message::assistant(prefill_text.clone()));
+        messages.push(claurst_core::types::Message::assistant(
+            prefill_text.clone(),
+        ));
     }
 
     if messages.is_empty() {
@@ -1098,7 +1109,10 @@ async fn run_headless(
         std::process::exit(1);
     }
 
-    let is_json_output = matches!(cli.output_format, CliOutputFormat::Json | CliOutputFormat::StreamJson);
+    let is_json_output = matches!(
+        cli.output_format,
+        CliOutputFormat::Json | CliOutputFormat::StreamJson
+    );
     let is_stream_json = matches!(cli.output_format, CliOutputFormat::StreamJson);
 
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<QueryEvent>();
@@ -1174,35 +1188,33 @@ async fn run_headless(
 
     // Final output
     match cli.output_format {
-        CliOutputFormat::Json => {
-            match outcome {
-                QueryOutcome::EndTurn { message, usage } => {
-                    let result_text = if full_text.is_empty() {
-                        message.get_all_text()
-                    } else {
-                        full_text
-                    };
-                    let out = serde_json::json!({
-                        "type": "result",
-                        "result": result_text,
-                        "usage": {
-                            "input_tokens": usage.input_tokens,
-                            "output_tokens": usage.output_tokens,
-                            "cache_creation_input_tokens": usage.cache_creation_input_tokens,
-                            "cache_read_input_tokens": usage.cache_read_input_tokens,
-                        },
-                        "cost_usd": cost_tracker.total_cost_usd(),
-                    });
-                    println!("{}", out);
-                }
-                QueryOutcome::Error(e) => {
-                    let out = serde_json::json!({ "type": "error", "error": e.to_string() });
-                    eprintln!("{}", out);
-                    std::process::exit(1);
-                }
-                _ => {}
+        CliOutputFormat::Json => match outcome {
+            QueryOutcome::EndTurn { message, usage } => {
+                let result_text = if full_text.is_empty() {
+                    message.get_all_text()
+                } else {
+                    full_text
+                };
+                let out = serde_json::json!({
+                    "type": "result",
+                    "result": result_text,
+                    "usage": {
+                        "input_tokens": usage.input_tokens,
+                        "output_tokens": usage.output_tokens,
+                        "cache_creation_input_tokens": usage.cache_creation_input_tokens,
+                        "cache_read_input_tokens": usage.cache_read_input_tokens,
+                    },
+                    "cost_usd": cost_tracker.total_cost_usd(),
+                });
+                println!("{}", out);
             }
-        }
+            QueryOutcome::Error(e) => {
+                let out = serde_json::json!({ "type": "error", "error": e.to_string() });
+                eprintln!("{}", out);
+                std::process::exit(1);
+            }
+            _ => {}
+        },
         CliOutputFormat::StreamJson => {
             // Already streamed above; emit final result event
             match outcome {
@@ -1241,7 +1253,10 @@ async fn run_headless(
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }
-                QueryOutcome::BudgetExceeded { cost_usd, limit_usd } => {
+                QueryOutcome::BudgetExceeded {
+                    cost_usd,
+                    limit_usd,
+                } => {
                     eprintln!(
                         "Budget limit ${:.4} reached (spent ${:.4}). Stopping.",
                         limit_usd, cost_usd
@@ -1273,13 +1288,12 @@ async fn run_interactive(
     has_credentials: bool,
     model_registry: Arc<claurst_api::ModelRegistry>,
 ) -> anyhow::Result<()> {
-    use claurst_commands::{execute_command, CommandContext, CommandResult};
     use claurst_bridge::{BridgeOutbound, TuiBridgeEvent};
+    use claurst_commands::{execute_command, CommandContext, CommandResult};
     use claurst_query::{QueryEvent, QueryOutcome};
     use claurst_tui::{
-        bridge_state::BridgeConnectionState, notifications::NotificationKind,
-        render::render_app, restore_terminal, setup_terminal, App,
-        device_auth_dialog::DeviceAuthEvent,
+        bridge_state::BridgeConnectionState, device_auth_dialog::DeviceAuthEvent,
+        notifications::NotificationKind, render::render_app, restore_terminal, setup_terminal, App,
     };
     use crossterm::event::{self, Event, KeyCode};
     use std::time::Duration;
@@ -1304,20 +1318,18 @@ async fn run_interactive(
             }
             Err(e) => {
                 eprintln!("Warning: could not load session {}: {}", id, e);
-                let mut session =
-                    claurst_core::history::ConversationSession::new(
-                        claurst_api::effective_model_for_config(&config, &model_registry),
-                    );
+                let mut session = claurst_core::history::ConversationSession::new(
+                    claurst_api::effective_model_for_config(&config, &model_registry),
+                );
                 session.id = tool_ctx.session_id.clone();
                 session.working_dir = Some(tool_ctx.working_dir.display().to_string());
                 session
             }
         }
     } else {
-        let mut session =
-            claurst_core::history::ConversationSession::new(
-                claurst_api::effective_model_for_config(&config, &model_registry),
-            );
+        let mut session = claurst_core::history::ConversationSession::new(
+            claurst_api::effective_model_for_config(&config, &model_registry),
+        );
         session.id = tool_ctx.session_id.clone();
         session.working_dir = Some(tool_ctx.working_dir.display().to_string());
         session
@@ -1337,10 +1349,10 @@ async fn run_interactive(
     if let Some(level) = base_query_config.effort_level {
         use claurst_tui::EffortLevel as TuiEL;
         app.effort_level = match level {
-            claurst_core::effort::EffortLevel::Low    => TuiEL::Low,
+            claurst_core::effort::EffortLevel::Low => TuiEL::Low,
             claurst_core::effort::EffortLevel::Medium => TuiEL::Normal,
-            claurst_core::effort::EffortLevel::High   => TuiEL::High,
-            claurst_core::effort::EffortLevel::Max    => TuiEL::Max,
+            claurst_core::effort::EffortLevel::High => TuiEL::High,
+            claurst_core::effort::EffortLevel::Max => TuiEL::Max,
         };
     }
     app.provider_registry = base_query_config.provider_registry.clone();
@@ -1392,7 +1404,8 @@ async fn run_interactive(
         if !settings.has_completed_onboarding {
             app.onboarding_dialog.show();
         } else {
-            app.status_message = Some("No provider configured. Run /connect to set one up.".to_string());
+            app.status_message =
+                Some("No provider configured. Run /connect to set one up.".to_string());
         }
     } else if !settings.has_completed_onboarding {
         // User has credentials but hasn't formally completed onboarding — mark it done
@@ -1466,9 +1479,7 @@ async fn run_interactive(
 
     // Preserve the bridge token before consuming bridge_config so we can reconstruct
     // a BridgeSessionInfo once the bridge worker reports it has connected.
-    let bridge_token: Option<String> = bridge_config
-        .as_ref()
-        .and_then(|c| c.session_token.clone());
+    let bridge_token: Option<String> = bridge_config.as_ref().and_then(|c| c.session_token.clone());
 
     let mut bridge_runtime: Option<BridgeRuntime> = if let Some(cfg) = bridge_config {
         let bridge_cancel = CancellationToken::new();
@@ -1480,7 +1491,9 @@ async fn run_interactive(
 
         let cancel_clone = bridge_cancel.clone();
         tokio::spawn(async move {
-            if let Err(e) = claurst_bridge::run_bridge_loop(cfg, tui_tx, outbound_rx, cancel_clone).await {
+            if let Err(e) =
+                claurst_bridge::run_bridge_loop(cfg, tui_tx, outbound_rx, cancel_clone).await
+            {
                 warn!("Bridge loop exited with error: {}", e);
             }
         });
@@ -1570,10 +1583,13 @@ async fn run_interactive(
 
                     // Ctrl+C: copy selected text if there's a selection, otherwise cancel/quit
                     if key.code == KeyCode::Char('c')
-                        && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                        && key
+                            .modifiers
+                            .contains(crossterm::event::KeyModifiers::CONTROL)
                     {
                         // Check if there's an active text selection — copy instead of cancel/quit
-                        let has_selection = app.selection_anchor.is_some() && !app.selection_text.borrow().is_empty();
+                        let has_selection = app.selection_anchor.is_some()
+                            && !app.selection_text.borrow().is_empty();
                         if has_selection {
                             // Let the app handle the copy via its normal key handler
                             app.handle_key_event(key);
@@ -1595,7 +1611,9 @@ async fn run_interactive(
 
                     // Ctrl+D on empty input => quit
                     if key.code == KeyCode::Char('d')
-                        && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                        && key
+                            .modifiers
+                            .contains(crossterm::event::KeyModifiers::CONTROL)
                         && app.prompt_input.is_empty()
                     {
                         break 'main;
@@ -1667,8 +1685,15 @@ async fn run_interactive(
                             let skip_tui_for_args = !cmd_args.is_empty()
                                 && matches!(
                                     cmd_name.as_str(),
-                                    "model" | "theme" | "resume" | "session"
-                                        | "vim" | "vi" | "voice" | "fast" | "speed"
+                                    "model"
+                                        | "theme"
+                                        | "resume"
+                                        | "session"
+                                        | "vim"
+                                        | "vi"
+                                        | "voice"
+                                        | "fast"
+                                        | "speed"
                                 );
                             let handled_by_tui = if skip_tui_for_args {
                                 false
@@ -1680,14 +1705,18 @@ async fn run_interactive(
                             // (no-args /effort → cycle Low→Med→High→Max→Low).
                             if handled_by_tui && cmd_name == "effort" && cmd_args.is_empty() {
                                 current_effort = Some(match app.effort_level {
-                                    claurst_tui::EffortLevel::Low =>
-                                        claurst_core::effort::EffortLevel::Low,
-                                    claurst_tui::EffortLevel::Normal =>
-                                        claurst_core::effort::EffortLevel::Medium,
-                                    claurst_tui::EffortLevel::High =>
-                                        claurst_core::effort::EffortLevel::High,
-                                    claurst_tui::EffortLevel::Max =>
-                                        claurst_core::effort::EffortLevel::Max,
+                                    claurst_tui::EffortLevel::Low => {
+                                        claurst_core::effort::EffortLevel::Low
+                                    }
+                                    claurst_tui::EffortLevel::Normal => {
+                                        claurst_core::effort::EffortLevel::Medium
+                                    }
+                                    claurst_tui::EffortLevel::High => {
+                                        claurst_core::effort::EffortLevel::High
+                                    }
+                                    claurst_tui::EffortLevel::Max => {
+                                        claurst_core::effort::EffortLevel::Max
+                                    }
                                 });
                             }
 
@@ -1715,12 +1744,10 @@ async fn run_interactive(
                                     app.replace_messages(Vec::new());
                                     session.messages.clear();
                                     session.updated_at = chrono::Utc::now();
-                                    app.status_message =
-                                        Some("Conversation cleared.".to_string());
+                                    app.status_message = Some("Conversation cleared.".to_string());
                                 }
                                 Some(CommandResult::SetMessages(new_msgs)) => {
-                                    let removed =
-                                        messages.len().saturating_sub(new_msgs.len());
+                                    let removed = messages.len().saturating_sub(new_msgs.len());
                                     messages = new_msgs.clone();
                                     app.replace_messages(new_msgs);
                                     session.messages = messages.clone();
@@ -1759,44 +1786,34 @@ async fn run_interactive(
                                     tool_ctx.file_history = Arc::new(ParkingMutex::new(
                                         claurst_core::file_history::FileHistory::new(),
                                     ));
-                                    tool_ctx.current_turn = Arc::new(
-                                        std::sync::atomic::AtomicUsize::new(0),
-                                    );
+                                    tool_ctx.current_turn =
+                                        Arc::new(std::sync::atomic::AtomicUsize::new(0));
                                     cmd_ctx.session_id = session.id.clone();
                                     cmd_ctx.session_title = session.title.clone();
                                     if let Some(saved_dir) = session.working_dir.as_ref() {
-                                        let saved_path =
-                                            std::path::PathBuf::from(saved_dir);
+                                        let saved_path = std::path::PathBuf::from(saved_dir);
                                         if saved_path.exists() {
                                             tool_ctx.working_dir = saved_path.clone();
                                             cmd_ctx.working_dir = saved_path;
                                         }
                                     }
-                                    app.config.project_dir =
-                                        Some(tool_ctx.working_dir.clone());
+                                    app.config.project_dir = Some(tool_ctx.working_dir.clone());
                                     app.attach_turn_diff_state(
                                         tool_ctx.file_history.clone(),
                                         tool_ctx.current_turn.clone(),
                                     );
-                                    claurst_tui::update_terminal_title(
-                                        session.title.as_deref(),
-                                    );
-                                    app.status_message = Some(format!(
-                                        "Resumed session {}.",
-                                        &session.id[..8]
-                                    ));
+                                    claurst_tui::update_terminal_title(session.title.as_deref());
+                                    app.status_message =
+                                        Some(format!("Resumed session {}.", &session.id[..8]));
                                 }
                                 Some(CommandResult::RenameSession(title)) => {
                                     session.title = Some(title.clone());
                                     session.updated_at = chrono::Utc::now();
                                     cmd_ctx.session_title = session.title.clone();
-                                    let _ =
-                                        claurst_core::history::save_session(&session).await;
+                                    let _ = claurst_core::history::save_session(&session).await;
                                     claurst_tui::update_terminal_title(Some(&title));
-                                    app.status_message = Some(format!(
-                                        "Session renamed to \"{}\".",
-                                        title
-                                    ));
+                                    app.status_message =
+                                        Some(format!("Session renamed to \"{}\".", title));
                                 }
                                 Some(CommandResult::RefreshProviderState) => {
                                     if app.is_streaming || current_query.is_some() {
@@ -1805,7 +1822,8 @@ async fn run_interactive(
                                                 .to_string(),
                                         );
                                     } else {
-                                        match refresh_provider_runtime_state(&cmd_ctx.config).await {
+                                        match refresh_provider_runtime_state(&cmd_ctx.config).await
+                                        {
                                             Ok(refreshed) => {
                                                 cmd_ctx.config = refreshed.config.clone();
                                                 tool_ctx.config = refreshed.config.clone();
@@ -1836,10 +1854,8 @@ async fn run_interactive(
                                                 );
                                             }
                                             Err(err) => {
-                                                app.status_message = Some(format!(
-                                                    "Error: {}",
-                                                    err
-                                                ));
+                                                app.status_message =
+                                                    Some(format!("Error: {}", err));
                                             }
                                         }
                                     }
@@ -1854,9 +1870,9 @@ async fn run_interactive(
                                     // overlay for this command (e.g. /stats opens dialog
                                     // AND would push a text message — drop the text).
                                     if !handled_by_tui {
-                                        app.push_message(
-                                            claurst_core::types::Message::assistant(msg),
-                                        );
+                                        app.push_message(claurst_core::types::Message::assistant(
+                                            msg,
+                                        ));
                                     }
                                 }
                                 Some(CommandResult::ConfigChange(new_cfg)) => {
@@ -1868,7 +1884,8 @@ async fn run_interactive(
                                         app.model_name = model.clone();
                                     }
                                     // Sync fast_mode visual indicator.
-                                    app.fast_mode = new_cfg.model
+                                    app.fast_mode = new_cfg
+                                        .model
                                         .as_deref()
                                         .map(|m| m.contains("haiku"))
                                         .unwrap_or(false);
@@ -1877,8 +1894,7 @@ async fn run_interactive(
                                         new_cfg.permission_mode,
                                         claurst_core::config::PermissionMode::Plan
                                     );
-                                    app.status_message =
-                                        Some("Configuration updated.".to_string());
+                                    app.status_message = Some("Configuration updated.".to_string());
                                 }
                                 Some(CommandResult::ConfigChangeMessage(new_cfg, msg)) => {
                                     cmd_ctx.config = new_cfg.clone();
@@ -1900,11 +1916,7 @@ async fn run_interactive(
                                 }
                                 Some(CommandResult::StartOAuthFlow(with_claude_ai)) => {
                                     claurst_tui::restore_terminal(&mut terminal).ok();
-                                    match oauth_flow::run_oauth_login_flow(
-                                        with_claude_ai,
-                                    )
-                                    .await
-                                    {
+                                    match oauth_flow::run_oauth_login_flow(with_claude_ai).await {
                                         Ok(_) => {
                                             app.status_message =
                                                 Some("Login successful!".to_string());
@@ -1930,23 +1942,24 @@ async fn run_interactive(
 
                             // Sync effort visual + API level when CLI handled
                             // /effort with explicit args (/effort high).
-                            if handled_by_cli
-                                && cmd_name == "effort"
-                                && !cmd_args.is_empty()
-                            {
+                            if handled_by_cli && cmd_name == "effort" && !cmd_args.is_empty() {
                                 if let Some(level) =
                                     claurst_core::effort::EffortLevel::from_str(&cmd_args)
                                 {
                                     current_effort = Some(level);
                                     app.effort_level = match level {
-                                        claurst_core::effort::EffortLevel::Low =>
-                                            claurst_tui::EffortLevel::Low,
-                                        claurst_core::effort::EffortLevel::Medium =>
-                                            claurst_tui::EffortLevel::Normal,
-                                        claurst_core::effort::EffortLevel::High =>
-                                            claurst_tui::EffortLevel::High,
-                                        claurst_core::effort::EffortLevel::Max =>
-                                            claurst_tui::EffortLevel::Max,
+                                        claurst_core::effort::EffortLevel::Low => {
+                                            claurst_tui::EffortLevel::Low
+                                        }
+                                        claurst_core::effort::EffortLevel::Medium => {
+                                            claurst_tui::EffortLevel::Normal
+                                        }
+                                        claurst_core::effort::EffortLevel::High => {
+                                            claurst_tui::EffortLevel::High
+                                        }
+                                        claurst_core::effort::EffortLevel::Max => {
+                                            claurst_tui::EffortLevel::Max
+                                        }
                                     };
                                     app.status_message = Some(format!(
                                         "Effort: {} {}",
@@ -1966,10 +1979,8 @@ async fn run_interactive(
                             }
 
                             if !handled_by_cli && !handled_by_tui {
-                                app.status_message = Some(format!(
-                                    "Unknown command: /{}",
-                                    cmd_name
-                                ));
+                                app.status_message =
+                                    Some(format!("Unknown command: /{}", cmd_name));
                             }
 
                             // If a UserMessage was queued (e.g. /compact), submit it.
@@ -2009,18 +2020,21 @@ async fn run_interactive(
                             let mut blocks: Vec<claurst_core::types::ContentBlock> = pending_imgs
                                 .iter()
                                 .filter_map(|img| {
-                                    claurst_tui::image_paste::encode_image_base64(&img.path)
-                                        .map(|b64| claurst_core::types::ContentBlock::Image {
+                                    claurst_tui::image_paste::encode_image_base64(&img.path).map(
+                                        |b64| claurst_core::types::ContentBlock::Image {
                                             source: claurst_core::types::ImageSource {
                                                 source_type: "base64".to_string(),
                                                 media_type: Some("image/png".to_string()),
                                                 data: Some(b64),
                                                 url: None,
                                             },
-                                        })
+                                        },
+                                    )
                                 })
                                 .collect();
-                            blocks.push(claurst_core::types::ContentBlock::Text { text: input.clone() });
+                            blocks.push(claurst_core::types::ContentBlock::Text {
+                                text: input.clone(),
+                            });
                             claurst_core::types::Message::user_blocks(blocks)
                         };
                         messages.push(user_msg.clone());
@@ -2052,7 +2066,10 @@ async fn run_interactive(
                         let tools_arc_clone = tools_arc.clone();
                         let ctx_clone = tool_ctx.clone();
                         let mut qcfg = base_query_config.clone();
-                        qcfg.model = claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
+                        qcfg.model = claurst_api::effective_model_for_config(
+                            &cmd_ctx.config,
+                            &model_registry,
+                        );
                         qcfg.max_tokens = cmd_ctx.config.effective_max_tokens();
                         qcfg.append_system_prompt = cmd_ctx.config.append_system_prompt.clone();
                         qcfg.system_prompt = base_query_config.system_prompt.clone();
@@ -2146,26 +2163,31 @@ async fn run_interactive(
                         delta: text.clone(),
                         message_id: format!("msg-{}", index),
                     }),
-                    QueryEvent::ToolStart { tool_name, tool_id, input_json } => {
-                        Some(BridgeOutbound::ToolStart {
-                            id: tool_id.clone(),
-                            name: tool_name.clone(),
-                            input_preview: Some(input_json.clone()),
-                        })
-                    }
-                    QueryEvent::ToolEnd { tool_id, result, is_error, .. } => {
-                        Some(BridgeOutbound::ToolEnd {
-                            id: tool_id.clone(),
-                            output: result.clone(),
-                            is_error: *is_error,
-                        })
-                    }
-                    QueryEvent::TurnComplete { stop_reason, turn, .. } => {
-                        Some(BridgeOutbound::TurnComplete {
-                            message_id: format!("turn-{}", turn),
-                            stop_reason: stop_reason.clone(),
-                        })
-                    }
+                    QueryEvent::ToolStart {
+                        tool_name,
+                        tool_id,
+                        input_json,
+                    } => Some(BridgeOutbound::ToolStart {
+                        id: tool_id.clone(),
+                        name: tool_name.clone(),
+                        input_preview: Some(input_json.clone()),
+                    }),
+                    QueryEvent::ToolEnd {
+                        tool_id,
+                        result,
+                        is_error,
+                        ..
+                    } => Some(BridgeOutbound::ToolEnd {
+                        id: tool_id.clone(),
+                        output: result.clone(),
+                        is_error: *is_error,
+                    }),
+                    QueryEvent::TurnComplete {
+                        stop_reason, turn, ..
+                    } => Some(BridgeOutbound::TurnComplete {
+                        message_id: format!("turn-{}", turn),
+                        stop_reason: stop_reason.clone(),
+                    }),
                     QueryEvent::Error(msg) => Some(BridgeOutbound::Error {
                         message: msg.clone(),
                     }),
@@ -2182,27 +2204,41 @@ async fn run_interactive(
                     QueryEvent::Stream(claurst_api::AnthropicStreamEvent::ContentBlockDelta {
                         delta: claurst_api::streaming::ContentDelta::TextDelta { text },
                         ..
-                    }) => Some(serde_json::json!({
-                        "type": "text_chunk",
-                        "text": text,
-                    }).to_string()),
-                    QueryEvent::ToolStart { tool_name, tool_id, input_json } => {
-                        Some(serde_json::json!({
+                    }) => Some(
+                        serde_json::json!({
+                            "type": "text_chunk",
+                            "text": text,
+                        })
+                        .to_string(),
+                    ),
+                    QueryEvent::ToolStart {
+                        tool_name,
+                        tool_id,
+                        input_json,
+                    } => Some(
+                        serde_json::json!({
                             "type": "tool_start",
                             "tool_name": tool_name,
                             "tool_id": tool_id,
                             "input": input_json,
-                        }).to_string())
-                    }
-                    QueryEvent::ToolEnd { tool_name, tool_id, result, is_error } => {
-                        Some(serde_json::json!({
+                        })
+                        .to_string(),
+                    ),
+                    QueryEvent::ToolEnd {
+                        tool_name,
+                        tool_id,
+                        result,
+                        is_error,
+                    } => Some(
+                        serde_json::json!({
                             "type": "tool_end",
                             "tool_name": tool_name,
                             "tool_id": tool_id,
                             "result": result,
                             "is_error": is_error,
-                        }).to_string())
-                    }
+                        })
+                        .to_string(),
+                    ),
                     _ => None,
                 };
                 if let Some(payload) = relay_payload {
@@ -2219,7 +2255,8 @@ async fn run_interactive(
             && current_query.is_none()
             && !app.auto_compact_running
         {
-            let used_pct = (app.context_used_tokens as f64 / app.context_window_size as f64 * 100.0) as u64;
+            let used_pct =
+                (app.context_used_tokens as f64 / app.context_window_size as f64 * 100.0) as u64;
             if used_pct >= 99 {
                 app.auto_compact_running = true;
                 let msg_count = messages.len();
@@ -2245,7 +2282,8 @@ async fn run_interactive(
                 let tools_arc_clone = tools_arc.clone();
                 let ctx_clone = tool_ctx.clone();
                 let mut qcfg = base_query_config.clone();
-                qcfg.model = claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
+                qcfg.model =
+                    claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
                 qcfg.max_tokens = cmd_ctx.config.effective_max_tokens();
                 let tracker = cost_tracker.clone();
                 let tx = event_tx.clone();
@@ -2278,7 +2316,10 @@ async fn run_interactive(
         if let Some(runtime) = bridge_runtime.as_mut() {
             loop {
                 match runtime.tui_rx.try_recv() {
-                    Ok(TuiBridgeEvent::Connected { session_url, session_id: conn_sid }) => {
+                    Ok(TuiBridgeEvent::Connected {
+                        session_url,
+                        session_id: conn_sid,
+                    }) => {
                         let short = if session_url.len() > 60 {
                             format!("{}…", &session_url[..60])
                         } else {
@@ -2318,11 +2359,9 @@ async fn run_interactive(
                                 tokio::spawn(async move {
                                     let mut rx = rx;
                                     while let Some(payload) = rx.recv().await {
-                                        let _ = claurst_bridge::post_bridge_event(
-                                            &info_relay,
-                                            payload,
-                                        )
-                                        .await;
+                                        let _ =
+                                            claurst_bridge::post_bridge_event(&info_relay, payload)
+                                                .await;
                                     }
                                 });
                             }
@@ -2356,10 +2395,7 @@ async fn run_interactive(
                                         }
                                         _ => {}
                                     }
-                                    tokio::time::sleep(
-                                        std::time::Duration::from_secs(2),
-                                    )
-                                    .await;
+                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                                 }
                             });
                         }
@@ -2399,7 +2435,10 @@ async fn run_interactive(
                         let tools_arc_clone = tools_arc.clone();
                         let ctx_clone = tool_ctx.clone();
                         let mut qcfg = base_query_config.clone();
-                        qcfg.model = claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
+                        qcfg.model = claurst_api::effective_model_for_config(
+                            &cmd_ctx.config,
+                            &model_registry,
+                        );
                         qcfg.max_tokens = cmd_ctx.config.effective_max_tokens();
                         let tracker = cost_tracker.clone();
                         let tx = event_tx.clone();
@@ -2429,18 +2468,21 @@ async fn run_interactive(
                                 ct.cancel();
                             }
                             app.is_streaming = false;
-                            app.status_message =
-                                Some("Cancelled by remote control.".to_string());
+                            app.status_message = Some("Cancelled by remote control.".to_string());
                         }
                     }
-                    Ok(TuiBridgeEvent::PermissionResponse { tool_use_id, response }) => {
+                    Ok(TuiBridgeEvent::PermissionResponse {
+                        tool_use_id,
+                        response,
+                    }) => {
                         // Resolve a pending permission dialog if IDs match.
                         if let Some(ref pr) = app.permission_request {
                             if pr.tool_use_id == tool_use_id {
                                 use claurst_bridge::PermissionResponseKind;
                                 let _allow = matches!(
                                     response,
-                                    PermissionResponseKind::Allow | PermissionResponseKind::AllowSession
+                                    PermissionResponseKind::Allow
+                                        | PermissionResponseKind::AllowSession
                                 );
                                 app.permission_request = None;
                             }
@@ -2507,7 +2549,8 @@ async fn run_interactive(
                 let tools_arc_clone = tools_arc.clone();
                 let ctx_clone = tool_ctx.clone();
                 let mut qcfg = base_query_config.clone();
-                qcfg.model = claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
+                qcfg.model =
+                    claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
                 qcfg.max_tokens = cmd_ctx.config.effective_max_tokens();
                 let tracker = cost_tracker.clone();
                 let tx = event_tx.clone();
@@ -2570,14 +2613,18 @@ async fn run_interactive(
                             COPILOT_CLIENT_ID,
                             "read:user",
                             "https://github.com/login/device/code",
-                        ).await {
+                        )
+                        .await
+                        {
                             Ok(resp) => {
-                                let _ = tx2.send(DeviceAuthEvent::GotCode {
-                                    user_code: resp.user_code,
-                                    verification_uri: resp.verification_uri,
-                                    device_code: resp.device_code.clone(),
-                                    interval: resp.interval,
-                                }).await;
+                                let _ = tx2
+                                    .send(DeviceAuthEvent::GotCode {
+                                        user_code: resp.user_code,
+                                        verification_uri: resp.verification_uri,
+                                        device_code: resp.device_code.clone(),
+                                        interval: resp.interval,
+                                    })
+                                    .await;
                                 // Step 2: Poll for access token
                                 match claurst_core::device_code::poll_for_token(
                                     COPILOT_CLIENT_ID,
@@ -2585,9 +2632,12 @@ async fn run_interactive(
                                     "https://github.com/login/oauth/access_token",
                                     resp.interval,
                                     300,
-                                ).await {
+                                )
+                                .await
+                                {
                                     Ok(token) => {
-                                        let _ = tx2.send(DeviceAuthEvent::TokenReceived(token)).await;
+                                        let _ =
+                                            tx2.send(DeviceAuthEvent::TokenReceived(token)).await;
                                     }
                                     Err(e) => {
                                         let _ = tx2.send(DeviceAuthEvent::Error(e)).await;
@@ -2606,10 +2656,13 @@ async fn run_interactive(
                     // Claurst does not have its own registered OAuth app with Anthropic.
                     // Users should use an API key from console.anthropic.com instead.
                     tokio::spawn(async move {
-                        let _ = tx2.send(DeviceAuthEvent::Error(
-                            "Anthropic OAuth requires a registered application.\n\
-                             Use an API key instead: console.anthropic.com/settings/keys".to_string()
-                        )).await;
+                        let _ = tx2
+                            .send(DeviceAuthEvent::Error(
+                                "Anthropic OAuth requires a registered application.\n\
+                             Use an API key instead: console.anthropic.com/settings/keys"
+                                    .to_string(),
+                            ))
+                            .await;
                     });
                 }
                 "openai-codex" => {
@@ -2623,14 +2676,17 @@ async fn run_interactive(
                     tokio::spawn(async move {
                         match crate::codex_oauth_flow::run_oauth_flow().await {
                             Ok(tokens) => {
-                                let _ = tx2.send(DeviceAuthEvent::TokenReceived(
-                                    tokens.access_token,
-                                )).await;
+                                let _ = tx2
+                                    .send(DeviceAuthEvent::TokenReceived(tokens.access_token))
+                                    .await;
                             }
                             Err(e) => {
-                                let _ = tx2.send(DeviceAuthEvent::Error(
-                                    format!("Codex OAuth failed: {}", e),
-                                )).await;
+                                let _ = tx2
+                                    .send(DeviceAuthEvent::Error(format!(
+                                        "Codex OAuth failed: {}",
+                                        e
+                                    )))
+                                    .await;
                             }
                         }
                     });
@@ -2658,8 +2714,12 @@ async fn run_interactive(
                     // Auto-open the verification URL in the browser
                     let _ = open::that(&verification_uri);
 
-                    app.device_auth_dialog
-                        .set_code(user_code, verification_uri, device_code, interval);
+                    app.device_auth_dialog.set_code(
+                        user_code,
+                        verification_uri,
+                        device_code,
+                        interval,
+                    );
 
                     app.notifications.push(
                         claurst_tui::NotificationKind::Info,
@@ -2690,7 +2750,8 @@ async fn run_interactive(
                 messages = msgs_arc.lock().await.clone();
                 session.messages = messages.clone();
                 session.updated_at = chrono::Utc::now();
-                session.model = claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
+                session.model =
+                    claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
                 session.working_dir = Some(tool_ctx.working_dir.display().to_string());
                 app.is_streaming = false;
                 app.status_message = None;
@@ -2716,8 +2777,16 @@ async fn run_interactive(
                         for msg in &session.messages {
                             let content_str = match &msg.content {
                                 claurst_core::types::MessageContent::Text(t) => t.clone(),
-                                claurst_core::types::MessageContent::Blocks(blocks) => blocks.iter()
-                                    .filter_map(|b| if let claurst_core::types::ContentBlock::Text { text } = b { Some(text.as_str()) } else { None })
+                                claurst_core::types::MessageContent::Blocks(blocks) => blocks
+                                    .iter()
+                                    .filter_map(|b| {
+                                        if let claurst_core::types::ContentBlock::Text { text } = b
+                                        {
+                                            Some(text.as_str())
+                                        } else {
+                                            None
+                                        }
+                                    })
                                     .collect::<Vec<_>>()
                                     .join(" "),
                             };
@@ -2726,7 +2795,8 @@ async fn run_interactive(
                                 claurst_core::types::Role::Assistant => "assistant",
                             };
                             let msg_id = msg.uuid.as_deref().unwrap_or("unknown");
-                            let _ = store.save_message(&session.id, msg_id, role, &content_str, None);
+                            let _ =
+                                store.save_message(&session.id, msg_id, role, &content_str, None);
                         }
                     }
                 }
@@ -2820,7 +2890,9 @@ async fn handle_auth_command(args: &[String]) -> anyhow::Result<()> {
             eprintln!("Unknown auth subcommand: '{}'", unknown);
             eprintln!();
             eprintln!("Usage: claude auth <subcommand>");
-            eprintln!("  login [--console]   Authenticate (claude.ai by default; --console for API key)");
+            eprintln!(
+                "  login [--console]   Authenticate (claude.ai by default; --console for API key)"
+            );
             eprintln!("  logout              Remove stored credentials");
             eprintln!("  status [--json]     Show authentication status");
             std::process::exit(1);
@@ -2841,7 +2913,9 @@ async fn handle_auth_command(args: &[String]) -> anyhow::Result<()> {
 /// Print current auth status, then exit with code 0 (logged in) or 1 (not logged in).
 async fn auth_status(json_output: bool) {
     // Gather auth state
-    let env_api_key = std::env::var("ANTHROPIC_API_KEY").ok().filter(|k| !k.is_empty());
+    let env_api_key = std::env::var("ANTHROPIC_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty());
     let settings = Settings::load().await.unwrap_or_default();
     let settings_api_key = settings.config.api_key.clone().filter(|k| !k.is_empty());
     let oauth_tokens = claurst_core::oauth::OAuthTokens::load().await;
@@ -2898,7 +2972,11 @@ async fn auth_status(json_output: bool) {
     // Determine auth method (mirrors TypeScript authStatus())
     let (auth_method, logged_in) = if let Some(ref tokens) = oauth_tokens {
         let uses_bearer = tokens.uses_bearer_auth();
-        let method = if uses_bearer { "claude.ai" } else { "oauth_token" };
+        let method = if uses_bearer {
+            "claude.ai"
+        } else {
+            "oauth_token"
+        };
         (method.to_string(), true)
     } else if env_api_key.is_some() {
         ("api_key".to_string(), true)
@@ -3033,4 +3111,3 @@ fn json_null_or_string(opt: &Option<String>) -> serde_json::Value {
         None => serde_json::Value::Null,
     }
 }
-

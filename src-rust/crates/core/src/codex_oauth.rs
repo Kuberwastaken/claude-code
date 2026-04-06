@@ -1,6 +1,9 @@
 //! OpenAI Codex OAuth configuration and constants.
 //!
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use serde_json::Value;
+
 /// OpenAI Codex OAuth client ID (shared with the OpenCode ecosystem).
 pub const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 
@@ -38,6 +41,34 @@ pub const CODEX_MODELS: &[(&str, &str)] = &[
 /// Default Codex model to use
 pub const DEFAULT_CODEX_MODEL: &str = "gpt-5.2-codex";
 
+pub fn extract_account_id_from_jwt(token: &str) -> Option<String> {
+    let payload_b64 = token.split('.').nth(1)?;
+    let payload = URL_SAFE_NO_PAD.decode(payload_b64).ok()?;
+    let json: Value = serde_json::from_slice(&payload).ok()?;
+
+    json["chatgpt_account_id"]
+        .as_str()
+        .or_else(|| json["https://api.openai.com/auth"]["chatgpt_account_id"].as_str())
+        .or_else(|| json["https://api.openai.com/auth"]["account_id"].as_str())
+        .or_else(|| {
+            json["organizations"]
+                .as_array()
+                .and_then(|orgs| orgs.first())
+                .and_then(|org| org["id"].as_str())
+        })
+        .map(|s| s.to_string())
+}
+
+pub fn expires_at_from_now(expires_in_secs: Option<u64>) -> Option<u64> {
+    expires_in_secs.map(|secs| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .saturating_add(secs)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +98,35 @@ mod tests {
     #[test]
     fn test_redirect_uri_is_localhost() {
         assert!(CODEX_REDIRECT_URI.contains("localhost:1455"));
+    }
+
+    #[test]
+    fn test_extract_account_id_from_auth_claims() {
+        let payload = r#"{"https://api.openai.com/auth":{"chatgpt_account_id":"acct_123"}}"#;
+        let token = format!("a.{}.c", URL_SAFE_NO_PAD.encode(payload.as_bytes()));
+        assert_eq!(
+            extract_account_id_from_jwt(&token).as_deref(),
+            Some("acct_123")
+        );
+    }
+
+    #[test]
+    fn test_extract_account_id_from_organizations() {
+        let payload = r#"{"organizations":[{"id":"org_123"}]}"#;
+        let token = format!("a.{}.c", URL_SAFE_NO_PAD.encode(payload.as_bytes()));
+        assert_eq!(
+            extract_account_id_from_jwt(&token).as_deref(),
+            Some("org_123")
+        );
+    }
+
+    #[test]
+    fn test_expires_at_from_now_sets_future_time() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let expires_at = expires_at_from_now(Some(3600)).unwrap();
+        assert!(expires_at >= now + 3599);
     }
 }
