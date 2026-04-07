@@ -47,6 +47,23 @@ pub fn lm_studio() -> OpenAiCompatProvider {
     )
 }
 
+/// mlx_lm — Apple MLX inference server (Apple Silicon).
+/// Start with: python -m mlx_lm.server --model <model_name>
+/// Reads `MLX_LM_HOST` for the base URL; defaults to `http://localhost:8080`.
+pub fn mlx_lm() -> OpenAiCompatProvider {
+    let host = std::env::var("MLX_LM_HOST")
+        .unwrap_or_else(|_| "http://localhost:8081".to_string());
+    let base_url = format!("{}/v1", host.trim_end_matches('/'));
+    OpenAiCompatProvider::new(ProviderId::MLX_LM, "MLX LM", base_url).with_quirks(
+        ProviderQuirks {
+            overflow_patterns: vec![
+                "exceeds maximum context length".to_string(),
+            ],
+            ..Default::default()
+        },
+    )
+}
+
 /// llama.cpp — lightweight C++ inference server.
 /// Reads `LLAMA_CPP_HOST` for the base URL; defaults to `http://localhost:8080`.
 pub fn llama_cpp() -> OpenAiCompatProvider {

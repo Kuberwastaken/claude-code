@@ -300,6 +300,7 @@ impl ProviderRegistry {
         self.register(Arc::new(p::ollama()));
         self.register(Arc::new(p::lm_studio()));
         self.register(Arc::new(p::llama_cpp()));
+        self.register(Arc::new(p::mlx_lm()));
 
         // Remote providers — only register when an API key is present.
         if std::env::var("DEEPSEEK_API_KEY").map(|v| !v.is_empty()).unwrap_or(false) {

@@ -257,6 +257,8 @@ fn is_openaiish_provider(provider_id: &str) -> bool {
             | "lm-studio"
             | "llamacpp"
             | "llama-cpp"
+            | "mlxlm"
+            | "mlx-lm"
     )
 }
 
@@ -881,8 +883,8 @@ pub async fn run_query_loop(
                     "deepseek", "xai", "cohere", "perplexity", "cerebras",
                     "openrouter", "togetherai", "together-ai", "deepinfra",
                     "venice", "github-copilot", "ollama", "lmstudio",
-                    "llamacpp", "azure", "amazon-bedrock", "huggingface",
-                    "nvidia", "fireworks", "sambanova",
+                    "llamacpp", "mlxlm", "mlx-lm", "azure", "amazon-bedrock",
+                    "huggingface", "nvidia", "fireworks", "sambanova",
                 ];
                 if known_providers.contains(&p) {
                     (p.to_string(), m.to_string())
@@ -932,6 +934,14 @@ pub async fn run_query_loop(
                 || client.api_key_is_empty();
 
             if use_provider_dispatch {
+                // Normalize TUI short-form IDs to the canonical registry IDs
+                // (e.g. "lmstudio" → "lm-studio", "llamacpp" → "llama-cpp").
+                let provider_id_str = match provider_id_str.as_str() {
+                    "lmstudio" => "lm-studio".to_string(),
+                    "llamacpp" => "llama-cpp".to_string(),
+                    "mlxlm" => "mlx-lm".to_string(),
+                    _ => provider_id_str,
+                };
                 let pid = claurst_core::provider_id::ProviderId::new(&provider_id_str);
 
                 // Always prefer a fresh provider built from the auth_store so
@@ -969,6 +979,9 @@ pub async fn run_query_loop(
                             )),
                             "llamacpp" | "llama-cpp" => Some(std::sync::Arc::new(
                                 openai_compat_providers::llama_cpp().with_base_url(base_url),
+                            )),
+                            "mlxlm" | "mlx-lm" => Some(std::sync::Arc::new(
+                                openai_compat_providers::mlx_lm().with_base_url(base_url),
                             )),
                             _ => None,
                         };

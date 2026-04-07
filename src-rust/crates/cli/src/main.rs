@@ -1553,6 +1553,7 @@ async fn run_interactive(
     'main: loop {
         app.frame_count = app.frame_count.wrapping_add(1);
         app.tick_rustle_pose();
+        app.tick_background_tasks();
 
         // Draw the UI
         terminal.draw(|f| render_app(f, &app))?;
