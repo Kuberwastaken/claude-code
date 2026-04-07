@@ -20,10 +20,19 @@ pub type MigrationFn = fn(&mut Value) -> bool;
 /// All migrations in the order they must be applied.
 pub const MIGRATIONS: &[(&str, MigrationFn)] = &[
     ("migrate_fennec_to_opus", migrate_fennec_to_opus),
-    ("migrate_legacy_opus_to_current", migrate_legacy_opus_to_current),
+    (
+        "migrate_legacy_opus_to_current",
+        migrate_legacy_opus_to_current,
+    ),
     ("migrate_opus_to_opus_1m", migrate_opus_to_opus_1m),
-    ("migrate_sonnet_1m_to_sonnet_45", migrate_sonnet_1m_to_sonnet_45),
-    ("migrate_sonnet_45_to_sonnet_46", migrate_sonnet_45_to_sonnet_46),
+    (
+        "migrate_sonnet_1m_to_sonnet_45",
+        migrate_sonnet_1m_to_sonnet_45,
+    ),
+    (
+        "migrate_sonnet_45_to_sonnet_46",
+        migrate_sonnet_45_to_sonnet_46,
+    ),
     (
         "migrate_bypass_permissions_to_settings",
         migrate_bypass_permissions_to_settings,
@@ -32,7 +41,10 @@ pub const MIGRATIONS: &[(&str, MigrationFn)] = &[
         "migrate_repl_bridge_to_remote_control",
         migrate_repl_bridge_to_remote_control,
     ),
-    ("migrate_enable_all_mcp_servers", migrate_enable_all_mcp_servers),
+    (
+        "migrate_enable_all_mcp_servers",
+        migrate_enable_all_mcp_servers,
+    ),
     ("migrate_auto_updates", migrate_auto_updates),
     ("reset_auto_mode_opt_in", reset_auto_mode_opt_in),
     ("reset_pro_to_opus_default", reset_pro_to_opus_default),

@@ -22,7 +22,9 @@ struct SleepInput {
 
 #[async_trait]
 impl Tool for SleepTool {
-    fn name(&self) -> &str { "Sleep" }
+    fn name(&self) -> &str {
+        "Sleep"
+    }
 
     fn description(&self) -> &str {
         "Wait for a specified duration in milliseconds. \
@@ -31,7 +33,9 @@ impl Tool for SleepTool {
          The user can interrupt the sleep at any time."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::None }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::None
+    }
 
     fn input_schema(&self) -> Value {
         json!({

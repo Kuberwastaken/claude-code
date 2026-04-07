@@ -132,9 +132,9 @@ fn is_force_stop_critical_service(lower: &str) -> bool {
     // Critical service names
     let critical_services = [
         "windefend",
-        "wscsvc",       // Security Center
-        "mpssvc",       // Windows Firewall
-        "wuauserv",     // Windows Update
+        "wscsvc",   // Security Center
+        "mpssvc",   // Windows Firewall
+        "wuauserv", // Windows Update
         "eventlog",
         "lsass",
         "svchost",
@@ -229,8 +229,7 @@ pub fn classify_ps_command(command: &str) -> PsRiskLevel {
     // Disable Windows Defender / AV features
     if icontains(&whole, "set-mppreference")
         || icontains(&whole, "disable-windowsoptionalfeature")
-        || (icontains(&whole, "set-service")
-            && icontains(&whole, "windefend"))
+        || (icontains(&whole, "set-service") && icontains(&whole, "windefend"))
     {
         return PsRiskLevel::High;
     }
@@ -241,8 +240,7 @@ pub fn classify_ps_command(command: &str) -> PsRiskLevel {
         || icontains(&whole, "remove-item")
         || icontains(&whole, "new-itemproperty")
         || icontains(&whole, "remove-itemproperty"))
-        && (icontains(&whole, "hklm:")
-            || icontains(&whole, "hkey_local_machine"))
+        && (icontains(&whole, "hklm:") || icontains(&whole, "hkey_local_machine"))
     {
         return PsRiskLevel::High;
     }
@@ -260,9 +258,7 @@ pub fn classify_ps_command(command: &str) -> PsRiskLevel {
     }
 
     // sc.exe delete — remove a Windows service
-    if (icontains(&whole, "sc.exe") || icontains(&whole, "sc "))
-        && icontains(&whole, "delete")
-    {
+    if (icontains(&whole, "sc.exe") || icontains(&whole, "sc ")) && icontains(&whole, "delete") {
         return PsRiskLevel::High;
     }
     // Remove-Service cmdlet (PS 6+)
@@ -411,10 +407,7 @@ mod tests {
     #[test]
     fn test_critical_bare_iex() {
         // Bare IEX without URL is still Critical (arbitrary code execution)
-        assert_eq!(
-            classify_ps_command("iex $code"),
-            PsRiskLevel::Critical
-        );
+        assert_eq!(classify_ps_command("iex $code"), PsRiskLevel::Critical);
         assert_eq!(
             classify_ps_command("Invoke-Expression $someVar"),
             PsRiskLevel::Critical
@@ -424,7 +417,9 @@ mod tests {
     #[test]
     fn test_critical_webclient() {
         assert_eq!(
-            classify_ps_command("[System.Net.WebClient]::new().DownloadFile('https://x.com', 'c:\\tmp\\x.exe')"),
+            classify_ps_command(
+                "[System.Net.WebClient]::new().DownloadFile('https://x.com', 'c:\\tmp\\x.exe')"
+            ),
             PsRiskLevel::Critical
         );
     }
@@ -472,7 +467,9 @@ mod tests {
     #[test]
     fn test_high_registry_hklm() {
         assert_eq!(
-            classify_ps_command("Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Test' -Name Val -Value 1"),
+            classify_ps_command(
+                "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Test' -Name Val -Value 1"
+            ),
             PsRiskLevel::High
         );
         assert_eq!(
@@ -553,7 +550,10 @@ mod tests {
     fn test_low_safe_commands() {
         assert_eq!(classify_ps_command("Get-Process"), PsRiskLevel::Low);
         assert_eq!(classify_ps_command("Get-ChildItem C:\\"), PsRiskLevel::Low);
-        assert_eq!(classify_ps_command("Get-Content C:\\temp\\log.txt"), PsRiskLevel::Low);
+        assert_eq!(
+            classify_ps_command("Get-Content C:\\temp\\log.txt"),
+            PsRiskLevel::Low
+        );
         assert_eq!(classify_ps_command("Write-Host 'Hello'"), PsRiskLevel::Low);
         assert_eq!(classify_ps_command("Get-Date"), PsRiskLevel::Low);
         assert_eq!(classify_ps_command("$x = 1 + 2"), PsRiskLevel::Low);
@@ -589,7 +589,10 @@ Write-Host "Done"
 
     #[test]
     fn test_auto_approvable_accept_edits_low_only() {
-        assert!(ps_is_auto_approvable("Get-Process", &PermissionMode::AcceptEdits));
+        assert!(ps_is_auto_approvable(
+            "Get-Process",
+            &PermissionMode::AcceptEdits
+        ));
         assert!(!ps_is_auto_approvable(
             "Stop-Service -Name Spooler",
             &PermissionMode::AcceptEdits
@@ -602,6 +605,9 @@ Write-Host "Done"
 
     #[test]
     fn test_auto_approvable_default_denies_all() {
-        assert!(!ps_is_auto_approvable("Get-Process", &PermissionMode::Default));
+        assert!(!ps_is_auto_approvable(
+            "Get-Process",
+            &PermissionMode::Default
+        ));
     }
 }

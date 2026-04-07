@@ -159,7 +159,9 @@ pub fn modal_title_line(title: &str, right_hint: &str) -> Line<'static> {
     Line::from(vec![
         Span::styled(
             format!(" {}", title),
-            Style::default().fg(CLAURST_TEXT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(CLAURST_TEXT)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("  {}", right_hint),
@@ -180,15 +182,22 @@ pub fn render_modal_title_frame(frame: &mut Frame, area: Rect, title: &str, righ
     let line = Line::from(vec![
         Span::styled(
             format!(" {}", title),
-            Style::default().fg(CLAURST_TEXT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(CLAURST_TEXT)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(" ".repeat(padding), Style::default().fg(CLAURST_TEXT)),
-        Span::styled(
-            right_hint.to_string(),
-            Style::default().fg(CLAURST_MUTED),
-        ),
+        Span::styled(right_hint.to_string(), Style::default().fg(CLAURST_MUTED)),
     ]);
-    frame.render_widget(Paragraph::new(line), Rect { x: area.x, y: area.y, width: area.width, height: 1 });
+    frame.render_widget(
+        Paragraph::new(line),
+        Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: 1,
+        },
+    );
 }
 
 pub fn render_modal_title_buf(buf: &mut Buffer, area: Rect, title: &str, right_hint: &str) {
@@ -203,13 +212,12 @@ pub fn render_modal_title_buf(buf: &mut Buffer, area: Rect, title: &str, right_h
     let line = Line::from(vec![
         Span::styled(
             format!(" {}", title),
-            Style::default().fg(CLAURST_TEXT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(CLAURST_TEXT)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(" ".repeat(padding), Style::default().fg(CLAURST_TEXT)),
-        Span::styled(
-            right_hint.to_string(),
-            Style::default().fg(CLAURST_MUTED),
-        ),
+        Span::styled(right_hint.to_string(), Style::default().fg(CLAURST_MUTED)),
     ]);
     Paragraph::new(line).render(
         Rect {
@@ -297,9 +305,8 @@ impl HelpOverlay {
     pub fn populate_from_commands(&mut self, entries: Vec<HelpEntry>) {
         self.commands = entries;
         // Sort stable by category, then name for consistent display.
-        self.commands.sort_by(|a, b| {
-            a.category.cmp(&b.category).then(a.name.cmp(&b.name))
-        });
+        self.commands
+            .sort_by(|a, b| a.category.cmp(&b.category).then(a.name.cmp(&b.name)));
     }
 
     pub fn toggle(&mut self) {
@@ -340,9 +347,9 @@ impl HelpOverlay {
 
 /// Render the help overlay into the frame.
 pub fn render_help_overlay(frame: &mut Frame, overlay: &HelpOverlay, area: Rect) {
+    use claurst_core::constants::APP_VERSION;
     use ratatui::layout::{Constraint, Direction, Layout};
     use ratatui::widgets::Wrap;
-    use claurst_core::constants::APP_VERSION;
 
     if !overlay.visible {
         return;
@@ -367,7 +374,11 @@ pub fn render_help_overlay(frame: &mut Frame, overlay: &HelpOverlay, area: Rect)
 
     let col_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(42), Constraint::Length(1), Constraint::Min(1)])
+        .constraints([
+            Constraint::Percentage(42),
+            Constraint::Length(1),
+            Constraint::Min(1),
+        ])
         .split(content_area);
 
     // ─── Left column: keyboard shortcuts by category ───────────────────────
@@ -375,19 +386,23 @@ pub fn render_help_overlay(frame: &mut Frame, overlay: &HelpOverlay, area: Rect)
 
     left_lines.push(Line::from(Span::styled(
         " Keyboard Shortcuts",
-        Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(CLAURST_ACCENT)
+            .add_modifier(Modifier::BOLD),
     )));
     left_lines.push(Line::from(""));
 
     // Navigation category
     left_lines.push(Line::from(Span::styled(
         " Navigation",
-        Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(CLAURST_ACCENT)
+            .add_modifier(Modifier::BOLD),
     )));
     for (key, desc) in &[
-        ("PageUp / PgDn",   "Scroll messages"),
-        ("j / k",           "Scroll one line"),
-        ("Home / End",      "Top / bottom"),
+        ("PageUp / PgDn", "Scroll messages"),
+        ("j / k", "Scroll one line"),
+        ("Home / End", "Top / bottom"),
     ] {
         left_lines.push(kb_line(key, desc));
     }
@@ -396,13 +411,15 @@ pub fn render_help_overlay(frame: &mut Frame, overlay: &HelpOverlay, area: Rect)
     // Input category
     left_lines.push(Line::from(Span::styled(
         " Input",
-        Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(CLAURST_ACCENT)
+            .add_modifier(Modifier::BOLD),
     )));
     for (key, desc) in &[
-        ("Enter",           "Submit message"),
-        ("Up / Down",       "Input history"),
-        ("Ctrl+R",          "Search history"),
-        ("Esc",             "Cancel / close"),
+        ("Enter", "Submit message"),
+        ("Up / Down", "Input history"),
+        ("Ctrl+R", "Search history"),
+        ("Esc", "Cancel / close"),
     ] {
         left_lines.push(kb_line(key, desc));
     }
@@ -411,15 +428,17 @@ pub fn render_help_overlay(frame: &mut Frame, overlay: &HelpOverlay, area: Rect)
     // App category
     left_lines.push(Line::from(Span::styled(
         " App",
-        Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(CLAURST_ACCENT)
+            .add_modifier(Modifier::BOLD),
     )));
     for (key, desc) in &[
-        ("F1 / ?",          "Toggle help"),
-        ("Ctrl+A",          "Model picker"),
-        ("Ctrl+K",          "Command palette"),
-        ("Ctrl+C",          "Cancel / quit"),
-        ("Ctrl+D",          "Quit (empty input)"),
-        ("Ctrl+L",          "Clear screen"),
+        ("F1 / ?", "Toggle help"),
+        ("Ctrl+A", "Model picker"),
+        ("Ctrl+K", "Command palette"),
+        ("Ctrl+C", "Cancel / quit"),
+        ("Ctrl+D", "Quit (empty input)"),
+        ("Ctrl+L", "Clear screen"),
     ] {
         left_lines.push(kb_line(key, desc));
     }
@@ -454,7 +473,9 @@ pub fn render_help_overlay(frame: &mut Frame, overlay: &HelpOverlay, area: Rect)
 
     right_lines.push(Line::from(Span::styled(
         " Slash Commands",
-        Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(CLAURST_ACCENT)
+            .add_modifier(Modifier::BOLD),
     )));
     right_lines.push(Line::from(""));
 
@@ -467,7 +488,9 @@ pub fn render_help_overlay(frame: &mut Frame, overlay: &HelpOverlay, area: Rect)
             }
             right_lines.push(Line::from(Span::styled(
                 format!(" {}", entry.category),
-                Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(CLAURST_ACCENT)
+                    .add_modifier(Modifier::BOLD),
             )));
         }
         let aliases_text = if entry.aliases.is_empty() {
@@ -479,11 +502,16 @@ pub fn render_help_overlay(frame: &mut Frame, overlay: &HelpOverlay, area: Rect)
             Span::raw("  "),
             Span::styled(
                 format!("/{:<14}", entry.name),
-                Style::default().fg(CLAURST_TEXT).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(CLAURST_TEXT)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(aliases_text, Style::default().fg(CLAURST_MUTED)),
             Span::raw("  "),
-            Span::styled(entry.description.clone(), Style::default().fg(CLAURST_MUTED)),
+            Span::styled(
+                entry.description.clone(),
+                Style::default().fg(CLAURST_MUTED),
+            ),
         ]));
     }
 
@@ -507,17 +535,15 @@ pub fn render_help_overlay(frame: &mut Frame, overlay: &HelpOverlay, area: Rect)
         col_chunks[2],
     );
 
-    let version_line = Line::from(vec![
-        Span::styled(
-            format!(
-                " v{}  ·  type to filter  ·  ↑↓ scroll commands  ·  esc close",
-                APP_VERSION
-            ),
-            Style::default()
-                .fg(CLAURST_MUTED)
-                .add_modifier(Modifier::ITALIC),
+    let version_line = Line::from(vec![Span::styled(
+        format!(
+            " v{}  ·  type to filter  ·  ↑↓ scroll commands  ·  esc close",
+            APP_VERSION
         ),
-    ]);
+        Style::default()
+            .fg(CLAURST_MUTED)
+            .add_modifier(Modifier::ITALIC),
+    )]);
     frame.render_widget(Paragraph::new(version_line), layout.footer_area);
 }
 
@@ -552,12 +578,20 @@ pub struct HistoryEntry {
 impl HistoryEntry {
     /// Create a new entry stamped with the current time.
     pub fn new(text: String) -> Self {
-        Self { text, timestamp: Some(current_unix_secs()), pinned: false }
+        Self {
+            text,
+            timestamp: Some(current_unix_secs()),
+            pinned: false,
+        }
     }
 
     /// Create a legacy entry without a timestamp.
     pub fn legacy(text: String) -> Self {
-        Self { text, timestamp: None, pinned: false }
+        Self {
+            text,
+            timestamp: None,
+            pinned: false,
+        }
     }
 
     /// Human-readable relative time: "just now", "2m ago", "3h ago", "2d ago", etc.
@@ -599,8 +633,7 @@ pub fn load_pinned_texts() -> std::collections::HashSet<String> {
         Ok(c) => c,
         Err(_) => return std::collections::HashSet::new(),
     };
-    serde_json::from_str::<std::collections::HashSet<String>>(&content)
-        .unwrap_or_default()
+    serde_json::from_str::<std::collections::HashSet<String>>(&content).unwrap_or_default()
 }
 
 /// Persist `pinned_texts` to `~/.claurst/history_pins.json`.
@@ -797,9 +830,13 @@ impl HistorySearchOverlay {
     /// Persists the updated pin set to `~/.claurst/history_pins.json` and
     /// recomputes the match list so the entry moves to/from the pinned section.
     pub fn toggle_pin(&mut self) {
-        let Some(m) = self.matches.get(self.selected_idx) else { return };
+        let Some(m) = self.matches.get(self.selected_idx) else {
+            return;
+        };
         let snap_idx = m.snapshot_idx;
-        let Some(entry) = self.snapshot.get_mut(snap_idx) else { return };
+        let Some(entry) = self.snapshot.get_mut(snap_idx) else {
+            return;
+        };
         entry.pinned = !entry.pinned;
 
         // Rebuild the persisted pin set from the full snapshot.
@@ -845,12 +882,21 @@ impl HistorySearchOverlay {
         // Sort: pinned entries always first, then by score descending.
         // Stable sort preserves insertion order for ties within each group.
         scored.sort_by(|a, b| {
-            let a_pinned = self.snapshot.get(a.snapshot_idx).map_or(false, |e| e.pinned);
-            let b_pinned = self.snapshot.get(b.snapshot_idx).map_or(false, |e| e.pinned);
+            let a_pinned = self
+                .snapshot
+                .get(a.snapshot_idx)
+                .map_or(false, |e| e.pinned);
+            let b_pinned = self
+                .snapshot
+                .get(b.snapshot_idx)
+                .map_or(false, |e| e.pinned);
             match (b_pinned, a_pinned) {
                 (true, false) => std::cmp::Ordering::Greater,
                 (false, true) => std::cmp::Ordering::Less,
-                _ => b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal),
+                _ => b
+                    .score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal),
             }
         });
 
@@ -964,7 +1010,9 @@ pub fn render_history_search_overlay(
         Span::raw("  Search: "),
         Span::styled(
             overlay.query.clone(),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled("\u{2588}", Style::default().fg(Color::White)),
         Span::raw("  "),
@@ -994,17 +1042,12 @@ pub fn render_history_search_overlay(
             let is_selected = real_i == overlay.selected_idx;
 
             // Resolve snapshot entry (for text, timestamp, pinned state).
-            let snap_entry: Option<&HistoryEntry> =
-                overlay.snapshot.get(match_entry.snapshot_idx);
+            let snap_entry: Option<&HistoryEntry> = overlay.snapshot.get(match_entry.snapshot_idx);
 
             // Resolve entry text: prefer snapshot, fall back to passed-in history.
             let entry_text: &str = snap_entry
                 .map(|e| e.text.as_str())
-                .or_else(|| {
-                    history
-                        .get(match_entry.snapshot_idx)
-                        .map(String::as_str)
-                })
+                .or_else(|| history.get(match_entry.snapshot_idx).map(String::as_str))
                 .unwrap_or("");
 
             let is_pinned = snap_entry.map_or(false, |e| e.pinned);
@@ -1013,7 +1056,11 @@ pub fn render_history_search_overlay(
             let time_suffix: String = snap_entry
                 .map(|e| {
                     let t = e.relative_time();
-                    if t.is_empty() { t } else { format!(" · {}", t) }
+                    if t.is_empty() {
+                        t
+                    } else {
+                        format!(" · {}", t)
+                    }
                 })
                 .unwrap_or_default();
 
@@ -1022,8 +1069,8 @@ pub fn render_history_search_overlay(
             let pin_prefix_width: usize = if is_pinned { 2 } else { 0 };
             let prefix_width: usize = 4 + pin_prefix_width; // "    " or "  ► " + optional "★ "
             let time_width = UnicodeWidthStr::width(time_suffix.as_str());
-            let max_text_chars = (dialog_width as usize)
-                .saturating_sub(prefix_width + time_width + 2);
+            let max_text_chars =
+                (dialog_width as usize).saturating_sub(prefix_width + time_width + 2);
 
             let (prefix, base_style) = if is_selected {
                 (
@@ -1050,7 +1097,7 @@ pub fn render_history_search_overlay(
             // Pin star badge (shown for all pinned entries)
             if is_pinned {
                 row_spans.push(Span::styled(
-                    "\u{2605} ",  // ★
+                    "\u{2605} ", // ★
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
@@ -1102,8 +1149,7 @@ fn build_highlighted_spans<'a>(
     let chars: Vec<(usize, char)> = text.char_indices().collect();
 
     // Convert highlight byte-positions to a set of byte offsets for O(1) lookup
-    let hl_set: std::collections::HashSet<usize> =
-        highlight_positions.iter().copied().collect();
+    let hl_set: std::collections::HashSet<usize> = highlight_positions.iter().copied().collect();
 
     let mut spans: Vec<Span<'a>> = Vec::new();
     let mut current_text = String::new();
@@ -1143,7 +1189,10 @@ fn build_highlighted_spans<'a>(
         spans.push(Span::styled(current_text, style));
     }
     if truncated {
-        spans.push(Span::styled("…".to_string(), Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            "…".to_string(),
+            Style::default().fg(Color::DarkGray),
+        ));
     }
     spans
 }
@@ -1249,7 +1298,9 @@ pub fn render_message_selector(frame: &mut Frame, overlay: &MessageSelectorOverl
 
     lines.push(Line::from(vec![Span::styled(
         "  Select a message to rewind to:",
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
     )]));
     lines.push(Line::from(""));
 
@@ -1295,11 +1346,13 @@ pub fn render_message_selector(frame: &mut Frame, overlay: &MessageSelectorOverl
                 Span::styled(format!("{:>3}. ", msg.idx), idx_style),
                 Span::styled(
                     format!("{:<10}", msg.role),
-                    Style::default().fg(role_color).add_modifier(if is_selected {
-                        Modifier::BOLD
-                    } else {
-                        Modifier::empty()
-                    }),
+                    Style::default()
+                        .fg(role_color)
+                        .add_modifier(if is_selected {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::empty()
+                        }),
                 ),
                 Span::styled(
                     preview,
@@ -1309,10 +1362,7 @@ pub fn render_message_selector(frame: &mut Frame, overlay: &MessageSelectorOverl
                         Style::default().fg(Color::DarkGray)
                     },
                 ),
-                Span::styled(
-                    tool_tag.to_string(),
-                    Style::default().fg(Color::Yellow),
-                ),
+                Span::styled(tool_tag.to_string(), Style::default().fg(Color::Yellow)),
             ]));
         }
     }
@@ -1453,7 +1503,9 @@ fn render_rewind_confirm(frame: &mut Frame, message_idx: usize, area: Rect) {
         Line::from(vec![
             Span::styled(
                 "  [y] ",
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw("Yes, rewind"),
             Span::raw("    "),
@@ -1526,7 +1578,9 @@ impl GlobalSearchState {
         self.selected = 0;
     }
 
-    pub fn close(&mut self) { self.open = false; }
+    pub fn close(&mut self) {
+        self.open = false;
+    }
 
     pub fn select_prev(&mut self) {
         let count = self.results.len();
@@ -1568,8 +1622,10 @@ impl GlobalSearchState {
         let output = std::process::Command::new("rg")
             .args([
                 "--json",
-                "--max-count", "10",
-                "--max-filesize", "1M",
+                "--max-count",
+                "10",
+                "--max-filesize",
+                "1M",
                 &self.query,
                 ".",
             ])
@@ -1588,7 +1644,11 @@ impl GlobalSearchState {
                             let data = &val["data"];
                             let file = data["path"]["text"].as_str().unwrap_or("").to_string();
                             let line_no = data["line_number"].as_u64().unwrap_or(0) as u32;
-                            let text = data["lines"]["text"].as_str().unwrap_or("").trim_end_matches('\n').to_string();
+                            let text = data["lines"]["text"]
+                                .as_str()
+                                .unwrap_or("")
+                                .trim_end_matches('\n')
+                                .to_string();
                             let col = data["submatches"][0]["start"].as_u64().unwrap_or(0) as u32;
                             self.results.push(SearchResult {
                                 file,
@@ -1599,7 +1659,9 @@ impl GlobalSearchState {
                                 context_after: Vec::new(),
                             });
                             self.total_matches += 1;
-                            if self.results.len() >= 500 { break; }
+                            if self.results.len() >= 500 {
+                                break;
+                            }
                         }
                         _ => {}
                     }
@@ -1610,12 +1672,18 @@ impl GlobalSearchState {
 
     /// Return the selected result as a `file:line` string for prompt injection.
     pub fn selected_ref(&self) -> Option<String> {
-        self.results.get(self.selected).map(|r| format!("{}:{}", r.file, r.line))
+        self.results
+            .get(self.selected)
+            .map(|r| format!("{}:{}", r.file, r.line))
     }
 }
 
 /// Render the global search dialog overlay.
-pub fn render_global_search(state: &GlobalSearchState, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer) {
+pub fn render_global_search(
+    state: &GlobalSearchState,
+    area: ratatui::layout::Rect,
+    buf: &mut ratatui::buffer::Buffer,
+) {
     use ratatui::{
         layout::Rect,
         style::{Color, Modifier, Style},
@@ -1624,13 +1692,20 @@ pub fn render_global_search(state: &GlobalSearchState, area: ratatui::layout::Re
     };
     use std::path::Path;
 
-    if !state.open { return; }
+    if !state.open {
+        return;
+    }
 
     let w = (area.width * 4 / 5).max(40).min(area.width);
     let h = (area.height * 3 / 4).max(10).min(area.height);
     let x = area.x + (area.width - w) / 2;
     let y = area.y + (area.height - h) / 4;
-    let dialog = Rect { x, y, width: w, height: h };
+    let dialog = Rect {
+        x,
+        y,
+        width: w,
+        height: h,
+    };
 
     Clear.render(dialog, buf);
     Block::default()
@@ -1653,7 +1728,12 @@ pub fn render_global_search(state: &GlobalSearchState, area: ratatui::layout::Re
         Span::styled("\u{2588}", Style::default().fg(Color::Cyan)),
     ]);
     Paragraph::new(query_line).render(
-        Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 },
+        Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: 1,
+        },
         buf,
     );
 
@@ -1663,7 +1743,12 @@ pub fn render_global_search(state: &GlobalSearchState, area: ratatui::layout::Re
         Style::default().fg(Color::DarkGray),
     ));
     Paragraph::new(sep).render(
-        Rect { x: inner.x, y: inner.y + 1, width: inner.width, height: 1 },
+        Rect {
+            x: inner.x,
+            y: inner.y + 1,
+            width: inner.width,
+            height: 1,
+        },
         buf,
     );
 
@@ -1717,17 +1802,22 @@ pub fn render_global_search(state: &GlobalSearchState, area: ratatui::layout::Re
 
     let max_visible = results_area.height as usize;
     // Scroll so the selected result is visible — find which display row it's in
-    let selected_display_row = rows.iter().position(|r| {
-        if let DisplayRow::Result { result_idx } = r {
-            *result_idx == state.selected
-        } else {
-            false
-        }
-    }).unwrap_or(0);
+    let selected_display_row = rows
+        .iter()
+        .position(|r| {
+            if let DisplayRow::Result { result_idx } = r {
+                *result_idx == state.selected
+            } else {
+                false
+            }
+        })
+        .unwrap_or(0);
     let start = selected_display_row.saturating_sub(max_visible / 2);
 
     for (i, row) in rows[start..].iter().enumerate() {
-        if i >= max_visible { break; }
+        if i >= max_visible {
+            break;
+        }
         let row_y = results_area.y + i as u16;
 
         match row {
@@ -1737,14 +1827,24 @@ pub fn render_global_search(state: &GlobalSearchState, area: ratatui::layout::Re
                 let label_part = format!(" {} ", label);
                 let dashes_right = (results_area.width as usize)
                     .saturating_sub(4 + label_part.len() + count_str.len());
-                let header_line = Line::from(vec![
-                    Span::styled(
-                        format!("\u{2500}\u{2500}\u{2500}{}{}{}", label_part, count_str, "\u{2500}".repeat(dashes_right)),
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                let header_line = Line::from(vec![Span::styled(
+                    format!(
+                        "\u{2500}\u{2500}\u{2500}{}{}{}",
+                        label_part,
+                        count_str,
+                        "\u{2500}".repeat(dashes_right)
                     ),
-                ]);
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )]);
                 Paragraph::new(header_line).render(
-                    Rect { x: results_area.x, y: row_y, width: results_area.width, height: 1 },
+                    Rect {
+                        x: results_area.x,
+                        y: row_y,
+                        width: results_area.width,
+                        height: 1,
+                    },
                     buf,
                 );
             }
@@ -1753,7 +1853,9 @@ pub fn render_global_search(state: &GlobalSearchState, area: ratatui::layout::Re
                 let selected = *result_idx == state.selected;
                 let prefix = if selected { "> " } else { "  " };
                 let style = if selected {
-                    Style::default().add_modifier(Modifier::BOLD).fg(Color::White)
+                    Style::default()
+                        .add_modifier(Modifier::BOLD)
+                        .fg(Color::White)
                 } else {
                     Style::default().fg(Color::Gray)
                 };
@@ -1764,14 +1866,21 @@ pub fn render_global_search(state: &GlobalSearchState, area: ratatui::layout::Re
                 let text_spans: Vec<Span<'static>> = if !query_lc.is_empty() {
                     let text_lc = text_trimmed.to_lowercase();
                     if let Some(pos) = text_lc.find(query_lc.as_str()) {
-                        let before: String = text_trimmed.chars().take(
-                            text_trimmed[..pos].chars().count()
-                        ).collect();
+                        let before: String = text_trimmed
+                            .chars()
+                            .take(text_trimmed[..pos].chars().count())
+                            .collect();
                         let matched: String = text_trimmed[pos..pos + query_lc.len()].to_string();
-                        let after: String = text_trimmed[pos + query_lc.len()..].chars().take(30).collect();
+                        let after: String = text_trimmed[pos + query_lc.len()..]
+                            .chars()
+                            .take(30)
+                            .collect();
                         vec![
                             Span::styled(before, style),
-                            Span::styled(matched, style.bg(Color::Rgb(60, 50, 0)).fg(Color::Yellow)),
+                            Span::styled(
+                                matched,
+                                style.bg(Color::Rgb(60, 50, 0)).fg(Color::Yellow),
+                            ),
                             Span::styled(after, style),
                         ]
                     } else {
@@ -1785,15 +1894,17 @@ pub fn render_global_search(state: &GlobalSearchState, area: ratatui::layout::Re
 
                 let mut spans = vec![
                     Span::styled(prefix.to_string(), style),
-                    Span::styled(
-                        format!("{:>4}  ", result.line),
-                        style.fg(Color::DarkGray),
-                    ),
+                    Span::styled(format!("{:>4}  ", result.line), style.fg(Color::DarkGray)),
                 ];
                 spans.extend(text_spans);
 
                 Paragraph::new(Line::from(spans)).render(
-                    Rect { x: results_area.x, y: row_y, width: results_area.width, height: 1 },
+                    Rect {
+                        x: results_area.x,
+                        y: row_y,
+                        width: results_area.width,
+                        height: 1,
+                    },
                     buf,
                 );
             }
@@ -1806,14 +1917,33 @@ pub fn render_global_search(state: &GlobalSearchState, area: ratatui::layout::Re
     } else if state.results.is_empty() && !state.query.is_empty() {
         "No matches".to_string()
     } else if state.total_matches > 0 {
-        format!("{} matches in {} files", state.total_matches,
-            state.results.iter().map(|r| &r.file).collect::<std::collections::HashSet<_>>().len())
+        format!(
+            "{} matches in {} files",
+            state.total_matches,
+            state
+                .results
+                .iter()
+                .map(|r| &r.file)
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+        )
     } else {
         "Type to search".to_string()
     };
     let status_y = inner.y + inner.height.saturating_sub(1);
-    Paragraph::new(Line::from(vec![Span::styled(status, Style::default().fg(Color::DarkGray))]))
-        .render(Rect { x: inner.x, y: status_y, width: inner.width, height: 1 }, buf);
+    Paragraph::new(Line::from(vec![Span::styled(
+        status,
+        Style::default().fg(Color::DarkGray),
+    )]))
+    .render(
+        Rect {
+            x: inner.x,
+            y: status_y,
+            width: inner.width,
+            height: 1,
+        },
+        buf,
+    );
 }
 
 // ============================================================================
@@ -1851,8 +1981,8 @@ mod tests {
     #[test]
     fn help_overlay_filter() {
         let mut h = HelpOverlay::new();
-        h.push_filter_char('h', );
-        h.push_filter_char('e', );
+        h.push_filter_char('h');
+        h.push_filter_char('e');
         assert_eq!(h.filter, "he");
         h.pop_filter_char();
         assert_eq!(h.filter, "h");
@@ -1872,7 +2002,11 @@ mod tests {
     #[test]
     fn history_search_update_matches() {
         // All three entries contain 'g', so all three match.
-        let history = vec!["git commit".to_string(), "cargo build".to_string(), "git push".to_string()];
+        let history = vec![
+            "git commit".to_string(),
+            "cargo build".to_string(),
+            "git push".to_string(),
+        ];
         let mut hs = HistorySearchOverlay::open(&history);
         hs.push_char('g', &history);
         assert_eq!(hs.matches.len(), 3);
@@ -1953,10 +2087,7 @@ mod tests {
     fn subseq_score_sorts_correctly_in_overlay() {
         // "git commit" and "get items together" both match query "git".
         // "git commit" is a substring match → higher score → appears first.
-        let history = vec![
-            "get items together".to_string(),
-            "git commit".to_string(),
-        ];
+        let history = vec!["get items together".to_string(), "git commit".to_string()];
         let mut hs = HistorySearchOverlay::open(&history);
         hs.push_char('g', &history);
         hs.push_char('i', &history);
@@ -2034,8 +2165,18 @@ mod tests {
     #[test]
     fn message_selector_open_selects_last() {
         let msgs = vec![
-            SelectorMessage { idx: 0, role: "user".to_string(), preview: "hi".to_string(), has_tool_use: false },
-            SelectorMessage { idx: 1, role: "assistant".to_string(), preview: "hello".to_string(), has_tool_use: false },
+            SelectorMessage {
+                idx: 0,
+                role: "user".to_string(),
+                preview: "hi".to_string(),
+                has_tool_use: false,
+            },
+            SelectorMessage {
+                idx: 1,
+                role: "assistant".to_string(),
+                preview: "hello".to_string(),
+                has_tool_use: false,
+            },
         ];
         let sel = MessageSelectorOverlay::open(msgs);
         assert_eq!(sel.selected_idx, 1);
@@ -2044,9 +2185,24 @@ mod tests {
     #[test]
     fn message_selector_navigate() {
         let msgs = vec![
-            SelectorMessage { idx: 0, role: "user".to_string(), preview: "a".to_string(), has_tool_use: false },
-            SelectorMessage { idx: 1, role: "assistant".to_string(), preview: "b".to_string(), has_tool_use: false },
-            SelectorMessage { idx: 2, role: "user".to_string(), preview: "c".to_string(), has_tool_use: false },
+            SelectorMessage {
+                idx: 0,
+                role: "user".to_string(),
+                preview: "a".to_string(),
+                has_tool_use: false,
+            },
+            SelectorMessage {
+                idx: 1,
+                role: "assistant".to_string(),
+                preview: "b".to_string(),
+                has_tool_use: false,
+            },
+            SelectorMessage {
+                idx: 2,
+                role: "user".to_string(),
+                preview: "c".to_string(),
+                has_tool_use: false,
+            },
         ];
         let mut sel = MessageSelectorOverlay::open(msgs);
         // starts at last
@@ -2063,21 +2219,30 @@ mod tests {
 
     #[test]
     fn rewind_flow_confirm_advances_step() {
-        let msgs = vec![
-            SelectorMessage { idx: 0, role: "user".to_string(), preview: "hi".to_string(), has_tool_use: false },
-        ];
+        let msgs = vec![SelectorMessage {
+            idx: 0,
+            role: "user".to_string(),
+            preview: "hi".to_string(),
+            has_tool_use: false,
+        }];
         let mut flow = RewindFlowOverlay::new();
         flow.open(msgs);
         let idx = flow.confirm_selection().unwrap();
         assert_eq!(idx, 0);
-        assert!(matches!(flow.step, RewindStep::Confirming { message_idx: 0 }));
+        assert!(matches!(
+            flow.step,
+            RewindStep::Confirming { message_idx: 0 }
+        ));
     }
 
     #[test]
     fn rewind_flow_accept_closes() {
-        let msgs = vec![
-            SelectorMessage { idx: 3, role: "user".to_string(), preview: "test".to_string(), has_tool_use: false },
-        ];
+        let msgs = vec![SelectorMessage {
+            idx: 3,
+            role: "user".to_string(),
+            preview: "test".to_string(),
+            has_tool_use: false,
+        }];
         let mut flow = RewindFlowOverlay::new();
         flow.open(msgs);
         flow.confirm_selection();
@@ -2088,9 +2253,12 @@ mod tests {
 
     #[test]
     fn rewind_flow_reject_returns_to_selector() {
-        let msgs = vec![
-            SelectorMessage { idx: 0, role: "user".to_string(), preview: "x".to_string(), has_tool_use: false },
-        ];
+        let msgs = vec![SelectorMessage {
+            idx: 0,
+            role: "user".to_string(),
+            preview: "x".to_string(),
+            has_tool_use: false,
+        }];
         let mut flow = RewindFlowOverlay::new();
         flow.open(msgs);
         flow.confirm_selection();

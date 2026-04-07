@@ -7,9 +7,9 @@
 //!   - `memdir.ts`       → `build_memory_prompt_content`, `load_memory_index`, `ensure_memory_dir_exists`
 //!   - `paths.ts`        → `auto_memory_path`, `is_auto_memory_enabled`
 
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // Memory type taxonomy
@@ -129,7 +129,10 @@ fn collect_md_files(base: &Path, current_dir: &Path, out: &mut Vec<MemoryFileMet
         if path.is_dir() {
             collect_md_files(base, &path, out);
         } else if path.extension().map(|e| e == "md").unwrap_or(false) {
-            let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let file_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             if file_name == "MEMORY.md" {
                 continue;
             }
@@ -385,7 +388,7 @@ pub fn is_auto_memory_enabled(settings_enabled: Option<bool>) -> bool {
         // Truthy values (non-empty, non-"0", non-"false") disable memory.
         match val.to_lowercase().as_str() {
             "" | "0" | "false" | "no" | "off" => return true, // defined-falsy → ON
-            _ => return false,                                  // truthy → OFF
+            _ => return false,                                // truthy → OFF
         }
     }
 
@@ -458,10 +461,7 @@ pub fn truncate_entrypoint_content(raw: &str) -> EntrypointTruncation {
             "{} bytes (limit: {}) — index entries are too long",
             byte_count, MAX_ENTRYPOINT_BYTES
         ),
-        _ => format!(
-            "{} lines and {} bytes",
-            line_count, byte_count
-        ),
+        _ => format!("{} lines and {} bytes", line_count, byte_count),
     };
 
     truncated.push_str(&format!(
@@ -569,7 +569,11 @@ pub fn find_relevant_memories_simple(
                 })
                 .sum();
 
-            if score > 0.0 { Some((score, meta)) } else { None }
+            if score > 0.0 {
+                Some((score, meta))
+            } else {
+                None
+            }
         })
         .collect();
 
@@ -687,7 +691,10 @@ mod tests {
 
     #[test]
     fn test_freshness_text_fresh() {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         assert!(memory_freshness_text(now).is_empty());
     }
 
@@ -707,7 +714,10 @@ mod tests {
 
     #[test]
     fn test_freshness_note_fresh_is_empty() {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         assert!(memory_freshness_note(now).is_empty());
     }
 
@@ -749,8 +759,14 @@ mod tests {
 
     #[test]
     fn test_sanitize_path_component() {
-        assert_eq!(sanitize_path_component("/home/user/project"), "_home_user_project");
-        assert_eq!(sanitize_path_component("normal-name_123"), "normal-name_123");
+        assert_eq!(
+            sanitize_path_component("/home/user/project"),
+            "_home_user_project"
+        );
+        assert_eq!(
+            sanitize_path_component("normal-name_123"),
+            "normal-name_123"
+        );
         assert_eq!(sanitize_path_component("C:\\Users\\foo"), "C__Users_foo");
     }
 

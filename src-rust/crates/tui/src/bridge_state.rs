@@ -41,7 +41,11 @@ impl BridgeConnectionState {
 
             BridgeConnectionState::Connected { peer_count, .. } => {
                 let label = if *peer_count > 0 {
-                    format!(" REMOTE ({} peer{}) ", peer_count, if *peer_count == 1 { "" } else { "s" })
+                    format!(
+                        " REMOTE ({} peer{}) ",
+                        peer_count,
+                        if *peer_count == 1 { "" } else { "s" }
+                    )
                 } else {
                     " REMOTE ".to_string()
                 };
@@ -101,7 +105,9 @@ mod tests {
 
     #[test]
     fn disconnected_produces_no_badge() {
-        assert!(BridgeConnectionState::Disconnected.status_badge(0).is_none());
+        assert!(BridgeConnectionState::Disconnected
+            .status_badge(0)
+            .is_none());
     }
 
     #[test]

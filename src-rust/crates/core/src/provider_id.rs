@@ -5,8 +5,8 @@
 // name is expected (and vice-versa).
 
 use serde::{Deserialize, Serialize};
-use std::ops::Deref;
 use std::fmt;
+use std::ops::Deref;
 
 // ---------------------------------------------------------------------------
 // ProviderId

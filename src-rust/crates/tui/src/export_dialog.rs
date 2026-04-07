@@ -9,8 +9,8 @@ use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::overlays::{
-    begin_modal_frame, modal_header_line_area, render_modal_title_frame, CLAURST_ACCENT, CLAURST_MUTED,
-    CLAURST_PANEL_BG, CLAURST_TEXT,
+    begin_modal_frame, modal_header_line_area, render_modal_title_frame, CLAURST_ACCENT,
+    CLAURST_MUTED, CLAURST_PANEL_BG, CLAURST_TEXT,
 };
 
 // ---------------------------------------------------------------------------
@@ -106,7 +106,9 @@ pub fn render_export_dialog(frame: &mut Frame, state: &ExportDialogState, area: 
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
             " tab/←/→ switch  ·  enter export  ·  1/2 choose",
-            Style::default().fg(CLAURST_MUTED).add_modifier(Modifier::ITALIC),
+            Style::default()
+                .fg(CLAURST_MUTED)
+                .add_modifier(Modifier::ITALIC),
         )])),
         layout.footer_area,
     );
@@ -119,12 +121,23 @@ fn export_option_row(
     selected: bool,
     width: u16,
 ) -> Line<'static> {
-    let bg = if selected { CLAURST_ACCENT } else { CLAURST_PANEL_BG };
+    let bg = if selected {
+        CLAURST_ACCENT
+    } else {
+        CLAURST_PANEL_BG
+    };
     let fg = if selected { Color::White } else { CLAURST_TEXT };
-    let desc_fg = if selected { Color::Rgb(245, 220, 232) } else { CLAURST_MUTED };
+    let desc_fg = if selected {
+        Color::Rgb(245, 220, 232)
+    } else {
+        CLAURST_MUTED
+    };
     let mut spans = vec![
         Span::styled(format!(" [{}] ", key), Style::default().fg(desc_fg).bg(bg)),
-        Span::styled(label.to_string(), Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            label.to_string(),
+            Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(
             format!("  {}", description),
             Style::default().fg(desc_fg).bg(bg),
@@ -225,10 +238,17 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
         let mut state = ExportDialogState::new();
         state.open();
-        terminal.draw(|frame| {
-            render_export_dialog(frame, &state, frame.area());
-        }).unwrap();
-        let content: String = terminal.backend().buffer().clone().content().iter()
+        terminal
+            .draw(|frame| {
+                render_export_dialog(frame, &state, frame.area());
+            })
+            .unwrap();
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .clone()
+            .content()
+            .iter()
             .map(|c| c.symbol().chars().next().unwrap_or(' '))
             .collect();
         assert!(content.contains("Export") || content.contains("JSON"));
@@ -239,9 +259,11 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         let state = ExportDialogState::new();
         let before = terminal.backend().buffer().clone();
-        terminal.draw(|frame| {
-            render_export_dialog(frame, &state, frame.area());
-        }).unwrap();
+        terminal
+            .draw(|frame| {
+                render_export_dialog(frame, &state, frame.area());
+            })
+            .unwrap();
         assert_eq!(terminal.backend().buffer().content(), before.content());
     }
 }

@@ -4,7 +4,7 @@
 // share endpoint, and `export_session_text` as a plain-text fallback
 // when no endpoint is configured.
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareRequest {
@@ -66,10 +66,7 @@ pub async fn share_session(
 
 /// Generate a simple local Markdown export of the session (fallback when
 /// no share endpoint is configured).
-pub fn export_session_text(
-    messages: &[crate::types::Message],
-    title: Option<&str>,
-) -> String {
+pub fn export_session_text(messages: &[crate::types::Message], title: Option<&str>) -> String {
     let mut out = String::new();
 
     out.push_str("# Claurst Conversation Export\n\n");

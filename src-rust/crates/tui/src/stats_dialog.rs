@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::overlays::{
-    begin_modal_buf, modal_header_line_area, render_modal_title_buf, CLAURST_ACCENT,
-    CLAURST_MUTED, CLAURST_PANEL_BG,
+    begin_modal_buf, modal_header_line_area, render_modal_title_buf, CLAURST_ACCENT, CLAURST_MUTED,
+    CLAURST_PANEL_BG,
 };
 
 // ---------------------------------------------------------------------------
@@ -89,7 +89,9 @@ pub fn load_stats() -> AggregatedStats {
     let mut daily: HashMap<String, u64> = HashMap::new();
 
     for line in content.lines() {
-        let Ok(entry) = serde_json::from_str::<StatsEntry>(line) else { continue };
+        let Ok(entry) = serde_json::from_str::<StatsEntry>(line) else {
+            continue;
+        };
 
         let total_tokens = entry.input_tokens + entry.output_tokens;
         agg.total_input_tokens += entry.input_tokens;
@@ -165,7 +167,7 @@ pub enum StatsTab {
 pub struct StatsDialogState {
     pub open: bool,
     pub tab: StatsTab,
-    pub range_days: u32,  // 7, 30, or 0 = all
+    pub range_days: u32, // 7, 30, or 0 = all
     pub data: Option<AggregatedStats>,
     pub scroll: u16,
     /// Per-model breakdown for the Models tab (cost in USD).
@@ -201,24 +203,26 @@ impl StatsDialogState {
         self.scroll = 0;
     }
 
-    pub fn close(&mut self) { self.open = false; }
+    pub fn close(&mut self) {
+        self.open = false;
+    }
 
     pub fn next_tab(&mut self) {
         self.tab = match self.tab {
-            StatsTab::Overview    => StatsTab::DailyTokens,
+            StatsTab::Overview => StatsTab::DailyTokens,
             StatsTab::DailyTokens => StatsTab::CostHeatmap,
             StatsTab::CostHeatmap => StatsTab::Models,
-            StatsTab::Models      => StatsTab::Overview,
+            StatsTab::Models => StatsTab::Overview,
         };
         self.scroll = 0;
     }
 
     pub fn prev_tab(&mut self) {
         self.tab = match self.tab {
-            StatsTab::Overview    => StatsTab::Models,
+            StatsTab::Overview => StatsTab::Models,
             StatsTab::DailyTokens => StatsTab::Overview,
             StatsTab::CostHeatmap => StatsTab::DailyTokens,
-            StatsTab::Models      => StatsTab::CostHeatmap,
+            StatsTab::Models => StatsTab::CostHeatmap,
         };
         self.scroll = 0;
     }
@@ -234,7 +238,11 @@ impl StatsDialogState {
     /// Record usage for a model, accumulating into `model_breakdown`.
     /// `cost` is in USD (not cents).
     pub fn add_model_usage(&mut self, model_id: &str, input: u64, output: u64, cost: f64) {
-        if let Some(entry) = self.model_breakdown.iter_mut().find(|e| e.model_id == model_id) {
+        if let Some(entry) = self
+            .model_breakdown
+            .iter_mut()
+            .find(|e| e.model_id == model_id)
+        {
             entry.input_tokens += input;
             entry.output_tokens += output;
             entry.cost_usd += cost;
@@ -250,7 +258,9 @@ impl StatsDialogState {
 }
 
 impl Default for StatsDialogState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +278,11 @@ fn build_model_breakdown(stats: &AggregatedStats) -> Vec<ModelBreakdown> {
             cost_usd: ms.cost_cents / 100.0,
         })
         .collect();
-    breakdown.sort_by(|a, b| b.cost_usd.partial_cmp(&a.cost_usd).unwrap_or(std::cmp::Ordering::Equal));
+    breakdown.sort_by(|a, b| {
+        b.cost_usd
+            .partial_cmp(&a.cost_usd)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     breakdown
 }
 
@@ -325,13 +339,19 @@ fn consecutive_dates(prev: &str, next: &str) -> bool {
 
 fn date_to_days_since_epoch(date: &str) -> Option<u64> {
     // Expect "YYYY-MM-DD"
-    if date.len() != 10 { return None; }
+    if date.len() != 10 {
+        return None;
+    }
     let year: u64 = date[0..4].parse().ok()?;
     let month: u64 = date[5..7].parse().ok()?;
     let day: u64 = date[8..10].parse().ok()?;
     // Days from 1970-01-01 (approximate, good enough for streak detection)
     let y = year - 1970;
-    let leap_days = if y > 0 { (y - 1) / 4 - (y - 1) / 100 + (y - 1) / 400 + 1 } else { 0 };
+    let leap_days = if y > 0 {
+        (y - 1) / 4 - (y - 1) / 100 + (y - 1) / 400 + 1
+    } else {
+        0
+    };
     let days_in_years = y * 365 + leap_days;
     let leap = is_leap_year(year as u32);
     let months = if leap {
@@ -349,19 +369,21 @@ fn date_to_days_since_epoch(date: &str) -> Option<u64> {
 
 /// Render the stats dialog overlay.
 pub fn render_stats_dialog(state: &StatsDialogState, area: Rect, buf: &mut Buffer) {
-    if !state.open { return; }
+    if !state.open {
+        return;
+    }
 
     let layout = begin_modal_buf(buf, area, 92, 30, 2, 1);
     render_modal_title_buf(buf, layout.header_area, "Cost & stats", "esc");
 
     let tab_line = Line::from(vec![
-        tab_span("Overview",      state.tab == StatsTab::Overview),
+        tab_span("Overview", state.tab == StatsTab::Overview),
         Span::styled("  ·  ", Style::default().fg(CLAURST_MUTED)),
-        tab_span("Daily Tokens",  state.tab == StatsTab::DailyTokens),
+        tab_span("Daily Tokens", state.tab == StatsTab::DailyTokens),
         Span::styled("  ·  ", Style::default().fg(CLAURST_MUTED)),
-        tab_span("Cost Heatmap",  state.tab == StatsTab::CostHeatmap),
+        tab_span("Cost Heatmap", state.tab == StatsTab::CostHeatmap),
         Span::styled("  ·  ", Style::default().fg(CLAURST_MUTED)),
-        tab_span("Models",        state.tab == StatsTab::Models),
+        tab_span("Models", state.tab == StatsTab::Models),
     ]);
     if let Some(tab_area) = modal_header_line_area(layout.header_area, 1) {
         Paragraph::new(tab_line).render(tab_area, buf);
@@ -377,14 +399,16 @@ pub fn render_stats_dialog(state: &StatsDialogState, area: Rect, buf: &mut Buffe
     };
 
     match state.tab {
-        StatsTab::Overview    => render_overview(data, state, content_area, buf),
+        StatsTab::Overview => render_overview(data, state, content_area, buf),
         StatsTab::DailyTokens => render_daily_tokens(data, state.range_days, content_area, buf),
         StatsTab::CostHeatmap => render_cost_heatmap(data, content_area, buf),
-        StatsTab::Models      => render_models(state, content_area, buf),
+        StatsTab::Models => render_models(state, content_area, buf),
     }
     Paragraph::new(Line::from(vec![Span::styled(
         " tab/←/→ switch tabs  ·  r cycle range  ·  ↑↓ scroll",
-        Style::default().fg(CLAURST_MUTED).add_modifier(Modifier::ITALIC),
+        Style::default()
+            .fg(CLAURST_MUTED)
+            .add_modifier(Modifier::ITALIC),
     )]))
     .render(layout.footer_area, buf);
 }
@@ -412,7 +436,12 @@ fn render_overview(data: &AggregatedStats, state: &StatsDialogState, area: Rect,
 
     lines.push(Line::from(vec![
         Span::styled("Total tokens: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(format_tokens(total_tokens), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format_tokens(total_tokens),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  Input:    ", Style::default().fg(Color::DarkGray)),
@@ -425,7 +454,12 @@ fn render_overview(data: &AggregatedStats, state: &StatsDialogState, area: Rect,
     lines.push(Line::default());
     lines.push(Line::from(vec![
         Span::styled("Total cost: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(format!("${:.2}", data.total_cost_cents / 100.0), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format!("${:.2}", data.total_cost_cents / 100.0),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]));
 
     // Streak display
@@ -435,10 +469,16 @@ fn render_overview(data: &AggregatedStats, state: &StatsDialogState, area: Rect,
         let longest = state.longest_streak_days;
         let streak_value = Span::styled(
             format!("● {} day{}", current, if current == 1 { "" } else { "s" }),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         );
         let streak_longest = Span::styled(
-            format!("  (longest: {} day{})", longest, if longest == 1 { "" } else { "s" }),
+            format!(
+                "  (longest: {} day{})",
+                longest,
+                if longest == 1 { "" } else { "s" }
+            ),
             Style::default().fg(Color::DarkGray),
         );
         lines.push(Line::from(vec![
@@ -452,20 +492,40 @@ fn render_overview(data: &AggregatedStats, state: &StatsDialogState, area: Rect,
         lines.push(Line::default());
         lines.push(Line::from(vec![
             Span::styled("Peak day: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(format!("{} ({} tokens)", peak, format_tokens(data.peak_day_tokens)), Style::default().fg(Color::Yellow)),
+            Span::styled(
+                format!("{} ({} tokens)", peak, format_tokens(data.peak_day_tokens)),
+                Style::default().fg(Color::Yellow),
+            ),
         ]));
     }
 
     if !data.by_model.is_empty() {
         lines.push(Line::default());
-        lines.push(Line::from(vec![Span::styled("By model:", Style::default().fg(Color::DarkGray))]));
+        lines.push(Line::from(vec![Span::styled(
+            "By model:",
+            Style::default().fg(Color::DarkGray),
+        )]));
         let mut models: Vec<_> = data.by_model.iter().collect();
-        models.sort_by(|a, b| b.1.cost_cents.partial_cmp(&a.1.cost_cents).unwrap_or(std::cmp::Ordering::Equal));
+        models.sort_by(|a, b| {
+            b.1.cost_cents
+                .partial_cmp(&a.1.cost_cents)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         for (model, stats) in models.iter().take(5) {
             lines.push(Line::from(vec![
                 Span::styled(format!("  {:40} ", model), Style::default().fg(Color::Cyan)),
-                Span::styled(format!("{} turns  {}", stats.turns, format_tokens(stats.input_tokens + stats.output_tokens)), Style::default().fg(Color::White)),
-                Span::styled(format!("  ${:.2}", stats.cost_cents / 100.0), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!(
+                        "{} turns  {}",
+                        stats.turns,
+                        format_tokens(stats.input_tokens + stats.output_tokens)
+                    ),
+                    Style::default().fg(Color::White),
+                ),
+                Span::styled(
+                    format!("  ${:.2}", stats.cost_cents / 100.0),
+                    Style::default().fg(Color::DarkGray),
+                ),
             ]));
         }
     }
@@ -482,11 +542,20 @@ fn render_daily_tokens(data: &AggregatedStats, range_days: u32, area: Rect, buf:
     let filtered: Vec<_> = if range_days == 0 {
         data.daily_tokens.iter().collect()
     } else {
-        data.daily_tokens.iter().rev().take(range_days as usize).collect::<Vec<_>>().into_iter().rev().collect()
+        data.daily_tokens
+            .iter()
+            .rev()
+            .take(range_days as usize)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
     };
 
     if filtered.is_empty() {
-        Paragraph::new("No data yet.").style(Style::default().fg(Color::DarkGray)).render(area, buf);
+        Paragraph::new("No data yet.")
+            .style(Style::default().fg(Color::DarkGray))
+            .render(area, buf);
         return;
     }
 
@@ -495,22 +564,37 @@ fn render_daily_tokens(data: &AggregatedStats, range_days: u32, area: Rect, buf:
         30 => "30 days",
         _ => "all time",
     };
-    let label_line = Line::from(vec![
-        Span::styled(format!("Range: {} [r: cycle]", range_label), Style::default().fg(Color::DarkGray)),
-    ]);
+    let label_line = Line::from(vec![Span::styled(
+        format!("Range: {} [r: cycle]", range_label),
+        Style::default().fg(Color::DarkGray),
+    )]);
     Paragraph::new(label_line).render(
-        Rect { x: area.x, y: area.y, width: area.width, height: 1 },
+        Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: 1,
+        },
         buf,
     );
 
-    let chart_area = Rect { x: area.x, y: area.y + 2, width: area.width, height: area.height.saturating_sub(2) };
+    let chart_area = Rect {
+        x: area.x,
+        y: area.y + 2,
+        width: area.width,
+        height: area.height.saturating_sub(2),
+    };
 
     // Build bar chart data
     let max_val = filtered.iter().map(|d| d.1).max().unwrap_or(1).max(1);
     let bar_data: Vec<(&str, u64)> = filtered
         .iter()
         .map(|d| {
-            let label: &str = if d.0.len() >= 5 { &d.0[5..] } else { d.0.as_str() };
+            let label: &str = if d.0.len() >= 5 {
+                &d.0[5..]
+            } else {
+                d.0.as_str()
+            };
             (label, d.1 * (chart_area.height as u64 - 1) / max_val)
         })
         .collect();
@@ -518,7 +602,9 @@ fn render_daily_tokens(data: &AggregatedStats, range_days: u32, area: Rect, buf:
     // Render ASCII bar chart manually (ratatui BarChart needs 'static strs)
     for (i, (label, height)) in bar_data.iter().enumerate() {
         let x = chart_area.x + i as u16 * 6;
-        if x + 5 >= chart_area.x + chart_area.width { break; }
+        if x + 5 >= chart_area.x + chart_area.width {
+            break;
+        }
         let bar_height = (*height as u16).min(chart_area.height.saturating_sub(1));
         for row in 0..bar_height {
             let y = chart_area.y + chart_area.height - 1 - row;
@@ -552,11 +638,18 @@ fn render_daily_tokens(data: &AggregatedStats, range_days: u32, area: Rect, buf:
 
 fn render_cost_heatmap(data: &AggregatedStats, area: Rect, buf: &mut Buffer) {
     if data.daily_costs.is_empty() {
-        Paragraph::new("No cost data yet.").style(Style::default().fg(Color::DarkGray)).render(area, buf);
+        Paragraph::new("No cost data yet.")
+            .style(Style::default().fg(Color::DarkGray))
+            .render(area, buf);
         return;
     }
 
-    let max_cost = data.daily_costs.values().cloned().fold(0.0_f64, f64::max).max(0.01);
+    let max_cost = data
+        .daily_costs
+        .values()
+        .cloned()
+        .fold(0.0_f64, f64::max)
+        .max(0.01);
 
     // Header legend
     Paragraph::new(Line::from(vec![
@@ -571,12 +664,21 @@ fn render_cost_heatmap(data: &AggregatedStats, area: Rect, buf: &mut Buffer) {
         Span::styled("\u{25a0}", Style::default().fg(Color::Rgb(0, 200, 0))),
         Span::styled(" high ", Style::default().fg(Color::DarkGray)),
         Span::styled("\u{25a0}", Style::default().fg(Color::Rgb(0, 255, 0))),
-    ])).render(Rect { x: area.x, y: area.y, width: area.width, height: 1 }, buf);
+    ]))
+    .render(
+        Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: 1,
+        },
+        buf,
+    );
 
     // Weekday labels column (Mon..Sun order)
     let weekday_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     let heatmap_area = Rect {
-        x: area.x + 4,   // leave 4 cols for "Mon" etc.
+        x: area.x + 4, // leave 4 cols for "Mon" etc.
         y: area.y + 2,
         width: area.width.saturating_sub(4),
         height: area.height.saturating_sub(3),
@@ -584,10 +686,22 @@ fn render_cost_heatmap(data: &AggregatedStats, area: Rect, buf: &mut Buffer) {
 
     for (i, label) in weekday_labels.iter().enumerate() {
         let y = heatmap_area.y + i as u16;
-        if y >= heatmap_area.y + heatmap_area.height { break; }
-        Paragraph::new(Line::from(vec![
-            Span::styled(label.to_string(), Style::default().fg(Color::DarkGray)),
-        ])).render(Rect { x: area.x, y, width: 3, height: 1 }, buf);
+        if y >= heatmap_area.y + heatmap_area.height {
+            break;
+        }
+        Paragraph::new(Line::from(vec![Span::styled(
+            label.to_string(),
+            Style::default().fg(Color::DarkGray),
+        )]))
+        .render(
+            Rect {
+                x: area.x,
+                y,
+                width: 3,
+                height: 1,
+            },
+            buf,
+        );
     }
 
     // 12 weeks x 7 days grid — sorted ascending, display newest on right
@@ -601,14 +715,22 @@ fn render_cost_heatmap(data: &AggregatedStats, area: Rect, buf: &mut Buffer) {
     // and place week columns right-to-left from the most-recent week.
     let chunks: Vec<_> = sorted_dates.chunks(7).collect();
     let total_chunks = chunks.len();
-    let start_chunk = if total_chunks > 12 { total_chunks - 12 } else { 0 };
+    let start_chunk = if total_chunks > 12 {
+        total_chunks - 12
+    } else {
+        0
+    };
 
     for (display_col, chunk) in chunks[start_chunk..].iter().enumerate() {
         let x = heatmap_area.x + display_col as u16 * 2;
-        if x >= heatmap_area.x + heatmap_area.width { break; }
+        if x >= heatmap_area.x + heatmap_area.width {
+            break;
+        }
         for (day_idx, (_, cost)) in chunk.iter().enumerate() {
             let y = heatmap_area.y + day_idx as u16;
-            if y >= heatmap_area.y + heatmap_area.height { break; }
+            if y >= heatmap_area.y + heatmap_area.height {
+                break;
+            }
             let intensity = (*cost / max_cost).min(1.0);
             let color = heatmap_color(intensity);
             let cell = buf.cell_mut((x, y));
@@ -650,28 +772,29 @@ fn render_models(state: &StatsDialogState, area: Rect, buf: &mut Buffer) {
     let mut lines: Vec<Line> = Vec::new();
 
     // Table header
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("{:<42} {:>12} {:>13} {:>10}", "Model", "Input", "Output", "Cost"),
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+    lines.push(Line::from(vec![Span::styled(
+        format!(
+            "{:<42} {:>12} {:>13} {:>10}",
+            "Model", "Input", "Output", "Cost"
         ),
-    ]));
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD),
+    )]));
     // Separator
-    lines.push(Line::from(vec![
-        Span::styled(
-            "\u{2500}".repeat(area.width.saturating_sub(2) as usize),
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        "\u{2500}".repeat(area.width.saturating_sub(2) as usize),
+        Style::default().fg(Color::DarkGray),
+    )]));
 
     let mut total_input: u64 = 0;
     let mut total_output: u64 = 0;
     let mut total_cost: f64 = 0.0;
 
     for entry in &state.model_breakdown {
-        total_input  += entry.input_tokens;
+        total_input += entry.input_tokens;
         total_output += entry.output_tokens;
-        total_cost   += entry.cost_usd;
+        total_cost += entry.cost_usd;
 
         // Truncate long model IDs
         let model_display = if entry.model_id.len() > 42 {
@@ -701,28 +824,34 @@ fn render_models(state: &StatsDialogState, area: Rect, buf: &mut Buffer) {
     }
 
     // Grand total separator + row
-    lines.push(Line::from(vec![
-        Span::styled(
-            "\u{2500}".repeat(area.width.saturating_sub(2) as usize),
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        "\u{2500}".repeat(area.width.saturating_sub(2) as usize),
+        Style::default().fg(Color::DarkGray),
+    )]));
     lines.push(Line::from(vec![
         Span::styled(
             format!("{:<42} ", "TOTAL"),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("{:>12} ", format_tokens(total_input)),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("{:>13} ", format_tokens(total_output)),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("{:>9}", format!("${:.4}", total_cost)),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
 
@@ -734,10 +863,15 @@ fn render_models(state: &StatsDialogState, area: Rect, buf: &mut Buffer) {
 // ---------------------------------------------------------------------------
 
 fn format_tokens(n: u64) -> String {
-    if n >= 1_000_000 { format!("{:.1}M", n as f64 / 1_000_000.0) }
-    else if n >= 10_000 { format!("{:.0}K", n as f64 / 1_000.0) }
-    else if n >= 1_000 { format!("{:.1}K", n as f64 / 1_000.0) }
-    else { n.to_string() }
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 10_000 {
+        format!("{:.0}K", n as f64 / 1_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -797,13 +931,17 @@ mod tests {
     #[test]
     fn test_add_model_usage_multiple_models() {
         let state = make_state_with_models(&[
-            ("claude-3-opus",   1000, 500, 0.05),
-            ("claude-3-haiku",  500,  200, 0.01),
-            ("claude-3-sonnet", 800,  400, 0.03),
+            ("claude-3-opus", 1000, 500, 0.05),
+            ("claude-3-haiku", 500, 200, 0.01),
+            ("claude-3-sonnet", 800, 400, 0.03),
         ]);
 
         assert_eq!(state.model_breakdown.len(), 3);
-        let ids: Vec<&str> = state.model_breakdown.iter().map(|e| e.model_id.as_str()).collect();
+        let ids: Vec<&str> = state
+            .model_breakdown
+            .iter()
+            .map(|e| e.model_id.as_str())
+            .collect();
         assert!(ids.contains(&"claude-3-opus"));
         assert!(ids.contains(&"claude-3-haiku"));
         assert!(ids.contains(&"claude-3-sonnet"));
@@ -813,13 +951,13 @@ mod tests {
     fn test_model_breakdown_totals() {
         let state = make_state_with_models(&[
             ("model-a", 1_000_000, 200_000, 1.00),
-            ("model-b",   500_000, 100_000, 0.50),
+            ("model-b", 500_000, 100_000, 0.50),
         ]);
-        let total_input: u64  = state.model_breakdown.iter().map(|e| e.input_tokens).sum();
+        let total_input: u64 = state.model_breakdown.iter().map(|e| e.input_tokens).sum();
         let total_output: u64 = state.model_breakdown.iter().map(|e| e.output_tokens).sum();
-        let total_cost: f64   = state.model_breakdown.iter().map(|e| e.cost_usd).sum();
-        assert_eq!(total_input,  1_500_000);
-        assert_eq!(total_output,   300_000);
+        let total_cost: f64 = state.model_breakdown.iter().map(|e| e.cost_usd).sum();
+        assert_eq!(total_input, 1_500_000);
+        assert_eq!(total_output, 300_000);
         assert!((total_cost - 1.50).abs() < 1e-9);
     }
 
@@ -837,8 +975,11 @@ mod tests {
     fn test_streak_gap_resets_current() {
         // Two separate runs: 3 days then a gap, then 2 days.
         let agg = make_agg_with_dates(&[
-            "2025-01-01", "2025-01-02", "2025-01-03",
-            "2025-01-10", "2025-01-11",
+            "2025-01-01",
+            "2025-01-02",
+            "2025-01-03",
+            "2025-01-10",
+            "2025-01-11",
         ]);
         let (current, longest) = compute_streaks(&agg);
         assert_eq!(current, 2);
@@ -865,7 +1006,11 @@ mod tests {
     fn test_streak_longer_tail_wins_longest() {
         // Five days, then a gap, then one day.
         let agg = make_agg_with_dates(&[
-            "2025-02-01", "2025-02-02", "2025-02-03", "2025-02-04", "2025-02-05",
+            "2025-02-01",
+            "2025-02-02",
+            "2025-02-03",
+            "2025-02-04",
+            "2025-02-05",
             "2025-02-20",
         ]);
         let (current, longest) = compute_streaks(&agg);
@@ -904,9 +1049,33 @@ mod tests {
     #[test]
     fn test_build_model_breakdown_sorted_by_cost_desc() {
         let mut agg = AggregatedStats::default();
-        agg.by_model.insert("cheap".to_string(),     ModelStats { input_tokens: 100, output_tokens: 50, cost_cents:  10.0, turns: 1 });
-        agg.by_model.insert("expensive".to_string(), ModelStats { input_tokens: 200, output_tokens: 100, cost_cents: 500.0, turns: 2 });
-        agg.by_model.insert("mid".to_string(),       ModelStats { input_tokens: 150, output_tokens: 75, cost_cents:  100.0, turns: 1 });
+        agg.by_model.insert(
+            "cheap".to_string(),
+            ModelStats {
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_cents: 10.0,
+                turns: 1,
+            },
+        );
+        agg.by_model.insert(
+            "expensive".to_string(),
+            ModelStats {
+                input_tokens: 200,
+                output_tokens: 100,
+                cost_cents: 500.0,
+                turns: 2,
+            },
+        );
+        agg.by_model.insert(
+            "mid".to_string(),
+            ModelStats {
+                input_tokens: 150,
+                output_tokens: 75,
+                cost_cents: 100.0,
+                turns: 1,
+            },
+        );
 
         let breakdown = build_model_breakdown(&agg);
         assert_eq!(breakdown[0].model_id, "expensive");

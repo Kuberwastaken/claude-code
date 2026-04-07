@@ -282,10 +282,8 @@ impl Tool for AgentTool {
                             let p = entry.path();
                             if p.extension().map_or(false, |e| e == "md") {
                                 if let Ok(content) = std::fs::read_to_string(&p) {
-                                    let name = p
-                                        .file_stem()
-                                        .and_then(|s| s.to_str())
-                                        .unwrap_or("agent");
+                                    let name =
+                                        p.file_stem().and_then(|s| s.to_str()).unwrap_or("agent");
                                     agent_defs.push_str(&format!(
                                         "\n\n## Agent: {}\n{}",
                                         name,
@@ -456,25 +454,21 @@ impl Tool for AgentTool {
                 );
                 ToolResult::success(text)
             }
-            QueryOutcome::MaxTokens { partial_message, .. } => {
+            QueryOutcome::MaxTokens {
+                partial_message, ..
+            } => {
                 let text = partial_message.get_all_text();
-                ToolResult::success(format!(
-                    "{}\n\n[Note: Agent hit max_tokens limit]",
-                    text
-                ))
+                ToolResult::success(format!("{}\n\n[Note: Agent hit max_tokens limit]", text))
             }
-            QueryOutcome::Cancelled => {
-                ToolResult::error("Sub-agent was cancelled".to_string())
-            }
-            QueryOutcome::Error(e) => {
-                ToolResult::error(format!("Sub-agent error: {}", e))
-            }
-            QueryOutcome::BudgetExceeded { cost_usd, limit_usd } => {
-                ToolResult::error(format!(
-                    "Sub-agent stopped: budget ${:.4} exceeded (limit ${:.4})",
-                    cost_usd, limit_usd
-                ))
-            }
+            QueryOutcome::Cancelled => ToolResult::error("Sub-agent was cancelled".to_string()),
+            QueryOutcome::Error(e) => ToolResult::error(format!("Sub-agent error: {}", e)),
+            QueryOutcome::BudgetExceeded {
+                cost_usd,
+                limit_usd,
+            } => ToolResult::error(format!(
+                "Sub-agent stopped: budget ${:.4} exceeded (limit ${:.4})",
+                cost_usd, limit_usd
+            )),
         }
     }
 }
@@ -486,13 +480,18 @@ impl Tool for AgentTool {
 fn format_outcome(outcome: QueryOutcome) -> String {
     match outcome {
         QueryOutcome::EndTurn { message, .. } => message.get_all_text(),
-        QueryOutcome::MaxTokens { partial_message, .. } => format!(
+        QueryOutcome::MaxTokens {
+            partial_message, ..
+        } => format!(
             "{}\n\n[Note: Agent hit max_tokens limit]",
             partial_message.get_all_text()
         ),
         QueryOutcome::Cancelled => "[Agent was cancelled]".to_string(),
         QueryOutcome::Error(e) => format!("[Agent error: {}]", e),
-        QueryOutcome::BudgetExceeded { cost_usd, limit_usd } => format!(
+        QueryOutcome::BudgetExceeded {
+            cost_usd,
+            limit_usd,
+        } => format!(
             "[Agent stopped: budget ${:.4} exceeded (limit ${:.4})]",
             cost_usd, limit_usd
         ),
@@ -538,18 +537,19 @@ pub fn init_team_swarm_runner() {
                     }
                 };
 
-                let client = match claurst_api::AnthropicClient::new(claurst_api::client::ClientConfig {
-                    api_key,
-                    ..Default::default()
-                }) {
-                    Ok(c) => Arc::new(c),
-                    Err(e) => {
-                        return format!(
-                            "[Agent '{}' failed to create client: {}]",
-                            description, e
-                        )
-                    }
-                };
+                let client =
+                    match claurst_api::AnthropicClient::new(claurst_api::client::ClientConfig {
+                        api_key,
+                        ..Default::default()
+                    }) {
+                        Ok(c) => Arc::new(c),
+                        Err(e) => {
+                            return format!(
+                                "[Agent '{}' failed to create client: {}]",
+                                description, e
+                            )
+                        }
+                    };
 
                 // Build the tool list, filtering to the allowlist if provided.
                 let all = claurst_tools::all_tools();

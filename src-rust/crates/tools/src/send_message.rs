@@ -59,7 +59,9 @@ struct SendMessageInput {
 
 #[async_trait]
 impl Tool for SendMessageTool {
-    fn name(&self) -> &str { "SendMessage" }
+    fn name(&self) -> &str {
+        "SendMessage"
+    }
 
     fn description(&self) -> &str {
         "Send a message to another agent by name, or broadcast to all active agents with to=\"*\". \
@@ -67,7 +69,9 @@ impl Tool for SendMessageTool {
          Use this for coordination between concurrent sub-agents."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::None }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::None
+    }
 
     fn input_schema(&self) -> Value {
         json!({
@@ -112,13 +116,10 @@ impl Tool for SendMessageTool {
             timestamp: now,
         };
 
-        let preview = params
-            .summary
-            .as_deref()
-            .unwrap_or_else(|| {
-                let s = params.message.as_str();
-                &s[..s.len().min(60)]
-            });
+        let preview = params.summary.as_deref().unwrap_or_else(|| {
+            let s = params.message.as_str();
+            &s[..s.len().min(60)]
+        });
 
         if params.to == "*" {
             // Broadcast: deliver to every existing inbox key

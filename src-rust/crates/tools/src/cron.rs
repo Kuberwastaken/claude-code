@@ -256,11 +256,15 @@ struct CronCreateInput {
     durable: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[async_trait]
 impl Tool for CronCreateTool {
-    fn name(&self) -> &str { "CronCreate" }
+    fn name(&self) -> &str {
+        "CronCreate"
+    }
 
     fn description(&self) -> &str {
         "Schedule a recurring or one-shot prompt using a standard 5-field cron expression \
@@ -272,7 +276,9 @@ impl Tool for CronCreateTool {
          Use durable=true to persist across sessions."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::None }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::None
+    }
 
     fn input_schema(&self) -> Value {
         json!({
@@ -380,13 +386,17 @@ struct CronDeleteInput {
 
 #[async_trait]
 impl Tool for CronDeleteTool {
-    fn name(&self) -> &str { "CronDelete" }
+    fn name(&self) -> &str {
+        "CronDelete"
+    }
 
     fn description(&self) -> &str {
         "Cancel a scheduled cron task by its ID. Use CronList to find the ID."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::None }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::None
+    }
 
     fn input_schema(&self) -> Value {
         json!({
@@ -433,13 +443,17 @@ pub struct CronListTool;
 
 #[async_trait]
 impl Tool for CronListTool {
-    fn name(&self) -> &str { "CronList" }
+    fn name(&self) -> &str {
+        "CronList"
+    }
 
     fn description(&self) -> &str {
         "List all currently scheduled cron tasks."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::None }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::None
+    }
 
     fn input_schema(&self) -> Value {
         json!({
@@ -497,14 +511,17 @@ async fn persist_tasks_to_disk(store: &HashMap<String, CronTask>) -> Result<(), 
     let durable: Vec<&CronTask> = store.values().filter(|t| t.durable).collect();
     let json = serde_json::to_string_pretty(&durable).map_err(|e| e.to_string())?;
 
-    let path = scheduled_tasks_path().ok_or_else(|| "Cannot determine home directory".to_string())?;
+    let path =
+        scheduled_tasks_path().ok_or_else(|| "Cannot determine home directory".to_string())?;
     let dir = path.parent().ok_or("No parent directory")?;
 
     tokio::fs::create_dir_all(dir)
         .await
         .map_err(|e| e.to_string())?;
 
-    tokio::fs::write(&path, json).await.map_err(|e| e.to_string())?;
+    tokio::fs::write(&path, json)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }

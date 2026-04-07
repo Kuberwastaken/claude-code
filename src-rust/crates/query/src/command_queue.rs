@@ -111,7 +111,11 @@ impl CommandQueue {
             .unwrap_or_default()
             .as_millis() as u64;
         let mut heap = self.0.lock().unwrap();
-        heap.push(QueueEntry { command, priority, timestamp: ts });
+        heap.push(QueueEntry {
+            command,
+            priority,
+            timestamp: ts,
+        });
     }
 
     /// Drain all pending commands in priority order (highest first).

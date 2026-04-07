@@ -253,17 +253,22 @@ pub fn render_session_browser(state: &SessionBrowserState, area: Rect, buf: &mut
         let title_w = inner_w.saturating_sub(fixed).max(10);
 
         // Header row
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("  {:<title_w$}  {:<date_w$}  {:>msgs_w$}  {:>cost_w$}",
-                    "Title", "Last Updated", "Msgs", "Cost",
-                    title_w = title_w, date_w = date_w,
-                    msgs_w = msgs_w, cost_w = cost_w),
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::UNDERLINED),
+        lines.push(Line::from(vec![Span::styled(
+            format!(
+                "  {:<title_w$}  {:<date_w$}  {:>msgs_w$}  {:>cost_w$}",
+                "Title",
+                "Last Updated",
+                "Msgs",
+                "Cost",
+                title_w = title_w,
+                date_w = date_w,
+                msgs_w = msgs_w,
+                cost_w = cost_w
             ),
-        ]));
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::UNDERLINED),
+        )]));
         lines.push(Line::from(""));
 
         for (i, session) in state.sessions.iter().enumerate() {
@@ -300,9 +305,15 @@ pub fn render_session_browser(state: &SessionBrowserState, area: Rect, buf: &mut
 
             lines.push(Line::from(vec![
                 Span::styled("  ", prefix_style),
-                Span::styled(format!("{:<title_w$}", title_cell, title_w = title_w), title_style),
+                Span::styled(
+                    format!("{:<title_w$}", title_cell, title_w = title_w),
+                    title_style,
+                ),
                 Span::styled("  ", meta_style),
-                Span::styled(format!("{:<date_w$}", date_cell, date_w = date_w), meta_style),
+                Span::styled(
+                    format!("{:<date_w$}", date_cell, date_w = date_w),
+                    meta_style,
+                ),
                 Span::styled("  ", meta_style),
                 Span::styled(msgs_cell, meta_style),
                 Span::styled("  ", meta_style),
@@ -320,22 +331,30 @@ pub fn render_session_browser(state: &SessionBrowserState, area: Rect, buf: &mut
                 Span::styled("  ", Style::default()),
                 Span::styled(
                     "\u{2191}\u{2193}",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" navigate  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     "Enter",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("=resume  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     "r",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("=rename  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     "Esc",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("=close", Style::default().fg(Color::DarkGray)),
             ]));
@@ -346,7 +365,12 @@ pub fn render_session_browser(state: &SessionBrowserState, area: Rect, buf: &mut
             let cursor = "\u{2588}"; // block cursor
             let input_display = format!("{}{}", state.rename_input, cursor);
             lines.push(Line::from(vec![
-                Span::styled(label, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    label,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(
                     input_display,
                     Style::default()
@@ -358,12 +382,16 @@ pub fn render_session_browser(state: &SessionBrowserState, area: Rect, buf: &mut
                 Span::styled("  ", Style::default()),
                 Span::styled(
                     "Enter",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("=confirm  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     "Esc",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("=cancel", Style::default().fg(Color::DarkGray)),
             ]));
@@ -378,7 +406,9 @@ pub fn render_session_browser(state: &SessionBrowserState, area: Rect, buf: &mut
                 ),
                 Span::styled(
                     "Enter",
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("=yes  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
@@ -525,7 +555,10 @@ mod tests {
         s.start_rename();
         s.rename_input = "  New Title  ".to_string(); // intentional whitespace
         let result = s.confirm_rename();
-        assert_eq!(result, Some(("sess-001".to_string(), "New Title".to_string())));
+        assert_eq!(
+            result,
+            Some(("sess-001".to_string(), "New Title".to_string()))
+        );
         assert_eq!(s.mode, SessionBrowserMode::Browse);
         assert!(s.rename_input.is_empty());
         // Also check local title was updated
@@ -551,7 +584,10 @@ mod tests {
         s.start_rename();
         s.cancel();
         assert_eq!(s.mode, SessionBrowserMode::Browse);
-        assert!(s.visible, "overlay should remain visible after cancel-from-rename");
+        assert!(
+            s.visible,
+            "overlay should remain visible after cancel-from-rename"
+        );
     }
 
     // 11. cancel() in Browse mode closes the overlay.
@@ -582,7 +618,11 @@ mod tests {
         let mut buf = Buffer::empty(area);
         render_session_browser(&s, area, &mut buf);
         for cell in buf.content() {
-            assert_eq!(cell.symbol(), " ", "buffer should be empty when browser is hidden");
+            assert_eq!(
+                cell.symbol(),
+                " ",
+                "buffer should be empty when browser is hidden"
+            );
         }
     }
 
@@ -599,7 +639,10 @@ mod tests {
     fn truncate_display_trims() {
         let long = "abcdefghij"; // 10 chars
         let result = truncate_display(long, 5);
-        assert!(result.width() <= 6, "truncated string should fit within budget");
+        assert!(
+            result.width() <= 6,
+            "truncated string should fit within budget"
+        );
         assert!(result.ends_with('…'));
     }
 }

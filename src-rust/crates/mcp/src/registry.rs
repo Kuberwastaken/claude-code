@@ -91,7 +91,8 @@ pub const OFFICIAL_SERVERS: &[OfficialMcpServer] = &[
     OfficialMcpServer {
         name: "sequential-thinking",
         description: "Structured chain-of-thought reasoning tool.",
-        homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+        homepage:
+            "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
         install_command: Some("npx -y @modelcontextprotocol/server-sequential-thinking"),
         categories: &["reasoning"],
     },
@@ -119,7 +120,8 @@ pub const OFFICIAL_SERVERS: &[OfficialMcpServer] = &[
     OfficialMcpServer {
         name: "aws-kb-retrieval",
         description: "Retrieve knowledge from AWS Bedrock Knowledge Bases.",
-        homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/aws-kb-retrieval-server",
+        homepage:
+            "https://github.com/modelcontextprotocol/servers/tree/main/src/aws-kb-retrieval-server",
         install_command: Some("npx -y @modelcontextprotocol/server-aws-kb-retrieval"),
         categories: &["aws", "remote"],
     },

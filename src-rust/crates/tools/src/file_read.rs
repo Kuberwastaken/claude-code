@@ -115,10 +115,7 @@ impl Tool for FileReadTool {
         };
 
         if content.is_empty() {
-            return ToolResult::success(format!(
-                "[File {} exists but is empty]",
-                path.display()
-            ));
+            return ToolResult::success(format!("[File {} exists but is empty]", path.display()));
         }
 
         let lines: Vec<&str> = content.lines().collect();

@@ -4,13 +4,13 @@
 // viewing and editing General, Display, Privacy, Advanced, and KeyBindings
 // settings. Changes are persisted via Settings::save_sync().
 
-use claurst_core::config::{Config, Settings};
-use claurst_core::keybindings::default_bindings;
-use claurst_core::output_styles::builtin_styles;
 use crate::overlays::{
     centered_rect, render_dark_overlay, render_dialog_bg, CLAURST_ACCENT, CLAURST_MUTED,
     CLAURST_PANEL_BG, CLAURST_TEXT,
 };
+use claurst_core::config::{Config, Settings};
+use claurst_core::keybindings::default_bindings;
+use claurst_core::output_styles::builtin_styles;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -70,7 +70,6 @@ pub struct SettingsScreen {
     pub pending_changes: std::collections::HashMap<String, String>,
 
     // ---- Real settings fields ----
-
     /// Whether auto-compact is enabled.
     pub auto_compact_enabled: bool,
     /// Auto-compact threshold (0-100%).
@@ -94,7 +93,11 @@ impl SettingsScreen {
         let auto_compact_enabled = settings_snapshot.config.auto_compact;
         let auto_compact_threshold = {
             let t = settings_snapshot.config.compact_threshold;
-            if t > 0.0 { (t * 100.0).round() as u8 } else { 95 }
+            if t > 0.0 {
+                (t * 100.0).round() as u8
+            } else {
+                95
+            }
         };
         Self {
             visible: false,
@@ -130,34 +133,22 @@ impl SettingsScreen {
             "autoCompact",
             self.settings_snapshot.config.auto_compact,
         );
-        self.auto_compact_threshold = read_setting_u8(
-            &self.settings_snapshot,
-            "autoCompactThreshold",
-            {
+        self.auto_compact_threshold =
+            read_setting_u8(&self.settings_snapshot, "autoCompactThreshold", {
                 let t = self.settings_snapshot.config.compact_threshold;
-                if t > 0.0 { (t * 100.0).round() as u8 } else { 95 }
-            },
-        );
-        self.notifications_enabled = read_setting_bool(
-            &self.settings_snapshot,
-            "notifications",
-            true,
-        );
-        self.reduce_motion = read_setting_bool(
-            &self.settings_snapshot,
-            "reduceMotion",
-            false,
-        );
-        self.show_turn_duration = read_setting_bool(
-            &self.settings_snapshot,
-            "showTurnDuration",
-            false,
-        );
-        self.terminal_progress_bar = read_setting_bool(
-            &self.settings_snapshot,
-            "terminalProgressBar",
-            true,
-        );
+                if t > 0.0 {
+                    (t * 100.0).round() as u8
+                } else {
+                    95
+                }
+            });
+        self.notifications_enabled =
+            read_setting_bool(&self.settings_snapshot, "notifications", true);
+        self.reduce_motion = read_setting_bool(&self.settings_snapshot, "reduceMotion", false);
+        self.show_turn_duration =
+            read_setting_bool(&self.settings_snapshot, "showTurnDuration", false);
+        self.terminal_progress_bar =
+            read_setting_bool(&self.settings_snapshot, "terminalProgressBar", true);
     }
 
     pub fn close(&mut self) {
@@ -370,8 +361,12 @@ pub fn render_settings_screen(frame: &mut Frame, screen: &SettingsScreen, area: 
     render_dark_overlay(frame, area);
 
     // 80% width, 90% height, centred
-    let w = (area.width * 4 / 5).max(60).min(area.width.saturating_sub(2));
-    let h = (area.height * 9 / 10).max(20).min(area.height.saturating_sub(2));
+    let w = (area.width * 4 / 5)
+        .max(60)
+        .min(area.width.saturating_sub(2));
+    let h = (area.height * 9 / 10)
+        .max(20)
+        .min(area.height.saturating_sub(2));
     let popup = centered_rect(w, h, area);
     render_dialog_bg(frame, popup);
 
@@ -390,7 +385,12 @@ pub fn render_settings_screen(frame: &mut Frame, screen: &SettingsScreen, area: 
     // Split into header + tabs + content + footer
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(2), Constraint::Min(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(2),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
         .split(inner);
 
     let header_area = layout[0];
@@ -399,14 +399,26 @@ pub fn render_settings_screen(frame: &mut Frame, screen: &SettingsScreen, area: 
     let footer_area = layout[3];
 
     let title = Line::from(vec![
-        Span::styled(" Settings", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " Settings",
+            Style::default()
+                .fg(CLAURST_ACCENT)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" — Claurst", Style::default().fg(CLAURST_MUTED)),
         Span::styled(
-            format!("{:>width$}", "Esc close", width = inner.width.saturating_sub(19) as usize),
+            format!(
+                "{:>width$}",
+                "Esc close",
+                width = inner.width.saturating_sub(19) as usize
+            ),
             Style::default().fg(CLAURST_MUTED),
         ),
     ]);
-    frame.render_widget(Paragraph::new(title).style(Style::default().bg(CLAURST_PANEL_BG)), header_area);
+    frame.render_widget(
+        Paragraph::new(title).style(Style::default().bg(CLAURST_PANEL_BG)),
+        header_area,
+    );
 
     // Tabs bar
     let tab_labels: Vec<Line> = SettingsTab::all()
@@ -440,20 +452,50 @@ pub fn render_settings_screen(frame: &mut Frame, screen: &SettingsScreen, area: 
     // Footer
     let footer = if screen.edit_field.is_some() {
         Line::from(vec![
-            Span::styled(" Enter ", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Enter ",
+                Style::default()
+                    .fg(CLAURST_ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("save  "),
-            Span::styled(" Esc ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Esc ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("cancel"),
         ])
     } else {
         Line::from(vec![
-            Span::styled(" Tab ", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Tab ",
+                Style::default()
+                    .fg(CLAURST_ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("next tab  "),
-            Span::styled(" ↑↓ ", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " ↑↓ ",
+                Style::default()
+                    .fg(CLAURST_ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("select  "),
-            Span::styled(" Space/Enter ", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Space/Enter ",
+                Style::default()
+                    .fg(CLAURST_ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("toggle  "),
-            Span::styled(" Esc ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Esc ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("close"),
         ])
     };
@@ -495,9 +537,10 @@ fn build_general_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
     lines.push(Line::from(""));
 
     // Model
-    let model_val = cfg.model.clone().unwrap_or_else(|| {
-        claurst_core::constants::DEFAULT_MODEL.to_string()
-    });
+    let model_val = cfg
+        .model
+        .clone()
+        .unwrap_or_else(|| claurst_core::constants::DEFAULT_MODEL.to_string());
     lines.extend(field_lines(
         "model",
         "Model",
@@ -550,11 +593,16 @@ fn build_general_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
         .project_dir
         .as_ref()
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|| std::env::current_dir()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "(unknown)".to_string()));
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "(unknown)".to_string())
+        });
     lines.push(label_value_line("Working Directory", &wd));
-    lines.push(indent_line("  (Set via --project-dir flag)", Color::DarkGray));
+    lines.push(indent_line(
+        "  (Set via --project-dir flag)",
+        Color::DarkGray,
+    ));
     lines.push(Line::from(""));
 
     // --- Toggleable fields ---
@@ -566,7 +614,10 @@ fn build_general_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
     lines.extend(toggle_field_lines(
         screen.auto_compact_enabled,
         "Auto-compact",
-        &format!("Automatically compact at {}%", screen.auto_compact_threshold),
+        &format!(
+            "Automatically compact at {}%",
+            screen.auto_compact_threshold
+        ),
         screen.selected_field == 0,
     ));
 
@@ -609,7 +660,10 @@ fn build_display_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
         claurst_core::config::Theme::Custom(s) => s.as_str(),
     };
     lines.push(label_value_line("Theme", theme_name));
-    lines.push(indent_line("  Options: default, dark, light, deuteranopia  (use /theme to change)", Color::DarkGray));
+    lines.push(indent_line(
+        "  Options: default, dark, light, deuteranopia  (use /theme to change)",
+        Color::DarkGray,
+    ));
     lines.push(Line::from(""));
 
     // Output format
@@ -619,13 +673,19 @@ fn build_display_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
         claurst_core::config::OutputFormat::StreamJson => "stream-json",
     };
     lines.push(label_value_line("Output Format", fmt));
-    lines.push(indent_line("  Options: text, json, stream-json", Color::DarkGray));
+    lines.push(indent_line(
+        "  Options: text, json, stream-json",
+        Color::DarkGray,
+    ));
     lines.push(Line::from(""));
 
     // Verbose
     let verbose = if cfg.verbose { "yes" } else { "no" };
     lines.push(label_value_line("Verbose Mode", verbose));
-    lines.push(indent_line("  Shows additional debug information during queries.", Color::DarkGray));
+    lines.push(indent_line(
+        "  Shows additional debug information during queries.",
+        Color::DarkGray,
+    ));
     lines.push(Line::from(""));
 
     // --- Toggleable fields ---
@@ -661,9 +721,16 @@ fn build_display_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
                 format!("{}  {:<15}", marker, style.name),
                 Style::default()
                     .fg(if active { CLAURST_ACCENT } else { CLAURST_TEXT })
-                    .add_modifier(if active { Modifier::BOLD } else { Modifier::empty() }),
+                    .add_modifier(if active {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
             ),
-            Span::styled(style.description.clone(), Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                style.description.clone(),
+                Style::default().fg(Color::DarkGray),
+            ),
         ]));
     }
     lines.push(Line::from(""));
@@ -691,8 +758,12 @@ impl PrivacySnapshot {
     /// Load privacy fields from `~/.claurst/settings.json`.
     fn load() -> Self {
         let path = claurst_core::config::Settings::config_dir().join("settings.json");
-        let Ok(content) = std::fs::read_to_string(&path) else { return Self::default(); };
-        let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else { return Self::default(); };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return Self::default();
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
+            return Self::default();
+        };
         Self {
             has_agreed: json.get("hasAgreedToUsagePolicy").and_then(|v| v.as_bool()),
             disable_telemetry: json.get("disableTelemetry").and_then(|v| v.as_bool()),
@@ -731,14 +802,23 @@ fn build_privacy_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
     lines.push(Line::from(vec![
         Span::styled(
             format!("  {:<25}", "Usage Policy"),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             agreed_label.to_string(),
-            Style::default().fg(if privacy.has_agreed == Some(true) { Color::Green } else { Color::Yellow }),
+            Style::default().fg(if privacy.has_agreed == Some(true) {
+                Color::Green
+            } else {
+                Color::Yellow
+            }),
         ),
     ]));
-    lines.push(indent_line("  Whether you have agreed to Anthropic's usage policy.", Color::DarkGray));
+    lines.push(indent_line(
+        "  Whether you have agreed to Anthropic's usage policy.",
+        Color::DarkGray,
+    ));
     lines.push(Line::from(""));
 
     // Telemetry
@@ -768,7 +848,9 @@ fn build_privacy_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
         "  Note: Edit ~/.claurst/settings.json to toggle telemetry/sharing values.",
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC),
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::ITALIC),
     )]));
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
@@ -788,7 +870,9 @@ fn privacy_toggle_lines(lines: &mut Vec<Line<'static>>, name: &str, enabled: boo
     lines.push(Line::from(vec![
         Span::styled(
             format!("  {:<25}", name),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("[{}]", toggle_text),
@@ -833,11 +917,17 @@ fn build_advanced_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
         lines.push(indent_line("  (none configured)", Color::DarkGray));
     } else {
         for srv in &cfg.mcp_servers {
-            let kind = if srv.url.is_some() { "http" } else { &srv.server_type };
+            let kind = if srv.url.is_some() {
+                "http"
+            } else {
+                &srv.server_type
+            };
             lines.push(Line::from(vec![
                 Span::styled(
                     format!("  {:<20}", srv.name),
-                    Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(CLAURST_ACCENT)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(format!("[{}]", kind), Style::default().fg(Color::DarkGray)),
             ]));
@@ -869,12 +959,17 @@ fn build_advanced_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
                 lines.push(Line::from(vec![
                     Span::styled(
                         format!("  {:<20}", event_name),
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(filter, Style::default().fg(CLAURST_ACCENT)),
                     Span::styled(blocking.to_string(), Style::default().fg(Color::Red)),
                 ]));
-                lines.push(indent_line(&format!("    cmd: {}", entry.command), Color::DarkGray));
+                lines.push(indent_line(
+                    &format!("    cmd: {}", entry.command),
+                    Color::DarkGray,
+                ));
             }
         }
     }
@@ -890,7 +985,9 @@ fn build_advanced_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
             lines.push(Line::from(vec![
                 Span::styled(
                     format!("  {:<25}", key),
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("= ***".to_string(), Style::default().fg(Color::DarkGray)),
             ]));
@@ -912,7 +1009,9 @@ fn build_keybindings_lines(_screen: &SettingsScreen) -> Vec<Line<'static>> {
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
         "  Edit ~/.claurst/keybindings.json to customise bindings.",
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC),
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::ITALIC),
     )]));
     lines.push(Line::from(""));
 
@@ -928,9 +1027,15 @@ fn build_keybindings_lines(_screen: &SettingsScreen) -> Vec<Line<'static>> {
                 .iter()
                 .map(|ks| {
                     let mut parts = Vec::new();
-                    if ks.ctrl { parts.push("Ctrl"); }
-                    if ks.alt { parts.push("Alt"); }
-                    if ks.shift { parts.push("Shift"); }
+                    if ks.ctrl {
+                        parts.push("Ctrl");
+                    }
+                    if ks.alt {
+                        parts.push("Alt");
+                    }
+                    if ks.shift {
+                        parts.push("Shift");
+                    }
                     parts.push(ks.key.as_str());
                     parts.join("+")
                 })
@@ -997,7 +1102,9 @@ fn label_value_line(label: &str, value: &str) -> Line<'static> {
     Line::from(vec![
         Span::styled(
             format!("  {:<25}", label),
-            Style::default().fg(CLAURST_TEXT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(CLAURST_TEXT)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(value.to_string(), Style::default().fg(CLAURST_ACCENT)),
     ])
@@ -1040,17 +1147,25 @@ fn toggle_field_lines(
         Span::styled(
             format!("  [{}] {:<26}", check_char, label),
             if selected {
-                row_style.fg(Color::Black).bg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)
+                row_style
+                    .fg(Color::Black)
+                    .bg(CLAURST_ACCENT)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
-                    .fg(if enabled { CLAURST_TEXT } else { Color::DarkGray })
-                    .add_modifier(if enabled { Modifier::BOLD } else { Modifier::empty() })
+                    .fg(if enabled {
+                        CLAURST_TEXT
+                    } else {
+                        Color::DarkGray
+                    })
+                    .add_modifier(if enabled {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    })
             },
         ),
-        Span::styled(
-            check_char.to_string(),
-            Style::default().fg(check_color),
-        ),
+        Span::styled(check_char.to_string(), Style::default().fg(check_color)),
         // Overwrite the duplicated check_char — we embedded it above; use the
         // description as the right-hand column instead.
         Span::styled(
@@ -1074,8 +1189,16 @@ fn toggle_field_lines(
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
-                    .fg(if enabled { CLAURST_TEXT } else { Color::DarkGray })
-                    .add_modifier(if enabled { Modifier::BOLD } else { Modifier::empty() })
+                    .fg(if enabled {
+                        CLAURST_TEXT
+                    } else {
+                        Color::DarkGray
+                    })
+                    .add_modifier(if enabled {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    })
             },
         ),
         Span::styled(
@@ -1129,7 +1252,9 @@ fn field_lines(
         Line::from(vec![
             Span::styled(
                 format!("  {:<25}", label),
-                Style::default().fg(CLAURST_TEXT).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(CLAURST_TEXT)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(display_value, Style::default().fg(value_color)),
             Span::styled(
@@ -1230,9 +1355,10 @@ pub fn handle_settings_key(
                 match &screen.active_tab {
                     SettingsTab::General => {
                         let cfg = &screen.settings_snapshot.config;
-                        let model_val = cfg.model.clone().unwrap_or_else(|| {
-                            claurst_core::constants::DEFAULT_MODEL.to_string()
-                        });
+                        let model_val = cfg
+                            .model
+                            .clone()
+                            .unwrap_or_else(|| claurst_core::constants::DEFAULT_MODEL.to_string());
                         screen.start_edit("model", &model_val);
                     }
                     _ => {}
@@ -1311,7 +1437,10 @@ mod tests {
         assert!(screen.notifications_enabled, "notifications default on");
         assert!(!screen.reduce_motion, "reduce_motion default off");
         assert!(!screen.show_turn_duration, "show_turn_duration default off");
-        assert!(screen.terminal_progress_bar, "terminal_progress_bar default on");
+        assert!(
+            screen.terminal_progress_bar,
+            "terminal_progress_bar default on"
+        );
     }
 
     #[test]
@@ -1339,8 +1468,7 @@ mod tests {
         let before = screen.auto_compact_enabled;
         toggle_current_field(&mut screen, &mut config);
         assert_eq!(
-            screen.auto_compact_enabled,
-            !before,
+            screen.auto_compact_enabled, !before,
             "auto_compact_enabled should have flipped"
         );
         // Toggle back
@@ -1438,7 +1566,10 @@ mod tests {
             .flat_map(|l| l.spans.iter())
             .map(|s| s.content.as_ref())
             .collect();
-        assert!(text.contains("Reduce motion"), "Display tab should have Reduce motion row");
+        assert!(
+            text.contains("Reduce motion"),
+            "Display tab should have Reduce motion row"
+        );
         assert!(
             text.contains("Terminal progress bar"),
             "Display tab should have Terminal progress bar row"

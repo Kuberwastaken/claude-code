@@ -46,12 +46,12 @@ use uuid::Uuid;
 /// Returns the agent's final text output.
 pub type AgentRunFn = Arc<
     dyn Fn(
-            String,                // description
-            String,                // prompt
-            Option<Vec<String>>,   // tools allowlist
-            Option<String>,        // system prompt
-            Option<u32>,           // max_turns
-            Arc<ToolContext>,      // context
+            String,              // description
+            String,              // prompt
+            Option<Vec<String>>, // tools allowlist
+            Option<String>,      // system prompt
+            Option<u32>,         // max_turns
+            Arc<ToolContext>,    // context
         ) -> Pin<Box<dyn Future<Output = String> + Send>>
         + Send
         + Sync,
@@ -99,8 +99,7 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use tokio_util::sync::CancellationToken;
 
-static ACTIVE_TEAMS: Lazy<DashMap<String, Vec<CancellationToken>>> =
-    Lazy::new(DashMap::new);
+static ACTIVE_TEAMS: Lazy<DashMap<String, Vec<CancellationToken>>> = Lazy::new(DashMap::new);
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -387,10 +386,7 @@ impl Tool for TeamCreateTool {
                 let agent_name = spec.name.clone();
                 let role = spec.role.clone().unwrap_or_else(|| "assistant".to_string());
                 let tools = spec.tools.clone();
-                let agent_task = spec
-                    .task
-                    .clone()
-                    .unwrap_or_else(|| params.task.clone());
+                let agent_task = spec.task.clone().unwrap_or_else(|| params.task.clone());
                 let team_name_inner = final_name.clone();
                 let cancel = cancel_tokens[i].clone();
                 let ctx_inner = ctx_arc.clone();

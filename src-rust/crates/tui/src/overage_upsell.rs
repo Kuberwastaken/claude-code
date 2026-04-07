@@ -52,7 +52,11 @@ impl OverageCreditUpsellState {
 
     /// Height the banner occupies (0 if not visible).
     pub fn height(&self) -> u16 {
-        if self.visible { 4 } else { 0 }
+        if self.visible {
+            4
+        } else {
+            0
+        }
     }
 }
 
@@ -150,10 +154,20 @@ mod tests {
     fn overage_upsell_render_smoke() {
         let mut state = OverageCreditUpsellState::new();
         state.show(250);
-        let area = Rect { x: 0, y: 0, width: 80, height: 6 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 6,
+        };
         let mut buf = ratatui::buffer::Buffer::empty(area);
         render_overage_upsell(&state, area, &mut buf);
-        let rendered = buf.content.iter().map(|c| c.symbol()).collect::<Vec<_>>().join("");
+        let rendered = buf
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<Vec<_>>()
+            .join("");
         assert!(rendered.contains("Overage Alert"));
         assert!(rendered.contains("credits"));
     }
@@ -161,10 +175,20 @@ mod tests {
     #[test]
     fn overage_upsell_not_rendered_when_invisible() {
         let state = OverageCreditUpsellState::new();
-        let area = Rect { x: 0, y: 0, width: 80, height: 6 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 6,
+        };
         let mut buf = ratatui::buffer::Buffer::empty(area);
         render_overage_upsell(&state, area, &mut buf);
-        let rendered = buf.content.iter().map(|c| c.symbol()).collect::<Vec<_>>().join("");
+        let rendered = buf
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<Vec<_>>()
+            .join("");
         assert!(!rendered.contains("Overage"));
     }
 }

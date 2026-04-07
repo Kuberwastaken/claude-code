@@ -55,7 +55,9 @@ struct EnterWorktreeInput {
 
 #[async_trait]
 impl Tool for EnterWorktreeTool {
-    fn name(&self) -> &str { "EnterWorktree" }
+    fn name(&self) -> &str {
+        "EnterWorktree"
+    }
 
     fn description(&self) -> &str {
         "Create a new git worktree and switch the session's working directory to it. \
@@ -64,7 +66,9 @@ impl Tool for EnterWorktreeTool {
          Use ExitWorktree to return to the original directory."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::Write }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::Write
+    }
 
     fn input_schema(&self) -> Value {
         json!({
@@ -102,11 +106,7 @@ impl Tool for EnterWorktreeTool {
             }
         }
 
-        if let Err(e) = ctx.check_permission(
-            self.name(),
-            "Create a git worktree",
-            false,
-        ) {
+        if let Err(e) = ctx.check_permission(self.name(), "Create a git worktree", false) {
             return ToolResult::error(e.to_string());
         }
 
@@ -128,7 +128,10 @@ impl Tool for EnterWorktreeTool {
             let day_of_year = days % 365;
             let month = day_of_year / 30 + 1;
             let day = day_of_year % 30 + 1;
-            format!("claurst-{:04}{:02}{:02}-{:02}{:02}{:02}", year, month, day, h, m, s)
+            format!(
+                "claurst-{:04}{:02}{:02}-{:02}{:02}{:02}",
+                year, month, day, h, m, s
+            )
         });
 
         // Determine worktree path
@@ -221,15 +224,23 @@ impl Tool for EnterWorktreeTool {
                     match shell_result {
                         Ok(out) if out.status.success() => {
                             let stdout = String::from_utf8_lossy(&out.stdout);
-                            format!("\nPost-create command '{}' completed successfully.{}",
+                            format!(
+                                "\nPost-create command '{}' completed successfully.{}",
                                 cmd,
-                                if stdout.trim().is_empty() { String::new() } else { format!("\nOutput: {}", stdout.trim()) }
+                                if stdout.trim().is_empty() {
+                                    String::new()
+                                } else {
+                                    format!("\nOutput: {}", stdout.trim())
+                                }
                             )
                         }
                         Ok(out) => {
                             let stderr = String::from_utf8_lossy(&out.stderr);
-                            format!("\nPost-create command '{}' exited with error.\nStderr: {}",
-                                cmd, stderr.trim())
+                            format!(
+                                "\nPost-create command '{}' exited with error.\nStderr: {}",
+                                cmd,
+                                stderr.trim()
+                            )
                         }
                         Err(e) => format!("\nCould not run post-create command '{}': {}", cmd, e),
                     }
@@ -273,11 +284,15 @@ struct ExitWorktreeInput {
     discard_changes: bool,
 }
 
-fn default_action() -> String { "keep".to_string() }
+fn default_action() -> String {
+    "keep".to_string()
+}
 
 #[async_trait]
 impl Tool for ExitWorktreeTool {
-    fn name(&self) -> &str { "ExitWorktree" }
+    fn name(&self) -> &str {
+        "ExitWorktree"
+    }
 
     fn description(&self) -> &str {
         "Exit the current worktree session created by EnterWorktree and restore the \
@@ -286,7 +301,9 @@ impl Tool for ExitWorktreeTool {
          by EnterWorktree in this session."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::Write }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::Write
+    }
 
     fn input_schema(&self) -> Value {
         json!({
@@ -376,7 +393,13 @@ impl Tool for ExitWorktreeTool {
                 // but keep the directory on disk.
                 let _ = run_git(
                     &session.original_cwd,
-                    &["worktree", "lock", "--reason", "kept by ExitWorktree", &worktree_str],
+                    &[
+                        "worktree",
+                        "lock",
+                        "--reason",
+                        "kept by ExitWorktree",
+                        &worktree_str,
+                    ],
                 )
                 .await;
 
@@ -398,11 +421,7 @@ impl Tool for ExitWorktreeTool {
 
                 // Delete the branch if we created it
                 if let Some(ref branch) = session.branch {
-                    let _ = run_git(
-                        &session.original_cwd,
-                        &["branch", "-D", branch],
-                    )
-                    .await;
+                    let _ = run_git(&session.original_cwd, &["branch", "-D", branch]).await;
                 }
 
                 ToolResult::success(format!(

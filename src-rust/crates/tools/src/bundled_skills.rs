@@ -415,9 +415,9 @@ $ARGUMENTS"#,
 /// Find a bundled skill by name or alias (case-insensitive).
 pub fn find_bundled_skill(name: &str) -> Option<&'static BundledSkill> {
     let lower = name.to_lowercase();
-    BUNDLED_SKILLS.iter().find(|s| {
-        s.name == lower || s.aliases.iter().any(|a| *a == lower)
-    })
+    BUNDLED_SKILLS
+        .iter()
+        .find(|s| s.name == lower || s.aliases.iter().any(|a| *a == lower))
 }
 
 /// Return `(name, description)` pairs for all user-invocable bundled skills.
@@ -488,11 +488,7 @@ mod tests {
     fn skill_names_are_unique() {
         let mut seen = std::collections::HashSet::new();
         for s in BUNDLED_SKILLS {
-            assert!(
-                seen.insert(s.name),
-                "duplicate skill name: {}",
-                s.name
-            );
+            assert!(seen.insert(s.name), "duplicate skill name: {}", s.name);
         }
     }
 

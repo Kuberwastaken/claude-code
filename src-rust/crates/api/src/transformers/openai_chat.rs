@@ -31,8 +31,10 @@ impl MessageTransformer for OpenAiChatTransformer {
     ) -> Result<serde_json::Value, ProviderError> {
         use serde_json::json;
 
-        let messages =
-            OpenAiProvider::to_openai_messages_pub(&request.messages, request.system_prompt.as_ref());
+        let messages = OpenAiProvider::to_openai_messages_pub(
+            &request.messages,
+            request.system_prompt.as_ref(),
+        );
         let tools = OpenAiProvider::to_openai_tools_pub(&request.tools);
 
         let mut body = json!({

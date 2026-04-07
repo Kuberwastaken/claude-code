@@ -11,8 +11,8 @@ use ratatui::{
 use std::path::{Path, PathBuf};
 
 use crate::overlays::{
-    begin_modal_buf, modal_header_line_area, render_modal_title_buf, CLAURST_ACCENT,
-    CLAURST_MUTED, CLAURST_PANEL_BG, CLAURST_TEXT,
+    begin_modal_buf, modal_header_line_area, render_modal_title_buf, CLAURST_ACCENT, CLAURST_MUTED,
+    CLAURST_PANEL_BG, CLAURST_TEXT,
 };
 
 // ---------------------------------------------------------------------------
@@ -197,7 +197,7 @@ impl AgentEditorState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentsRoute {
     List,
-    Detail(usize),        // index into definitions
+    Detail(usize),         // index into definitions
     Editor(Option<usize>), // None = create new
 }
 
@@ -381,7 +381,9 @@ pub fn load_agent_definitions(project_root: &std::path::Path) -> Vec<AgentDefini
 
     for dir_opt in &dirs {
         let Some(dir) = dir_opt else { continue };
-        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().map_or(false, |e| e == "md") {
@@ -405,8 +407,8 @@ fn parse_agent_def(path: &std::path::Path) -> Option<AgentDefinition> {
         let body = content[end + 4..].trim().to_string();
         let name = extract_yaml_str(front, "name").unwrap_or_else(|| stem.clone());
         let model = extract_yaml_str(front, "model");
-        let memory = extract_yaml_str(front, "memory_scope")
-            .or_else(|| extract_yaml_str(front, "memory"));
+        let memory =
+            extract_yaml_str(front, "memory_scope").or_else(|| extract_yaml_str(front, "memory"));
         let desc = extract_yaml_str(front, "description").unwrap_or_default();
         let tools = extract_yaml_list(front, "tools");
         (name, model, memory, desc, tools, body)
@@ -437,12 +439,7 @@ fn parse_agent_def(path: &std::path::Path) -> Option<AgentDefinition> {
 fn extract_yaml_str(front: &str, key: &str) -> Option<String> {
     for line in front.lines() {
         if let Some(rest) = line.strip_prefix(&format!("{key}:")) {
-            return Some(
-                rest.trim()
-                    .trim_matches('"')
-                    .trim_matches('\'')
-                    .to_string(),
-            );
+            return Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
         }
     }
     None
@@ -454,12 +451,7 @@ fn extract_yaml_list(front: &str, key: &str) -> Vec<String> {
             let rest = rest.trim().trim_matches('[').trim_matches(']');
             return rest
                 .split(',')
-                .map(|s| {
-                    s.trim()
-                        .trim_matches('"')
-                        .trim_matches('\'')
-                        .to_string()
-                })
+                .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
         }
@@ -601,7 +593,9 @@ pub fn render_agents_menu(state: &AgentsMenuState, area: Rect, buf: &mut Buffer)
     }
     Paragraph::new(Line::from(vec![Span::styled(
         footer,
-        Style::default().fg(CLAURST_MUTED).add_modifier(Modifier::ITALIC),
+        Style::default()
+            .fg(CLAURST_MUTED)
+            .add_modifier(Modifier::ITALIC),
     )]))
     .render(layout.footer_area, buf);
 }
@@ -611,7 +605,9 @@ fn render_agents_list(state: &AgentsMenuState, area: Rect, buf: &mut Buffer) {
     if !state.active_agents.is_empty() {
         lines.push(Line::from(vec![Span::styled(
             " Active now",
-            Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(CLAURST_ACCENT)
+                .add_modifier(Modifier::BOLD),
         )]));
         for agent in state.active_agents.iter().take(3) {
             lines.push(Line::from(vec![
@@ -647,7 +643,11 @@ fn render_agents_list(state: &AgentsMenuState, area: Rect, buf: &mut Buffer) {
         let abs_idx = start + i;
         let selected = state.selected_row == abs_idx + 1;
         let model_str = def.model.as_deref().unwrap_or("default");
-        let shadow_suffix = if def.shadowed_by.is_some() { " ⚠" } else { "" };
+        let shadow_suffix = if def.shadowed_by.is_some() {
+            " ⚠"
+        } else {
+            ""
+        };
         lines.push(agent_list_row(
             def.name.clone(),
             format!("{}  ·  {}{}", model_str, def.source, shadow_suffix),
@@ -699,7 +699,9 @@ fn render_agent_detail(def: &AgentDefinition, area: Rect, buf: &mut Buffer) {
     lines.push(Line::default());
     lines.push(Line::from(vec![Span::styled(
         " Description",
-        Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(CLAURST_ACCENT)
+            .add_modifier(Modifier::BOLD),
     )]));
     for line in def.description.lines() {
         lines.push(Line::from(vec![Span::raw(format!(" {}", line))]));
@@ -707,7 +709,9 @@ fn render_agent_detail(def: &AgentDefinition, area: Rect, buf: &mut Buffer) {
     lines.push(Line::default());
     lines.push(Line::from(vec![Span::styled(
         " Prompt",
-        Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(CLAURST_ACCENT)
+            .add_modifier(Modifier::BOLD),
     )]));
     for line in def.instructions.lines().take(8) {
         lines.push(Line::from(vec![Span::styled(
@@ -763,7 +767,9 @@ fn render_agent_editor(state: &AgentsMenuState, area: Rect, buf: &mut Buffer) {
         Line::default(),
         Line::from(vec![Span::styled(
             " Prompt",
-            Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(CLAURST_ACCENT)
+                .add_modifier(Modifier::BOLD),
         )]),
     ];
 
@@ -808,18 +814,22 @@ fn render_editor_field(label: &str, value: &str, value_style: Style) -> Line<'st
         value.to_string()
     };
     Line::from(vec![
-        Span::styled(
-            format!(" {label:<10} "),
-            Style::default().fg(CLAURST_MUTED),
-        ),
+        Span::styled(format!(" {label:<10} "), Style::default().fg(CLAURST_MUTED)),
         Span::styled(display, value_style),
     ])
 }
 
 fn agent_list_row(title: String, meta: String, selected: bool, width: u16) -> Line<'static> {
-    let bg = if selected { CLAURST_ACCENT } else { CLAURST_PANEL_BG };
+    let bg = if selected {
+        CLAURST_ACCENT
+    } else {
+        CLAURST_PANEL_BG
+    };
     let title_style = if selected {
-        Style::default().fg(Color::White).bg(bg).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::White)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(CLAURST_TEXT).bg(bg)
     };
@@ -879,7 +889,11 @@ pub fn render_coordinator_status(agents: &[AgentInfo], area: Rect, buf: &mut Buf
             height: 1,
         };
 
-        let prefix = if agent.is_coordinator { "● " } else { "  ○ " };
+        let prefix = if agent.is_coordinator {
+            "● "
+        } else {
+            "  ○ "
+        };
         let tool_str = agent
             .current_tool
             .as_deref()

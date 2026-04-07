@@ -2,13 +2,11 @@
 //! Renders each message type and verifies key content in returned Lines.
 
 use claurst_tui::messages::{
-    render_assistant_text, render_user_text, render_tool_use,
-    render_tool_result_success, render_tool_result_error,
-    render_compact_boundary, render_summary_message,
-    render_unseen_divider, render_system_message, render_thinking_block,
-    render_rate_limit_banner, render_hook_progress, render_code_block,
-    render_user_command, render_user_memory_input, render_user_local_command_output,
-    RenderContext,
+    render_assistant_text, render_code_block, render_compact_boundary, render_hook_progress,
+    render_rate_limit_banner, render_summary_message, render_system_message, render_thinking_block,
+    render_tool_result_error, render_tool_result_success, render_tool_use, render_unseen_divider,
+    render_user_command, render_user_local_command_output, render_user_memory_input,
+    render_user_text, RenderContext,
 };
 
 // ---------------------------------------------------------------------------
@@ -28,7 +26,12 @@ fn flatten(lines: &[ratatui::text::Line<'_>]) -> String {
 
 #[test]
 fn assistant_text_renders_lines() {
-    let ctx = RenderContext { width: 80, highlight: true, show_thinking: false, ..Default::default() };
+    let ctx = RenderContext {
+        width: 80,
+        highlight: true,
+        show_thinking: false,
+        ..Default::default()
+    };
     let lines = render_assistant_text("Hello, world!\n\nSecond paragraph.", &ctx);
     assert!(!lines.is_empty());
     let combined = flatten(&lines);
@@ -234,7 +237,10 @@ fn user_local_command_output_shows_output_lines() {
 
 #[test]
 fn user_local_command_output_truncates_at_max_lines() {
-    let output = (0..50).map(|i| format!("line{}", i)).collect::<Vec<_>>().join("\n");
+    let output = (0..50)
+        .map(|i| format!("line{}", i))
+        .collect::<Vec<_>>()
+        .join("\n");
     let lines = render_user_local_command_output("cmd", &output, 10);
     let combined = flatten(&lines);
     assert!(combined.contains("more lines"));

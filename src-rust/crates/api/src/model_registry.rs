@@ -90,9 +90,30 @@ impl ModelRegistry {
     fn add_anthropic_models(&mut self) {
         let pid = ProviderId::new(ProviderId::ANTHROPIC);
         for (id, name, ctx, out, cost_in, cost_out) in [
-            ("claude-opus-4-6",           "Claude Opus 4.6",    200_000u32, 32_000u32, 15.0f64, 75.0f64),
-            ("claude-sonnet-4-6",         "Claude Sonnet 4.6",  200_000,    16_000,     3.0,    15.0),
-            ("claude-haiku-4-5-20251001", "Claude Haiku 4.5",   200_000,     8_096,     0.8,     4.0),
+            (
+                "claude-opus-4-6",
+                "Claude Opus 4.6",
+                200_000u32,
+                32_000u32,
+                15.0f64,
+                75.0f64,
+            ),
+            (
+                "claude-sonnet-4-6",
+                "Claude Sonnet 4.6",
+                200_000,
+                16_000,
+                3.0,
+                15.0,
+            ),
+            (
+                "claude-haiku-4-5-20251001",
+                "Claude Haiku 4.5",
+                200_000,
+                8_096,
+                0.8,
+                4.0,
+            ),
         ] {
             self.insert(ModelEntry {
                 info: ModelInfo {
@@ -118,10 +139,21 @@ impl ModelRegistry {
     fn add_openai_models(&mut self) {
         let pid = ProviderId::new(ProviderId::OPENAI);
         for (id, name, ctx, out, cost_in, cost_out, tools, reasoning) in [
-            ("gpt-4o",      "GPT-4o",        128_000u32, 16_384u32,  2.5f64, 10.0f64, true,  false),
-            ("gpt-4o-mini", "GPT-4o mini",   128_000,    16_384,     0.15,    0.6,    true,  false),
-            ("o3",          "o3",            200_000,   100_000,    10.0,   40.0,    true,  true),
-            ("o4-mini",     "o4-mini",       200_000,   100_000,     1.1,    4.4,    true,  true),
+            (
+                "gpt-4o", "GPT-4o", 128_000u32, 16_384u32, 2.5f64, 10.0f64, true, false,
+            ),
+            (
+                "gpt-4o-mini",
+                "GPT-4o mini",
+                128_000,
+                16_384,
+                0.15,
+                0.6,
+                true,
+                false,
+            ),
+            ("o3", "o3", 200_000, 100_000, 10.0, 40.0, true, true),
+            ("o4-mini", "o4-mini", 200_000, 100_000, 1.1, 4.4, true, true),
         ] {
             self.insert(ModelEntry {
                 info: ModelInfo {
@@ -147,9 +179,30 @@ impl ModelRegistry {
     fn add_google_models(&mut self) {
         let pid = ProviderId::new(ProviderId::GOOGLE);
         for (id, name, ctx, out, cost_in, cost_out) in [
-            ("gemini-2.5-pro",   "Gemini 2.5 Pro",   1_048_576u32, 65_536u32, 1.25f64, 5.0f64),
-            ("gemini-2.5-flash", "Gemini 2.5 Flash", 1_048_576,    65_536,    0.15,    0.6),
-            ("gemini-2.0-flash", "Gemini 2.0 Flash", 1_048_576,     8_192,    0.1,     0.4),
+            (
+                "gemini-2.5-pro",
+                "Gemini 2.5 Pro",
+                1_048_576u32,
+                65_536u32,
+                1.25f64,
+                5.0f64,
+            ),
+            (
+                "gemini-2.5-flash",
+                "Gemini 2.5 Flash",
+                1_048_576,
+                65_536,
+                0.15,
+                0.6,
+            ),
+            (
+                "gemini-2.0-flash",
+                "Gemini 2.0 Flash",
+                1_048_576,
+                8_192,
+                0.1,
+                0.4,
+            ),
         ] {
             self.insert(ModelEntry {
                 info: ModelInfo {
@@ -217,13 +270,20 @@ impl ModelRegistry {
         //    from hijacking well-known models like claude-* or gpt-*.
         let canonical = if model_name.starts_with("claude") {
             Some(ProviderId::ANTHROPIC)
-        } else if model_name.starts_with("gpt-") || model_name.starts_with("o1") || model_name.starts_with("o3") || model_name.starts_with("o4") {
+        } else if model_name.starts_with("gpt-")
+            || model_name.starts_with("o1")
+            || model_name.starts_with("o3")
+            || model_name.starts_with("o4")
+        {
             Some(ProviderId::OPENAI)
         } else if model_name.starts_with("gemini") || model_name.starts_with("gemma") {
             Some(ProviderId::GOOGLE)
         } else if model_name.starts_with("deepseek") {
             Some("deepseek")
-        } else if model_name.starts_with("mistral") || model_name.starts_with("codestral") || model_name.starts_with("pixtral") {
+        } else if model_name.starts_with("mistral")
+            || model_name.starts_with("codestral")
+            || model_name.starts_with("pixtral")
+        {
             Some("mistral")
         } else if model_name.starts_with("grok") {
             Some("xai")
@@ -249,8 +309,7 @@ impl ModelRegistry {
         // the canonical ID (e.g. "gemini-3-flash-preview" may be stored as
         // "gemini-3-flash-preview-05-20").  Try a prefix match.
         for entry in self.entries.values() {
-            if (&*entry.info.id).starts_with(model_name)
-                || model_name.starts_with(&*entry.info.id)
+            if (&*entry.info.id).starts_with(model_name) || model_name.starts_with(&*entry.info.id)
             {
                 return Some(entry.info.provider_id.clone());
             }
@@ -427,10 +486,7 @@ impl ModelRegistry {
         // { "provider_id": { "models": { "model_id": { "name": "...", "limit": {...}, "cost": {...} } } } }
         if let Some(obj) = json.as_object() {
             for (provider_id, provider_data) in obj {
-                if let Some(models) = provider_data
-                    .get("models")
-                    .and_then(|m| m.as_object())
-                {
+                if let Some(models) = provider_data.get("models").and_then(|m| m.as_object()) {
                     for (model_id, model_data) in models {
                         let ctx = model_data
                             .get("limit")
@@ -469,24 +525,27 @@ impl ModelRegistry {
                         let key = format!("{}/{}", pid, mid);
 
                         // models.dev is the source of truth — overwrite bundled snapshot data.
-                        self.entries.insert(key, ModelEntry {
-                            info: ModelInfo {
-                                id: mid,
-                                provider_id: pid,
-                                name,
-                                context_window: ctx,
-                                max_output_tokens: out,
+                        self.entries.insert(
+                            key,
+                            ModelEntry {
+                                info: ModelInfo {
+                                    id: mid,
+                                    provider_id: pid,
+                                    name,
+                                    context_window: ctx,
+                                    max_output_tokens: out,
+                                },
+                                cost_input: cost_in,
+                                cost_output: cost_out,
+                                cost_cache_read: None,
+                                cost_cache_write: None,
+                                tool_calling,
+                                reasoning,
+                                vision: false,
+                                family: None,
+                                status: "active".to_string(),
                             },
-                            cost_input: cost_in,
-                            cost_output: cost_out,
-                            cost_cache_read: None,
-                            cost_cache_write: None,
-                            tool_calling,
-                            reasoning,
-                            vision: false,
-                            family: None,
-                            status: "active".to_string(),
-                        });
+                        );
                     }
                 }
             }
@@ -530,9 +589,7 @@ impl ModelRegistry {
             }
         }
         // Fall back to our own serialized format.
-        if let Ok(entries) =
-            serde_json::from_str::<HashMap<String, ModelEntry>>(&data)
-        {
+        if let Ok(entries) = serde_json::from_str::<HashMap<String, ModelEntry>>(&data) {
             self.entries.extend(entries);
         }
     }

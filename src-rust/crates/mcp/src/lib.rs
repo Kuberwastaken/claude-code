@@ -30,12 +30,12 @@ use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, info, warn};
 
 pub use client::McpClient;
-pub use types::*;
 pub use connection_manager::{McpConnectionManager, McpServerStatus};
+pub use types::*;
 
 pub mod connection_manager;
-pub mod registry;
 pub mod oauth;
+pub mod registry;
 
 // ---------------------------------------------------------------------------
 // Environment variable expansion
@@ -79,7 +79,8 @@ pub fn expand_env_vars(input: &str) -> String {
                             },
                         };
 
-                        result = format!("{}{}{}", &result[..start], replacement, &result[end + 1..]);
+                        result =
+                            format!("{}{}{}", &result[..start], replacement, &result[end + 1..]);
                         // Continue scanning from where the replacement ends
                         search_from = start + replacement.len();
                     }
@@ -295,13 +296,17 @@ pub mod types {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(tag = "type", rename_all = "lowercase")]
     pub enum McpContent {
-        Text { text: String },
+        Text {
+            text: String,
+        },
         Image {
             data: String,
             #[serde(rename = "mimeType")]
             mime_type: String,
         },
-        Resource { resource: ResourceContents },
+        Resource {
+            resource: ResourceContents,
+        },
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -427,10 +432,9 @@ pub mod transport {
 
     impl StdioTransport {
         pub async fn spawn(config: &McpServerConfig) -> anyhow::Result<Self> {
-            let command = config
-                .command
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' has no command configured", config.name))?;
+            let command = config.command.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("MCP server '{}' has no command configured", config.name)
+            })?;
 
             let mut cmd = Command::new(command);
             cmd.args(&config.args)
@@ -448,14 +452,12 @@ pub mod transport {
                 )
             })?;
 
-            let stdin = child
-                .stdin
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("MCP server '{}': could not capture stdin", config.name))?;
-            let stdout = child
-                .stdout
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("MCP server '{}': could not capture stdout", config.name))?;
+            let stdin = child.stdin.take().ok_or_else(|| {
+                anyhow::anyhow!("MCP server '{}': could not capture stdin", config.name)
+            })?;
+            let stdout = child.stdout.take().ok_or_else(|| {
+                anyhow::anyhow!("MCP server '{}': could not capture stdout", config.name)
+            })?;
 
             let (tx, rx) = mpsc::unbounded_channel::<String>();
 
@@ -493,8 +495,9 @@ pub mod transport {
             let line = rx.recv().await;
             match line {
                 Some(s) => {
-                    let resp: JsonRpcResponse = serde_json::from_str(&s)
-                        .map_err(|e| anyhow::anyhow!("MCP response parse error: {} (raw: {})", e, s))?;
+                    let resp: JsonRpcResponse = serde_json::from_str(&s).map_err(|e| {
+                        anyhow::anyhow!("MCP response parse error: {} (raw: {})", e, s)
+                    })?;
                     Ok(Some(resp))
                 }
                 None => Ok(None),
@@ -511,8 +514,9 @@ pub mod transport {
             let mut rx = self.stdout_rx.lock().await;
             match rx.try_recv() {
                 Ok(line) => {
-                    let val: serde_json::Value = serde_json::from_str(&line)
-                        .map_err(|e| anyhow::anyhow!("MCP raw parse error: {} (raw: {})", e, line))?;
+                    let val: serde_json::Value = serde_json::from_str(&line).map_err(|e| {
+                        anyhow::anyhow!("MCP raw parse error: {} (raw: {})", e, line)
+                    })?;
                     Ok(Some(val))
                 }
                 Err(mpsc::error::TryRecvError::Empty) => Ok(None),
@@ -538,9 +542,10 @@ pub mod transport {
 
                     match line {
                         Some(s) => {
-                            let val: anyhow::Result<serde_json::Value> =
-                                serde_json::from_str(&s)
-                                    .map_err(|e| anyhow::anyhow!("MCP raw parse error: {} (raw: {})", e, s));
+                            let val: anyhow::Result<serde_json::Value> = serde_json::from_str(&s)
+                                .map_err(|e| {
+                                    anyhow::anyhow!("MCP raw parse error: {} (raw: {})", e, s)
+                                });
 
                             if tx.send(val).await.is_err() {
                                 // Receiver dropped; exit the polling task
@@ -610,7 +615,9 @@ pub mod client {
             let params = InitializeParams {
                 protocol_version: "2024-11-05".to_string(),
                 capabilities: ClientCapabilities {
-                    roots: Some(RootsCapability { list_changed: false }),
+                    roots: Some(RootsCapability {
+                        list_changed: false,
+                    }),
                     sampling: None,
                 },
                 client_info: ClientInfo {
@@ -622,7 +629,9 @@ pub mod client {
             let result: InitializeResult = self
                 .call("initialize", Some(serde_json::to_value(&params)?))
                 .await
-                .map_err(|e| anyhow::anyhow!("MCP server '{}' initialize failed: {}", self.server_name, e))?;
+                .map_err(|e| {
+                    anyhow::anyhow!("MCP server '{}' initialize failed: {}", self.server_name, e)
+                })?;
 
             self.server_info = Some(result.server_info);
             self.instructions = result.instructions;
@@ -644,7 +653,9 @@ pub mod client {
             if result.capabilities.resources.is_some() {
                 match self.list_resources().await {
                     Ok(resources) => self.resources = resources,
-                    Err(e) => warn!(server = %self.server_name, error = %e, "Failed to list resources"),
+                    Err(e) => {
+                        warn!(server = %self.server_name, error = %e, "Failed to list resources")
+                    }
                 }
             }
 
@@ -652,7 +663,9 @@ pub mod client {
             if result.capabilities.prompts.is_some() {
                 match self.list_prompts().await {
                     Ok(prompts) => self.prompts = prompts,
-                    Err(e) => warn!(server = %self.server_name, error = %e, "Failed to list prompts"),
+                    Err(e) => {
+                        warn!(server = %self.server_name, error = %e, "Failed to list prompts")
+                    }
                 }
             }
 
@@ -932,17 +945,22 @@ pub mod client {
             self.transport.send(&req).await?;
 
             loop {
-                let resp = self
-                    .transport
-                    .recv()
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("MCP transport closed while waiting for response to '{}'", method))?;
+                let resp = self.transport.recv().await?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "MCP transport closed while waiting for response to '{}'",
+                        method
+                    )
+                })?;
 
                 // Check if this response matches our request id
                 let resp_id = resp.id.as_ref().and_then(|v| v.as_u64()).unwrap_or(0);
                 if resp_id != id {
                     // Might be a server-initiated notification; skip
-                    debug!(got_id = resp_id, want_id = id, "Skipping non-matching response");
+                    debug!(
+                        got_id = resp_id,
+                        want_id = id,
+                        "Skipping non-matching response"
+                    );
                     continue;
                 }
 
@@ -997,7 +1015,9 @@ pub enum McpAuthState {
     /// OAuth required; `auth_url` is where the user should go.
     Required { auth_url: String },
     /// Successfully authenticated; token may have an expiry.
-    Authenticated { token_expiry: Option<chrono::DateTime<chrono::Utc>> },
+    Authenticated {
+        token_expiry: Option<chrono::DateTime<chrono::Utc>>,
+    },
     /// An error occurred reading / initiating auth.
     Error(String),
 }
@@ -1014,7 +1034,8 @@ pub struct McpManager {
     /// Original (unexpanded) server configs — needed for OAuth initiation.
     server_configs: HashMap<String, McpServerConfig>,
     /// Active resource subscriptions: (server_name, uri) → change event sender.
-    pub resource_subscriptions: DashMap<(String, String), tokio::sync::mpsc::Sender<ResourceChangedEvent>>,
+    pub resource_subscriptions:
+        DashMap<(String, String), tokio::sync::mpsc::Sender<ResourceChangedEvent>>,
 }
 
 #[derive(Debug, Clone)]
@@ -1046,7 +1067,9 @@ impl McpManager {
         let mut manager = Self::new();
         for config in configs {
             // Store original config for later OAuth use
-            manager.server_configs.insert(config.name.clone(), config.clone());
+            manager
+                .server_configs
+                .insert(config.name.clone(), config.clone());
             // Expand env vars before using the config
             let expanded = expand_server_config(config);
 
@@ -1065,7 +1088,9 @@ impl McpManager {
                                 resources = client.resources.len(),
                                 "MCP server connected"
                             );
-                            manager.clients.insert(expanded.name.clone(), Arc::new(client));
+                            manager
+                                .clients
+                                .insert(expanded.name.clone(), Arc::new(client));
                         }
                         Err(e) => {
                             error!(
@@ -1211,16 +1236,16 @@ impl McpManager {
         self.clients
             .iter()
             .filter_map(|(name, client)| {
-                client.instructions.as_ref().map(|instr| (name.clone(), instr.clone()))
+                client
+                    .instructions
+                    .as_ref()
+                    .map(|instr| (name.clone(), instr.clone()))
             })
             .collect()
     }
 
     /// List all resources from all (or a specific) connected server.
-    pub async fn list_all_resources(
-        &self,
-        server_filter: Option<&str>,
-    ) -> Vec<serde_json::Value> {
+    pub async fn list_all_resources(&self, server_filter: Option<&str>) -> Vec<serde_json::Value> {
         let mut all = vec![];
         for (name, client) in &self.clients {
             if let Some(filter) = server_filter {
@@ -1254,20 +1279,16 @@ impl McpManager {
         server_name: &str,
         uri: &str,
     ) -> anyhow::Result<serde_json::Value> {
-        let client = self
-            .clients
-            .get(server_name)
-            .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not found or not connected", server_name))?;
+        let client = self.clients.get(server_name).ok_or_else(|| {
+            anyhow::anyhow!("MCP server '{}' not found or not connected", server_name)
+        })?;
 
         let contents = client.read_resource(uri).await?;
         Ok(serde_json::to_value(&contents)?)
     }
 
     /// List all prompts from all (or a specific) connected server.
-    pub async fn list_all_prompts(
-        &self,
-        server_filter: Option<&str>,
-    ) -> Vec<serde_json::Value> {
+    pub async fn list_all_prompts(&self, server_filter: Option<&str>) -> Vec<serde_json::Value> {
         let mut all = vec![];
         for (name, client) in &self.clients {
             if let Some(filter) = server_filter {
@@ -1304,10 +1325,9 @@ impl McpManager {
         prompt_name: &str,
         arguments: Option<std::collections::HashMap<String, String>>,
     ) -> anyhow::Result<GetPromptResult> {
-        let client = self
-            .clients
-            .get(server_name)
-            .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not found or not connected", server_name))?;
+        let client = self.clients.get(server_name).ok_or_else(|| {
+            anyhow::anyhow!("MCP server '{}' not found or not connected", server_name)
+        })?;
         client.get_prompt(prompt_name, arguments).await
     }
 
@@ -1649,7 +1669,10 @@ mod tests {
         let expanded = expand_server_config(&cfg);
         assert_eq!(expanded.command.as_deref(), Some("/home/user/bin/server"));
         assert_eq!(expanded.args[1], "/home/user");
-        assert_eq!(expanded.env.get("PATH").map(|s| s.as_str()), Some("/home/user/bin"));
+        assert_eq!(
+            expanded.env.get("PATH").map(|s| s.as_str()),
+            Some("/home/user/bin")
+        );
         std::env::remove_var("_CC_TEST_HOME");
     }
 
@@ -1829,7 +1852,10 @@ pub async fn subscribe_resource(
     };
 
     let params = serde_json::json!({ "uri": uri });
-    if let Err(e) = client.call::<serde_json::Value>("resources/subscribe", Some(params)).await {
+    if let Err(e) = client
+        .call::<serde_json::Value>("resources/subscribe", Some(params))
+        .await
+    {
         tracing::warn!(server_name, uri, error = %e, "subscribe_resource RPC failed");
         return make_dead();
     }
@@ -1852,10 +1878,12 @@ pub async fn unsubscribe_resource(
     server_name: &str,
     uri: &str,
 ) -> Result<(), String> {
-    let client = manager
-        .clients
-        .get(server_name)
-        .ok_or_else(|| format!("unsubscribe_resource: server '{}' not connected", server_name))?;
+    let client = manager.clients.get(server_name).ok_or_else(|| {
+        format!(
+            "unsubscribe_resource: server '{}' not connected",
+            server_name
+        )
+    })?;
 
     let params = serde_json::json!({ "uri": uri });
     client
@@ -1881,9 +1909,7 @@ mod notification_tests {
     impl MockTransport {
         fn with_lines(lines: &[&str]) -> Arc<Self> {
             Arc::new(Self {
-                queue: tokio::sync::Mutex::new(
-                    lines.iter().map(|s| s.to_string()).collect(),
-                ),
+                queue: tokio::sync::Mutex::new(lines.iter().map(|s| s.to_string()).collect()),
             })
         }
     }
@@ -1937,7 +1963,9 @@ mod notification_tests {
                     match line {
                         Some(s) => {
                             let val: anyhow::Result<serde_json::Value> = serde_json::from_str(&s)
-                                .map_err(|e| anyhow::anyhow!("Mock parse error: {} (raw: {})", e, s));
+                                .map_err(|e| {
+                                    anyhow::anyhow!("Mock parse error: {} (raw: {})", e, s)
+                                });
 
                             if tx.send(val).await.is_err() {
                                 break;
@@ -1981,7 +2009,10 @@ mod notification_tests {
         let event = rx.try_recv().expect("expected a ResourceChangedEvent");
         assert_eq!(event.server_name, "myserver");
         assert_eq!(event.uri, "file:///foo.txt");
-        assert!(rx.try_recv().is_err(), "channel should be empty after one event");
+        assert!(
+            rx.try_recv().is_err(),
+            "channel should be empty after one event"
+        );
     }
 
     #[tokio::test]
@@ -2027,10 +2058,7 @@ mod notification_tests {
 
     #[tokio::test]
     async fn test_poll_notifications_empty_queue_is_noop() {
-        let client = client::McpClient::new_for_test(
-            "myserver",
-            MockTransport::with_lines(&[]),
-        );
+        let client = client::McpClient::new_for_test("myserver", MockTransport::with_lines(&[]));
         let subscriptions: DashMap<
             (String, String),
             tokio::sync::mpsc::Sender<ResourceChangedEvent>,
@@ -2054,10 +2082,7 @@ mod notification_tests {
         })
         .to_string();
 
-        let client = client::McpClient::new_for_test(
-            "s1",
-            MockTransport::with_lines(&[&n1, &n2]),
-        );
+        let client = client::McpClient::new_for_test("s1", MockTransport::with_lines(&[&n1, &n2]));
 
         let subscriptions: DashMap<
             (String, String),
@@ -2089,10 +2114,8 @@ mod notification_tests {
         })
         .to_string();
 
-        let client = client::McpClient::new_for_test(
-            "myserver",
-            MockTransport::with_lines(&[&response]),
-        );
+        let client =
+            client::McpClient::new_for_test("myserver", MockTransport::with_lines(&[&response]));
 
         let subscriptions: DashMap<
             (String, String),

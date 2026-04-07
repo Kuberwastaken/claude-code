@@ -18,8 +18,8 @@ use crate::error_handling::parse_error_response;
 use crate::provider::{LlmProvider, ModelInfo};
 use crate::provider_error::ProviderError;
 use crate::provider_types::{
-    ProviderCapabilities, ProviderRequest, ProviderResponse, ProviderStatus,
-    StreamEvent, SystemPromptStyle,
+    ProviderCapabilities, ProviderRequest, ProviderResponse, ProviderStatus, StreamEvent,
+    SystemPromptStyle,
 };
 
 // Re-use the message transformation helpers from openai.rs.
@@ -110,11 +110,7 @@ impl OpenAiCompatProvider {
     }
 
     /// Append a custom header sent on every request.
-    pub fn with_header(
-        mut self,
-        name: impl Into<String>,
-        value: impl Into<String>,
-    ) -> Self {
+    pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.extra_headers.push((name.into(), value.into()));
         self
     }
@@ -187,20 +183,11 @@ impl OpenAiCompatProvider {
     fn apply_fix_tool_user_sequence(messages: &mut Vec<Value>) {
         let mut i = 0;
         while i + 1 < messages.len() {
-            let current_is_tool = messages[i]
-                .get("role")
-                .and_then(|v| v.as_str())
-                == Some("tool");
-            let next_is_user = messages[i + 1]
-                .get("role")
-                .and_then(|v| v.as_str())
-                == Some("user");
+            let current_is_tool = messages[i].get("role").and_then(|v| v.as_str()) == Some("tool");
+            let next_is_user = messages[i + 1].get("role").and_then(|v| v.as_str()) == Some("user");
 
             if current_is_tool && next_is_user {
-                messages.insert(
-                    i + 1,
-                    json!({ "role": "assistant", "content": "Done." }),
-                );
+                messages.insert(i + 1, json!({ "role": "assistant", "content": "Done." }));
                 i += 2; // skip past the inserted message and the user message
             } else {
                 i += 1;
@@ -231,10 +218,7 @@ impl OpenAiCompatProvider {
     }
 
     /// Attach the authorization header if an API key is configured.
-    fn apply_auth(
-        &self,
-        builder: reqwest::RequestBuilder,
-    ) -> reqwest::RequestBuilder {
+    fn apply_auth(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         if let Some(key) = &self.api_key {
             builder.header("Authorization", format!("Bearer {}", key))
         } else {
@@ -243,10 +227,7 @@ impl OpenAiCompatProvider {
     }
 
     /// Attach all configured extra headers.
-    fn apply_extra_headers(
-        &self,
-        mut builder: reqwest::RequestBuilder,
-    ) -> reqwest::RequestBuilder {
+    fn apply_extra_headers(&self, mut builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         for (name, value) in &self.extra_headers {
             builder = builder.header(name.as_str(), value.as_str());
         }
@@ -320,13 +301,12 @@ impl OpenAiCompatProvider {
             return Err(self.map_http_error(status, &text));
         }
 
-        let json: Value =
-            serde_json::from_str(&text).map_err(|e| ProviderError::Other {
-                provider: self.id.clone(),
-                message: format!("Failed to parse response JSON: {}", e),
-                status: Some(status),
-                body: Some(text.clone()),
-            })?;
+        let json: Value = serde_json::from_str(&text).map_err(|e| ProviderError::Other {
+            provider: self.id.clone(),
+            message: format!("Failed to parse response JSON: {}", e),
+            status: Some(status),
+            body: Some(text.clone()),
+        })?;
 
         OpenAiProvider::parse_non_streaming_response_pub(&json, &self.id)
     }
@@ -705,13 +685,12 @@ impl LlmProvider for OpenAiCompatProvider {
             return Err(self.map_http_error(status, &text));
         }
 
-        let json: Value =
-            serde_json::from_str(&text).map_err(|e| ProviderError::Other {
-                provider: self.id.clone(),
-                message: format!("Failed to parse models JSON: {}", e),
-                status: Some(status),
-                body: Some(text),
-            })?;
+        let json: Value = serde_json::from_str(&text).map_err(|e| ProviderError::Other {
+            provider: self.id.clone(),
+            message: format!("Failed to parse models JSON: {}", e),
+            status: Some(status),
+            body: Some(text),
+        })?;
 
         let data = match json.get("data").and_then(|d| d.as_array()) {
             Some(d) => d,

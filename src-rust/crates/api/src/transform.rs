@@ -5,9 +5,9 @@
 // in both directions (outbound request serialisation and inbound response
 // deserialisation).
 
+use crate::provider::ModelInfo;
 use crate::provider_error::ProviderError;
 use crate::provider_types::{ProviderRequest, ProviderResponse};
-use crate::provider::ModelInfo;
 
 // ---------------------------------------------------------------------------
 // MessageTransformer

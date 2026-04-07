@@ -59,10 +59,8 @@ impl AnthropicProvider {
     /// Build a [`CreateMessageRequest`] from a [`ProviderRequest`].
     fn build_request(request: &ProviderRequest) -> CreateMessageRequest {
         let normalized_messages = normalize_anthropic_messages(&request.messages);
-        let api_messages: Vec<ApiMessage> = normalized_messages
-            .iter()
-            .map(ApiMessage::from)
-            .collect();
+        let api_messages: Vec<ApiMessage> =
+            normalized_messages.iter().map(ApiMessage::from).collect();
 
         let api_tools: Option<Vec<ApiToolDefinition>> = if request.tools.is_empty() {
             None
@@ -117,13 +115,15 @@ impl AnthropicProvider {
             AnthropicStreamEvent::MessageStart { id, model, usage } => {
                 Some(StreamEvent::MessageStart { id, model, usage })
             }
-            AnthropicStreamEvent::ContentBlockStart { index, content_block } => {
-                Some(StreamEvent::ContentBlockStart { index, content_block })
-            }
+            AnthropicStreamEvent::ContentBlockStart {
+                index,
+                content_block,
+            } => Some(StreamEvent::ContentBlockStart {
+                index,
+                content_block,
+            }),
             AnthropicStreamEvent::ContentBlockDelta { index, delta } => match delta {
-                ContentDelta::TextDelta { text } => {
-                    Some(StreamEvent::TextDelta { index, text })
-                }
+                ContentDelta::TextDelta { text } => Some(StreamEvent::TextDelta { index, text }),
                 ContentDelta::ThinkingDelta { thinking } => {
                     Some(StreamEvent::ThinkingDelta { index, thinking })
                 }
@@ -131,7 +131,10 @@ impl AnthropicProvider {
                     Some(StreamEvent::SignatureDelta { index, signature })
                 }
                 ContentDelta::InputJsonDelta { partial_json } => {
-                    Some(StreamEvent::InputJsonDelta { index, partial_json })
+                    Some(StreamEvent::InputJsonDelta {
+                        index,
+                        partial_json,
+                    })
                 }
             },
             AnthropicStreamEvent::ContentBlockStop { index } => {
@@ -145,9 +148,13 @@ impl AnthropicProvider {
                 })
             }
             AnthropicStreamEvent::MessageStop => Some(StreamEvent::MessageStop),
-            AnthropicStreamEvent::Error { error_type, message } => {
-                Some(StreamEvent::Error { error_type, message })
-            }
+            AnthropicStreamEvent::Error {
+                error_type,
+                message,
+            } => Some(StreamEvent::Error {
+                error_type,
+                message,
+            }),
             AnthropicStreamEvent::Ping => None,
         }
     }
@@ -255,7 +262,10 @@ impl LlmProvider for AnthropicProvider {
                         }
                     }
                     StreamEvent::MessageStop => break,
-                    StreamEvent::Error { error_type, message } => {
+                    StreamEvent::Error {
+                        error_type,
+                        message,
+                    } => {
                         return Err(ProviderError::StreamError {
                             provider: self.id.clone(),
                             message: format!("[{}] {}", error_type, message),

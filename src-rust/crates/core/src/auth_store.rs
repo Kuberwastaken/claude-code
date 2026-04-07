@@ -89,9 +89,7 @@ impl AuthStore {
                     }
                 }
                 StoredCredential::OAuthToken {
-                    access,
-                    refresh,
-                    ..
+                    access, refresh, ..
                 } if provider_id == "github-copilot" => {
                     if !refresh.is_empty() {
                         return Some(refresh.clone());

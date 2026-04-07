@@ -63,7 +63,11 @@ impl MemoryCache {
     pub fn get(&self, path: &Path) -> Option<&str> {
         let mtime = std::fs::metadata(path).ok()?.modified().ok()?;
         let (cached_mtime, content) = self.entries.get(path)?;
-        if *cached_mtime == mtime { Some(content.as_str()) } else { None }
+        if *cached_mtime == mtime {
+            Some(content.as_str())
+        } else {
+            None
+        }
     }
 
     /// Store file content with its current mtime.
@@ -133,9 +137,7 @@ pub fn expand_includes(
             let path_str = path_str.trim();
             // Resolve relative to base_dir; expand ~ to home dir.
             let include_path = if path_str.starts_with('~') {
-                dirs::home_dir()
-                    .unwrap_or_default()
-                    .join(&path_str[2..])
+                dirs::home_dir().unwrap_or_default().join(&path_str[2..])
             } else if Path::new(path_str).is_absolute() {
                 PathBuf::from(path_str)
             } else {
@@ -144,13 +146,19 @@ pub fn expand_includes(
 
             let canonical = include_path.canonicalize().unwrap_or(include_path.clone());
             if visited.contains(&canonical) {
-                result.push_str(&format!("<!-- circular @include {} skipped -->\n", path_str));
+                result.push_str(&format!(
+                    "<!-- circular @include {} skipped -->\n",
+                    path_str
+                ));
                 continue;
             }
             if let Ok(included) = std::fs::read_to_string(&include_path) {
                 // Check max size.
                 if included.len() > 40 * 1024 {
-                    result.push_str(&format!("<!-- @include {} exceeds 40KB limit -->\n", path_str));
+                    result.push_str(&format!(
+                        "<!-- @include {} exceeds 40KB limit -->\n",
+                        path_str
+                    ));
                     continue;
                 }
                 visited.insert(canonical);
@@ -192,7 +200,12 @@ pub fn load_memory_file(path: &Path, scope: MemoryScope) -> Option<MemoryFileInf
     let (frontmatter, body) = parse_frontmatter(&raw);
     let mut visited = HashSet::new();
     visited.insert(path.canonicalize().unwrap_or(path.to_path_buf()));
-    let content = expand_includes(body, path.parent().unwrap_or(Path::new(".")), &mut visited, 0);
+    let content = expand_includes(
+        body,
+        path.parent().unwrap_or(Path::new(".")),
+        &mut visited,
+        0,
+    );
 
     Some(MemoryFileInfo {
         path: path.to_path_buf(),
@@ -217,7 +230,11 @@ pub fn load_all_memory_files(project_root: &Path) -> Vec<MemoryFileInfo> {
                 .flatten()
                 .filter_map(|e| {
                     let p = e.path();
-                    if p.extension().map_or(false, |x| x == "md") { Some(p) } else { None }
+                    if p.extension().map_or(false, |x| x == "md") {
+                        Some(p)
+                    } else {
+                        None
+                    }
                 })
                 .collect();
             paths.sort();
@@ -294,7 +311,12 @@ mod tests {
         let b = tmp.path().join("b.md");
         std::fs::write(&a, "@include b.md\n").unwrap();
         std::fs::write(&b, "@include a.md\ncontent\n").unwrap();
-        let result = expand_includes("@include a.md\n", tmp.path(), &mut std::collections::HashSet::new(), 0);
+        let result = expand_includes(
+            "@include a.md\n",
+            tmp.path(),
+            &mut std::collections::HashSet::new(),
+            0,
+        );
         // Should not infinite-loop; circular reference comment present.
         assert!(result.contains("circular") || result.contains("content"));
     }

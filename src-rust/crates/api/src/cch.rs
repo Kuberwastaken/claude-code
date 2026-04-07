@@ -8,7 +8,7 @@
 use xxhash_rust::xxh64::xxh64;
 
 const CCH_SEED: u64 = 0x6E52_736A_C806_831E;
-const CCH_MASK: u64 = 0xF_FFFF;   // 5 hex digits
+const CCH_MASK: u64 = 0xF_FFFF; // 5 hex digits
 const CCH_PLACEHOLDER: &str = "cch=00000";
 
 /// Compute the 5-hex-digit CCH hash for `body`.

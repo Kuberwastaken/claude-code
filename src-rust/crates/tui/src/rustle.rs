@@ -23,7 +23,9 @@ pub enum RustlePose {
     LookRight,
     LookDown,
     /// Loading / error spinner — `frame` drives the animation.
-    Loading { frame: u64 },
+    Loading {
+        frame: u64,
+    },
 }
 
 /// Body-part style: bold pink foreground (#e91e63).
@@ -59,7 +61,11 @@ fn eye_spans(s: &'static str) -> Vec<Span<'static>> {
     for ch in s.chars() {
         let is_eyeball = ch == '▘' || ch == '▝' || ch == '▀' || ch == '▄' || ch == '▖';
         if is_eyeball != buf_is_eyeball && !buf.is_empty() {
-            let style = if buf_is_eyeball { eyeball_style() } else { eye_bg_style() };
+            let style = if buf_is_eyeball {
+                eyeball_style()
+            } else {
+                eye_bg_style()
+            };
             spans.push(Span::styled(buf.clone(), style));
             buf.clear();
         }
@@ -67,7 +73,11 @@ fn eye_spans(s: &'static str) -> Vec<Span<'static>> {
         buf.push(ch);
     }
     if !buf.is_empty() {
-        let style = if buf_is_eyeball { eyeball_style() } else { eye_bg_style() };
+        let style = if buf_is_eyeball {
+            eyeball_style()
+        } else {
+            eye_bg_style()
+        };
         spans.push(Span::styled(buf, style));
     }
     spans
@@ -123,22 +133,34 @@ fn loading_eye_spans(frame: u64) -> Vec<Span<'static>> {
         // Left eye: previous (dim) then current (bright)
         Span::styled(
             left_prev_ch.to_string(),
-            Style::default().fg(COLORS[2]).bg(Color::Black).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(COLORS[2])
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             left_ch.to_string(),
-            Style::default().fg(left_color).bg(Color::Black).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(left_color)
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
         ),
         // Nose
         Span::styled("█".to_string(), eye_bg_style()),
         // Right eye: current (bright) then previous (dim)
         Span::styled(
             right_ch.to_string(),
-            Style::default().fg(right_color).bg(Color::Black).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(right_color)
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             right_prev_ch.to_string(),
-            Style::default().fg(COLORS[2]).bg(Color::Black).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(COLORS[2])
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
         ),
     ]
 }
@@ -157,39 +179,39 @@ pub fn rustle_lines(pose: &RustlePose) -> [Line<'static>; 5] {
 
     let (r2l, r2e, r2r) = match pose {
         RustlePose::Default => (
-            "█▄█",       // left claw tip, ▄ gap-to-connect, head edge
-            "▀ █▀ ",    // keep the left eye as-is; match the right eye size and move it up-left
-            "█▄█",       // head edge, ▄ connect-to-gap, right claw tip
+            "█▄█",   // left claw tip, ▄ gap-to-connect, head edge
+            "▀ █▀ ", // keep the left eye as-is; match the right eye size and move it up-left
+            "█▄█",   // head edge, ▄ connect-to-gap, right claw tip
         ),
         RustlePose::ArmsUp => (
-            "█▀█",       // ▀ = claw raised (upper half = arm up)
-            "▀ █▀ ",    // keep the left eye as-is; match the right eye size and move it up-left
-            "█▀█",       // raised right claw
+            "█▀█",   // ▀ = claw raised (upper half = arm up)
+            "▀ █▀ ", // keep the left eye as-is; match the right eye size and move it up-left
+            "█▀█",   // raised right claw
         ),
         RustlePose::LookLeft => (
             "█▄█",
-            "▘ █ ▘",    // single-pixel upper-left quarter blocks = eyes shifted left
+            "▘ █ ▘", // single-pixel upper-left quarter blocks = eyes shifted left
             "█▄█",
         ),
         RustlePose::LookRight => (
             "█▄█",
-            "▝ █ ▝",    // single-pixel upper-right quarter blocks = eyes shifted right
+            "▝ █ ▝", // single-pixel upper-right quarter blocks = eyes shifted right
             "█▄█",
         ),
         RustlePose::LookDown => (
             "█▄█",
-            "▄ █▄ ",    // lower-half blocks = eyes shifted down
+            "▄ █▄ ", // lower-half blocks = eyes shifted down
             "█▄█",
         ),
         RustlePose::Loading { .. } => (
-            "█▄█", "", "█▄█",  // eyes built separately via loading_eye_spans
+            "█▄█",
+            "",
+            "█▄█", // eyes built separately via loading_eye_spans
         ),
     };
 
     // Row 1: head — narrow top (5-wide), wider bottom (7-wide)
-    let row1 = Line::from(vec![
-        Span::styled("  ▄█████▄  ".to_string(), body_style()),
-    ]);
+    let row1 = Line::from(vec![Span::styled("  ▄█████▄  ".to_string(), body_style())]);
 
     // Row 2: claws extending from sides + face with eyeball highlights (widest row)
     let mut row2_spans = vec![Span::styled(r2l.to_string(), body_style())];
@@ -202,14 +224,10 @@ pub fn rustle_lines(pose: &RustlePose) -> [Line<'static>; 5] {
     let row2 = Line::from(row2_spans);
 
     // Row 3: body
-    let row3 = Line::from(vec![
-        Span::styled(" ████████  ".to_string(), body_style()),
-    ]);
+    let row3 = Line::from(vec![Span::styled(" ████████  ".to_string(), body_style())]);
 
     // Row 4: legs — upper half body (6-wide), lower half two leg pairs (2+gap+2)
-    let row4 = Line::from(vec![
-        Span::styled("  ██▀▀██   ".to_string(), body_style()),
-    ]);
+    let row4 = Line::from(vec![Span::styled("  ██▀▀██   ".to_string(), body_style())]);
 
     // Row 5: blank spacing
     let row5 = Line::from("");

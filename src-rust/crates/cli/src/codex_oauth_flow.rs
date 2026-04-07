@@ -7,11 +7,14 @@
 
 use anyhow::{anyhow, bail};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use claurst_core::codex_oauth::{
+    CODEX_AUTHORIZE_URL, CODEX_CLIENT_ID, CODEX_OAUTH_PORT, CODEX_REDIRECT_URI, CODEX_SCOPES,
+    CODEX_TOKEN_URL,
+};
+use claurst_core::oauth_config::CodexTokens;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::TcpListener;
-use claurst_core::oauth_config::CodexTokens;
-use claurst_core::codex_oauth::{CODEX_CLIENT_ID, CODEX_AUTHORIZE_URL, CODEX_OAUTH_PORT, CODEX_REDIRECT_URI, CODEX_SCOPES, CODEX_TOKEN_URL};
 
 /// Generate a PKCE code verifier (random 64-byte base64url string).
 pub fn generate_code_verifier() -> String {
@@ -37,7 +40,8 @@ pub fn compute_code_challenge(verifier: &str) -> String {
 /// Generate a random OAuth state parameter.
 pub fn generate_state() -> String {
     let bytes = uuid::Uuid::new_v4();
-    URL_SAFE_NO_PAD.encode(bytes.as_bytes())
+    URL_SAFE_NO_PAD
+        .encode(bytes.as_bytes())
         .chars()
         .take(32)
         .collect()
@@ -115,7 +119,9 @@ async fn wait_for_callback(listener: TcpListener) -> anyhow::Result<(String, Str
     }
 
     let path = parts[1];
-    let query_start = path.find('?').ok_or_else(|| anyhow!("No query string in callback"))?;
+    let query_start = path
+        .find('?')
+        .ok_or_else(|| anyhow!("No query string in callback"))?;
     let query = &path[query_start + 1..];
 
     let mut code = String::new();
@@ -194,10 +200,7 @@ async fn exchange_code_for_tokens(code: &str, verifier: &str) -> anyhow::Result<
         .await
         .map_err(|e| anyhow!("Failed to parse token response: {}", e))?;
 
-    let access_token = body["access_token"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let access_token = body["access_token"].as_str().unwrap_or("").to_string();
 
     if access_token.is_empty() {
         bail!("No access_token in response");
@@ -235,7 +238,9 @@ mod tests {
     fn test_generate_code_verifier_format() {
         let verifier = generate_code_verifier();
         // Base64url encoding: [A-Za-z0-9_-]
-        assert!(verifier.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
+        assert!(verifier
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
         assert!(!verifier.is_empty());
     }
 
@@ -246,14 +251,18 @@ mod tests {
         let challenge2 = compute_code_challenge(verifier);
         assert_eq!(challenge1, challenge2);
         // Base64url format
-        assert!(challenge1.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
+        assert!(challenge1
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
     }
 
     #[test]
     fn test_generate_state_format() {
         let state = generate_state();
         assert!(!state.is_empty());
-        assert!(state.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
+        assert!(state
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
     }
 
     #[test]

@@ -20,7 +20,10 @@
 //   the most recent `keep_recent_messages` intact.  This is lighter than a
 //   full compaction and can fire proactively at 75 % capacity.
 
-use claurst_api::{AnthropicStreamEvent, ApiMessage, CreateMessageRequest, StreamAccumulator, StreamHandler, SystemPrompt};
+use claurst_api::{
+    AnthropicStreamEvent, ApiMessage, CreateMessageRequest, StreamAccumulator, StreamHandler,
+    SystemPrompt,
+};
 use claurst_core::error::ClaudeError;
 use claurst_core::types::{ContentBlock, Message, MessageContent, Role};
 use serde_json::Value;
@@ -48,8 +51,8 @@ const KEEP_RECENT_MESSAGES: usize = 10;
 const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 
 // Percentage thresholds for token warning states (mirrors TS autoCompact.ts)
-const WARNING_PCT: f64 = 0.80;   // 80 % full → yellow warning
-const CRITICAL_PCT: f64 = 0.95;  // 95 % full → red critical
+const WARNING_PCT: f64 = 0.80; // 80 % full → yellow warning
+const CRITICAL_PCT: f64 = 0.95; // 95 % full → red critical
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -121,7 +124,11 @@ impl MessageGroup {
     fn from_messages(messages: Vec<Message>) -> Self {
         let topic_hint = extract_topic_hint(&messages);
         let token_estimate = estimate_tokens_for_messages(&messages);
-        Self { messages, topic_hint, token_estimate }
+        Self {
+            messages,
+            topic_hint,
+            token_estimate,
+        }
     }
 }
 
@@ -160,10 +167,7 @@ fn estimate_tokens_for_messages(messages: &[Message]) -> usize {
         .iter()
         .map(|m| match &m.content {
             MessageContent::Text(t) => t.len(),
-            MessageContent::Blocks(blocks) => blocks
-                .iter()
-                .map(|b| estimate_block_chars(b))
-                .sum(),
+            MessageContent::Blocks(blocks) => blocks.iter().map(|b| estimate_block_chars(b)).sum(),
         })
         .sum();
     // chars / 4 = rough tokens, then * 4/3 padding
@@ -173,9 +177,7 @@ fn estimate_tokens_for_messages(messages: &[Message]) -> usize {
 fn estimate_block_chars(block: &ContentBlock) -> usize {
     match block {
         ContentBlock::Text { text } => text.len(),
-        ContentBlock::ToolUse { name, input, .. } => {
-            name.len() + input.to_string().len()
-        }
+        ContentBlock::ToolUse { name, input, .. } => name.len() + input.to_string().len(),
         ContentBlock::ToolResult { content, .. } => match content {
             claurst_core::types::ToolResultContent::Text(t) => t.len(),
             claurst_core::types::ToolResultContent::Blocks(blocks) => {
@@ -318,7 +320,8 @@ const NO_TOOLS_PREAMBLE: &str = "CRITICAL: Respond with TEXT ONLY. Do NOT call a
 \n";
 
 /// The trailing reminder that reinforces the no-tools instruction.
-const NO_TOOLS_TRAILER: &str = "\n\nREMINDER: Do NOT call any tools. Respond with plain text only — \
+const NO_TOOLS_TRAILER: &str =
+    "\n\nREMINDER: Do NOT call any tools. Respond with plain text only — \
 an <analysis> block followed by a <summary> block. \
 Tool calls will be rejected and you will fail the task.";
 
@@ -508,7 +511,9 @@ pub fn calculate_token_warning_state(input_tokens: u64, model: &str) -> TokenWar
 
     if pct >= CRITICAL_PCT {
         TokenWarningState::Critical
-    } else if pct >= WARNING_PCT || window.saturating_sub(input_tokens) <= WARNING_THRESHOLD_BUFFER_TOKENS {
+    } else if pct >= WARNING_PCT
+        || window.saturating_sub(input_tokens) <= WARNING_THRESHOLD_BUFFER_TOKENS
+    {
         TokenWarningState::Warning
     } else {
         TokenWarningState::Ok
@@ -569,12 +574,24 @@ async fn summarise_head(
                             name, id, input
                         ));
                     }
-                    ContentBlock::ToolResult { tool_use_id, content, is_error } => {
+                    ContentBlock::ToolResult {
+                        tool_use_id,
+                        content,
+                        is_error,
+                    } => {
                         let result_text = match content {
-                            claurst_core::types::ToolResultContent::Text(t) => t.as_str().to_string(),
-                            claurst_core::types::ToolResultContent::Blocks(_) => "[complex content]".to_string(),
+                            claurst_core::types::ToolResultContent::Text(t) => {
+                                t.as_str().to_string()
+                            }
+                            claurst_core::types::ToolResultContent::Blocks(_) => {
+                                "[complex content]".to_string()
+                            }
                         };
-                        let error_flag = if is_error.unwrap_or(false) { " [ERROR]" } else { "" };
+                        let error_flag = if is_error.unwrap_or(false) {
+                            " [ERROR]"
+                        } else {
+                            ""
+                        };
                         transcript.push_str(&format!(
                             "[Tool Result (id={}){}]\n{}\n\n",
                             tool_use_id, error_flag, result_text
@@ -657,10 +674,7 @@ pub async fn compact_conversation(
     let total = messages.len();
 
     if total <= KEEP_RECENT_MESSAGES + 1 {
-        debug!(
-            total,
-            "Too few messages to compact – keeping everything"
-        );
+        debug!(total, "Too few messages to compact – keeping everything");
         return Ok(messages.to_vec());
     }
 
@@ -738,7 +752,10 @@ pub async fn auto_compact_if_needed(
 #[derive(Debug, Clone)]
 pub enum CompactTrigger {
     /// Normal 90 %-threshold compact.
-    TokenThreshold { tokens_used: u64, context_limit: u64 },
+    TokenThreshold {
+        tokens_used: u64,
+        context_limit: u64,
+    },
     /// Caller requested an unconditional compact.
     Forced,
 }
@@ -787,7 +804,10 @@ pub fn should_context_collapse(tokens_used: u64, context_limit: u64) -> bool {
 /// Returns `(new_messages, rough_tokens_freed)`.
 ///
 /// Mirrors `snipCompact` from TypeScript (no API call required — purely local).
-pub fn snip_compact(messages: Vec<claurst_core::types::Message>, keep_n_newest: usize) -> (Vec<claurst_core::types::Message>, u64) {
+pub fn snip_compact(
+    messages: Vec<claurst_core::types::Message>,
+    keep_n_newest: usize,
+) -> (Vec<claurst_core::types::Message>, u64) {
     let total = messages.len();
     if total <= keep_n_newest + 1 {
         // Nothing to snip.
@@ -803,8 +823,7 @@ pub fn snip_compact(messages: Vec<claurst_core::types::Message>, keep_n_newest: 
     }
 
     // Estimate how many tokens the snipped range held.
-    let snipped_tokens =
-        estimate_tokens_for_messages(&messages[snip_start..snip_end]) as u64;
+    let snipped_tokens = estimate_tokens_for_messages(&messages[snip_start..snip_end]) as u64;
 
     let mut result = Vec::with_capacity(1 + keep_n_newest);
     result.push(messages[0].clone());
@@ -819,7 +838,10 @@ pub fn snip_compact(messages: Vec<claurst_core::types::Message>, keep_n_newest: 
 /// Returns the cut index (0 = keep everything, messages.len() = keep nothing).
 /// Iterates from the newest message backwards, accumulating token estimates
 /// until the budget is exhausted.
-pub fn calculate_messages_to_keep_index(messages: &[claurst_core::types::Message], token_budget: u64) -> usize {
+pub fn calculate_messages_to_keep_index(
+    messages: &[claurst_core::types::Message],
+    token_budget: u64,
+) -> usize {
     if messages.is_empty() {
         return 0;
     }
@@ -857,7 +879,8 @@ fn strip_images(messages: Vec<claurst_core::types::Message>) -> Vec<claurst_core
                 // If stripping left only an empty block list, collapse to a
                 // placeholder text so the conversation remains parseable.
                 if blocks.is_empty() {
-                    msg.content = MessageContent::Text("[image removed for compaction]".to_string());
+                    msg.content =
+                        MessageContent::Text("[image removed for compaction]".to_string());
                 }
             }
             msg
@@ -908,8 +931,7 @@ pub async fn reactive_compact(
         });
     }
 
-    let original_token_estimate =
-        estimate_tokens_for_messages(&stripped[..split_at]) as u64;
+    let original_token_estimate = estimate_tokens_for_messages(&stripped[..split_at]) as u64;
 
     let mut new_messages =
         summarise_head(client, &stripped, split_at, &config.model, 20_000).await?;
@@ -967,7 +989,10 @@ pub async fn context_collapse(
     client: &claurst_api::AnthropicClient,
     config: &crate::QueryConfig,
 ) -> Result<CompactResult, claurst_core::error::ClaudeError> {
-    use claurst_api::{AnthropicStreamEvent, ApiMessage, CreateMessageRequest, StreamAccumulator, StreamHandler, SystemPrompt};
+    use claurst_api::{
+        AnthropicStreamEvent, ApiMessage, CreateMessageRequest, StreamAccumulator, StreamHandler,
+        SystemPrompt,
+    };
     use serde_json::Value;
     use std::sync::Arc;
 
@@ -1083,7 +1108,9 @@ const CONTEXT_COLLAPSE_THRESHOLD: f64 = 0.97;
 ///
 /// When the same file is read more than once in the conversation, replaces
 /// all but the last read with `[Content shown N time(s); showing last occurrence only]`.
-pub fn collapse_read_tool_results(messages: Vec<claurst_core::types::Message>) -> Vec<claurst_core::types::Message> {
+pub fn collapse_read_tool_results(
+    messages: Vec<claurst_core::types::Message>,
+) -> Vec<claurst_core::types::Message> {
     use claurst_core::types::{ContentBlock, MessageContent, ToolResultContent};
     use std::collections::HashMap;
 
@@ -1143,7 +1170,9 @@ pub fn collapse_read_tool_results(messages: Vec<claurst_core::types::Message>) -
 ///
 /// If the same search was run more than once (same query), keep only the
 /// most recent result; replace earlier results with a truncation notice.
-pub fn collapse_search_results(messages: Vec<claurst_core::types::Message>) -> Vec<claurst_core::types::Message> {
+pub fn collapse_search_results(
+    messages: Vec<claurst_core::types::Message>,
+) -> Vec<claurst_core::types::Message> {
     use claurst_core::types::{ContentBlock, MessageContent, ToolResultContent};
     use std::collections::HashSet;
 

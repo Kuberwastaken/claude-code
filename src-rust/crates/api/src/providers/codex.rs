@@ -181,9 +181,7 @@ impl CodexProvider {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let expires_in = json_val
-            .get("expires_in")
-            .and_then(|v| v.as_u64());
+        let expires_in = json_val.get("expires_in").and_then(|v| v.as_u64());
 
         let new_expires_at = expires_in.map(|secs| {
             SystemTime::now()
@@ -368,9 +366,7 @@ impl CodexProvider {
                         for part in parts {
                             match part.get("type").and_then(|v| v.as_str()) {
                                 Some("output_text") | Some("text") => {
-                                    if let Some(text) =
-                                        part.get("text").and_then(|v| v.as_str())
-                                    {
+                                    if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
                                         if !text.is_empty() {
                                             content.push(ContentBlock::Text {
                                                 text: text.to_string(),
@@ -453,7 +449,13 @@ impl CodexProvider {
             }
         };
 
-        Ok(ProviderResponse { id, content, stop_reason, usage, model })
+        Ok(ProviderResponse {
+            id,
+            content,
+            stop_reason,
+            usage,
+            model,
+        })
     }
 
     // -----------------------------------------------------------------------

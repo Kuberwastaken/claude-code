@@ -1,0 +1,24 @@
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt-check
+        name: cargo fmt --check
+        entry: cargo fmt --check
+        language: system
+        pass_filenames: false
+        files: ^src-rust/
+        stages: [pre-commit]
+      - id: cargo-check-locked
+        name: cargo check --locked
+        entry: cargo check --locked
+        language: system
+        pass_filenames: false
+        files: ^src-rust/
+        stages: [pre-commit]
+      - id: cargo-test-locked
+        name: cargo test --locked
+        entry: cargo test --locked
+        language: system
+        pass_filenames: false
+        files: ^src-rust/
+        stages: [pre-push]

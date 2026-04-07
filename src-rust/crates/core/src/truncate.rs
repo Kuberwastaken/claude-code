@@ -22,7 +22,11 @@ pub fn truncate_lines(lines: &[String], max_lines: usize) -> (Vec<String>, bool)
     }
     let mut out = lines[..max_lines].to_vec();
     let remaining = lines.len() - max_lines;
-    out.push(format!("… {} more line{}", remaining, if remaining == 1 { "" } else { "s" }));
+    out.push(format!(
+        "… {} more line{}",
+        remaining,
+        if remaining == 1 { "" } else { "s" }
+    ));
     (out, true)
 }
 

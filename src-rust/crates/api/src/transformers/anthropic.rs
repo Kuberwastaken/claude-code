@@ -8,9 +8,9 @@
 use crate::provider::ModelInfo;
 use crate::provider_error::ProviderError;
 use crate::provider_types::{ProviderRequest, ProviderResponse, StopReason};
+use crate::providers::message_normalization::normalize_anthropic_messages;
 use crate::transform::MessageTransformer;
 use crate::types::{ApiMessage, ApiToolDefinition};
-use crate::providers::message_normalization::normalize_anthropic_messages;
 use claurst_core::provider_id::ProviderId;
 use claurst_core::types::{ContentBlock, UsageInfo};
 
@@ -39,21 +39,17 @@ impl MessageTransformer for AnthropicTransformer {
         let normalized_messages = normalize_anthropic_messages(&request.messages);
         let api_messages: Vec<ApiMessage> =
             normalized_messages.iter().map(ApiMessage::from).collect();
-        let messages_json = serde_json::to_value(&api_messages).map_err(|e| {
-            ProviderError::Other {
+        let messages_json =
+            serde_json::to_value(&api_messages).map_err(|e| ProviderError::Other {
                 provider: ProviderId::new(ProviderId::ANTHROPIC),
                 message: format!("failed to serialise messages: {}", e),
                 status: None,
                 body: None,
-            }
-        })?;
+            })?;
 
         // Convert tools to API wire format.
-        let api_tools: Vec<ApiToolDefinition> = request
-            .tools
-            .iter()
-            .map(ApiToolDefinition::from)
-            .collect();
+        let api_tools: Vec<ApiToolDefinition> =
+            request.tools.iter().map(ApiToolDefinition::from).collect();
 
         let mut body = json!({
             "model": request.model,
@@ -77,14 +73,13 @@ impl MessageTransformer for AnthropicTransformer {
 
         // Tools.
         if !request.tools.is_empty() {
-            let tools_json = serde_json::to_value(&api_tools).map_err(|e| {
-                ProviderError::Other {
+            let tools_json =
+                serde_json::to_value(&api_tools).map_err(|e| ProviderError::Other {
                     provider: ProviderId::new(ProviderId::ANTHROPIC),
                     message: format!("failed to serialise tools: {}", e),
                     status: None,
                     body: None,
-                }
-            })?;
+                })?;
             body["tools"] = tools_json;
         }
 
@@ -213,7 +208,10 @@ impl MessageTransformer for AnthropicTransformer {
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
-                    content.push(ContentBlock::Thinking { thinking, signature });
+                    content.push(ContentBlock::Thinking {
+                        thinking,
+                        signature,
+                    });
                 }
                 // redacted_thinking, citations, etc. — skip silently for now.
                 _ => {}

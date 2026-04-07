@@ -53,19 +53,12 @@ pub fn end_interaction_span(_span: Arc<NoopSpan>) {}
 /// Start an LLM request span (traces API calls).
 /// Normally tracks TTFT, token counts, model, fast-mode status.
 /// In free builds, this is a no-op.
-pub fn start_llm_request_span(
-    _model: &str,
-    _max_tokens: u32,
-) -> Arc<NoopSpan> {
+pub fn start_llm_request_span(_model: &str, _max_tokens: u32) -> Arc<NoopSpan> {
     Arc::new(NoopSpan::new())
 }
 
 /// End an LLM request span (no-op).
-pub fn end_llm_request_span(
-    _span: Arc<NoopSpan>,
-    _input_tokens: u32,
-    _output_tokens: u32,
-) {}
+pub fn end_llm_request_span(_span: Arc<NoopSpan>, _input_tokens: u32, _output_tokens: u32) {}
 
 /// Start a tool execution span.
 pub fn start_tool_span(_tool_name: &str) -> Arc<NoopSpan> {
@@ -73,11 +66,7 @@ pub fn start_tool_span(_tool_name: &str) -> Arc<NoopSpan> {
 }
 
 /// End a tool execution span (no-op).
-pub fn end_tool_span(
-    _span: Arc<NoopSpan>,
-    _success: bool,
-    _error: Option<&str>,
-) {}
+pub fn end_tool_span(_span: Arc<NoopSpan>, _success: bool, _error: Option<&str>) {}
 
 /// Start a permission dialog span.
 pub fn start_permission_span(_tool_name: &str) -> Arc<NoopSpan> {

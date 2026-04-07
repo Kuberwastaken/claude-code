@@ -103,9 +103,8 @@ impl DialogSelectState {
     }
 
     pub fn page_down(&mut self) {
-        self.selected_index = (self.selected_index + 10).min(
-            self.filtered_indices.len().saturating_sub(1),
-        );
+        self.selected_index =
+            (self.selected_index + 10).min(self.filtered_indices.len().saturating_sub(1));
     }
 
     pub fn move_home(&mut self) {
@@ -190,11 +189,7 @@ impl DialogSelectState {
 
 /// Render the DialogSelect overlay — OpenCode-style: dark overlay, no border,
 /// full-width highlight bar on selected item, minimal and polished.
-pub fn render_dialog_select(
-    frame: &mut Frame,
-    state: &DialogSelectState,
-    area: Rect,
-) {
+pub fn render_dialog_select(frame: &mut Frame, state: &DialogSelectState, area: Rect) {
     if !state.visible {
         return;
     }
@@ -224,7 +219,9 @@ pub fn render_dialog_select(
             }
         }
         sections
-    } else { 0 };
+    } else {
+        0
+    };
     let content_height = 3 + item_lines + category_count * 2; // search + blank + items + cat headers + gaps
     let height = content_height.min(max_height).max(8);
     let dialog_area = centered_rect(width, height, area);
@@ -263,7 +260,9 @@ pub fn render_dialog_select(
     header_lines.push(Line::from(vec![
         Span::styled(
             format!(" {}", state.title),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("{:>width$}", "esc ", width = title_pad),
@@ -273,7 +272,12 @@ pub fn render_dialog_select(
 
     // Search field
     header_lines.push(Line::from(""));
-    header_lines.push(modal_search_line(&state.filter, "Search", dim, Color::White));
+    header_lines.push(modal_search_line(
+        &state.filter,
+        "Search",
+        dim,
+        Color::White,
+    ));
 
     frame.render_widget(Paragraph::new(header_lines).bg(dialog_bg), header_area);
 
@@ -293,10 +297,13 @@ pub fn render_dialog_select(
 
         // Category header (only when not filtering)
         if item.category != last_category && state.filter.is_empty() {
-            lines.push(Line::from("")); current_line += 1;
+            lines.push(Line::from(""));
+            current_line += 1;
             lines.push(Line::from(vec![Span::styled(
                 format!(" {}", item.category),
-                Style::default().fg(category_fg).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(category_fg)
+                    .add_modifier(Modifier::BOLD),
             )]));
             current_line += 1;
             last_category = item.category.clone();
@@ -318,21 +325,28 @@ pub fn render_dialog_select(
         if !item.description.is_empty() {
             spans.push(Span::styled(
                 format!(" {}", item.description),
-                Style::default().fg(if is_selected { Color::Rgb(200, 200, 200) } else { dim }).bg(item_bg),
+                Style::default()
+                    .fg(if is_selected {
+                        Color::Rgb(200, 200, 200)
+                    } else {
+                        dim
+                    })
+                    .bg(item_bg),
             ));
         }
 
         let badge_text = item.badge.clone().unwrap_or_default();
         let text_len: usize = spans.iter().map(|s| s.content.len()).sum();
-        let badge_len = if badge_text.is_empty() { 0 } else { badge_text.len() + 1 };
+        let badge_len = if badge_text.is_empty() {
+            0
+        } else {
+            badge_text.len() + 1
+        };
         let pad = inner
             .width
             .saturating_sub(text_len as u16 + badge_len as u16) as usize;
         if pad > 0 {
-            spans.push(Span::styled(
-                " ".repeat(pad),
-                Style::default().bg(item_bg),
-            ));
+            spans.push(Span::styled(" ".repeat(pad), Style::default().bg(item_bg)));
         }
         if !badge_text.is_empty() {
             spans.push(Span::styled(
@@ -378,7 +392,9 @@ pub fn render_dialog_select(
         .into_iter()
         .filter_map(|(row, idx)| {
             let screen_row = row.saturating_sub(scroll_y);
-            if screen_row >= body_area.y && screen_row < body_area.y.saturating_add(body_area.height) {
+            if screen_row >= body_area.y
+                && screen_row < body_area.y.saturating_add(body_area.height)
+            {
                 Some((screen_row, idx))
             } else {
                 None
@@ -386,9 +402,7 @@ pub fn render_dialog_select(
         })
         .collect();
 
-    let para = Paragraph::new(lines)
-        .bg(dialog_bg)
-        .scroll((scroll_y, 0));
+    let para = Paragraph::new(lines).bg(dialog_bg).scroll((scroll_y, 0));
     frame.render_widget(para, body_area);
 }
 

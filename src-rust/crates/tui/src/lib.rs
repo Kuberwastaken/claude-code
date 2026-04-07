@@ -25,128 +25,155 @@ use std::io::{self, Stdout};
 // Sub-modules
 // ---------------------------------------------------------------------------
 
-/// Figure/icon constants matching src/constants/figures.ts
-pub mod figures;
-/// Rustle mascot rendering.
-pub mod rustle;
-/// Context window and rate-limit visualization overlay (/context).
-pub mod context_viz;
-/// Export format picker dialog (/export).
-pub mod export_dialog;
-/// Clipboard image paste and Ctrl+V text paste.
-pub mod image_paste;
-/// Inline image rendering via the Kitty graphics protocol (with text fallback).
-pub mod kitty_image;
-/// Application state and main event loop.
-pub mod app;
-/// Input helpers: slash command parsing.
-pub mod input;
-/// All ratatui rendering logic.
-pub mod render;
-/// Permission dialogs and confirmation dialogs.
-pub mod dialogs;
-/// Notification / banner system.
-pub mod notifications;
-/// Help overlay, history search, message selector, rewind flow.
-pub mod overlays;
-/// Bridge connection state and status badge.
-pub mod bridge_state;
-/// Plugin hint/recommendation UI.
-pub mod plugin_views;
-/// Full-screen tabbed settings interface.
-pub mod settings_screen;
-/// Theme picker overlay.
-pub mod theme_screen;
-/// Color palette management for different themes and accessibility support.
-pub mod theme_colors;
-/// Privacy settings dialog.
-pub mod privacy_screen;
-/// Diff viewer dialog (two-pane: file list + unified diff detail).
-pub mod diff_viewer;
-/// Virtual scrollable list for efficient message rendering.
-pub mod virtual_list;
-/// Message type renderers (assistant, user, tool use, etc.).
-pub mod messages;
-/// Turn-aware transcript grouping and metadata helpers.
-pub mod transcript_turn;
 /// Agent definitions list and coordinator progress view.
 pub mod agents_view;
-/// Stats dialog with token usage and cost charts.
-pub mod stats_dialog;
-/// MCP server management UI.
-pub mod mcp_view;
-/// Complete prompt input with vim mode, history, typeahead, and paste handling.
-pub mod prompt_input;
-/// Session quality feedback survey overlay.
-pub mod feedback_survey;
-/// Memory file selector overlay (AGENTS.md browser).
-pub mod memory_file_selector;
-/// Read-only hooks configuration browser.
-pub mod hooks_config_menu;
-/// Overage credit upsell banner (shown when user exceeds free-tier limit).
-pub mod overage_upsell;
-/// Voice mode availability notice (shown when voice is available but not enabled).
-pub mod voice_mode_notice;
-/// Message copy utilities for different formatting options (markdown, plaintext, code, JSON).
-pub mod message_copy;
-/// Desktop app upsell startup dialog (shown at startup on macOS/Windows x64).
-pub mod desktop_upsell_startup;
-/// Memory update notification banner (shown after Claurst updates a AGENTS.md file).
-pub mod memory_update_notification;
-/// MCP elicitation dialog (form-based user input requested by MCP servers).
-pub mod elicitation_dialog;
-/// Model picker overlay (/model command).
-pub mod model_picker;
-/// Session browser overlay (/session, /resume, /rename, /export).
-pub mod session_browser;
-/// Startup dialog for malformed settings.json or AGENTS.md.
-pub mod invalid_config_dialog;
+/// Application state and main event loop.
+pub mod app;
+/// Bridge connection state and status badge.
+pub mod bridge_state;
 /// Startup confirmation dialog for --dangerously-skip-permissions mode.
 pub mod bypass_permissions_dialog;
-/// First-launch onboarding / welcome dialog.
-pub mod onboarding_dialog;
-/// Reusable fuzzy-search selection dialog widget.
-pub mod dialog_select;
-/// Masked text input overlay for entering API keys.
-pub mod key_input_dialog;
+/// Context window and rate-limit visualization overlay (/context).
+pub mod context_viz;
+/// Desktop app upsell startup dialog (shown at startup on macOS/Windows x64).
+pub mod desktop_upsell_startup;
 /// Device code / browser-based auth overlay (GitHub Copilot, Anthropic OAuth).
 pub mod device_auth_dialog;
-/// Push-to-talk voice capture and Whisper transcription.
-pub mod voice_capture;
-/// Task progress overlay (Ctrl+T) — shows task status with inline toggle.
-pub mod tasks_overlay;
+/// Reusable fuzzy-search selection dialog widget.
+pub mod dialog_select;
+/// Permission dialogs and confirmation dialogs.
+pub mod dialogs;
+/// Diff viewer dialog (two-pane: file list + unified diff detail).
+pub mod diff_viewer;
+/// MCP elicitation dialog (form-based user input requested by MCP servers).
+pub mod elicitation_dialog;
+/// Export format picker dialog (/export).
+pub mod export_dialog;
+/// Session quality feedback survey overlay.
+pub mod feedback_survey;
+/// Figure/icon constants matching src/constants/figures.ts
+pub mod figures;
+/// Read-only hooks configuration browser.
+pub mod hooks_config_menu;
+/// Clipboard image paste and Ctrl+V text paste.
+pub mod image_paste;
+/// Input helpers: slash command parsing.
+pub mod input;
+/// Startup dialog for malformed settings.json or AGENTS.md.
+pub mod invalid_config_dialog;
+/// Masked text input overlay for entering API keys.
+pub mod key_input_dialog;
+/// Inline image rendering via the Kitty graphics protocol (with text fallback).
+pub mod kitty_image;
+/// MCP server management UI.
+pub mod mcp_view;
+/// Memory file selector overlay (AGENTS.md browser).
+pub mod memory_file_selector;
+/// Memory update notification banner (shown after Claurst updates a AGENTS.md file).
+pub mod memory_update_notification;
+/// Message copy utilities for different formatting options (markdown, plaintext, code, JSON).
+pub mod message_copy;
+/// Message type renderers (assistant, user, tool use, etc.).
+pub mod messages;
+/// Model picker overlay (/model command).
+pub mod model_picker;
+/// Notification / banner system.
+pub mod notifications;
+/// First-launch onboarding / welcome dialog.
+pub mod onboarding_dialog;
+/// Overage credit upsell banner (shown when user exceeds free-tier limit).
+pub mod overage_upsell;
+/// Help overlay, history search, message selector, rewind flow.
+pub mod overlays;
+/// Plugin hint/recommendation UI.
+pub mod plugin_views;
+/// Privacy settings dialog.
+pub mod privacy_screen;
+/// Complete prompt input with vim mode, history, typeahead, and paste handling.
+pub mod prompt_input;
+/// All ratatui rendering logic.
+pub mod render;
+/// Rustle mascot rendering.
+pub mod rustle;
 /// Session branching overlay (Ctrl+B) — create and switch between conversation branches.
 pub mod session_branching;
+/// Session browser overlay (/session, /resume, /rename, /export).
+pub mod session_browser;
+/// Full-screen tabbed settings interface.
+pub mod settings_screen;
+/// Stats dialog with token usage and cost charts.
+pub mod stats_dialog;
+/// Task progress overlay (Ctrl+T) — shows task status with inline toggle.
+pub mod tasks_overlay;
+/// Color palette management for different themes and accessibility support.
+pub mod theme_colors;
+/// Theme picker overlay.
+pub mod theme_screen;
+/// Turn-aware transcript grouping and metadata helpers.
+pub mod transcript_turn;
+/// Virtual scrollable list for efficient message rendering.
+pub mod virtual_list;
+/// Push-to-talk voice capture and Whisper transcription.
+pub mod voice_capture;
+/// Voice mode availability notice (shown when voice is available but not enabled).
+pub mod voice_mode_notice;
 
 // ---------------------------------------------------------------------------
 // Public re-exports
 // ---------------------------------------------------------------------------
 
-pub use app::{App, try_copy_to_clipboard};
-pub use notifications::NotificationKind;
+pub use agents_view::{
+    load_agent_definitions, render_agents_menu, render_coordinator_status, AgentDefinition,
+    AgentInfo, AgentStatus, AgentsMenuState,
+};
+pub use app::{try_copy_to_clipboard, App};
+pub use bypass_permissions_dialog::{
+    render_bypass_permissions_dialog, BypassPermissionsDialogState,
+};
+pub use desktop_upsell_startup::{
+    render_desktop_upsell_startup, DesktopUpsellSelection, DesktopUpsellStartupState,
+};
+pub use device_auth_dialog::{
+    render_device_auth_dialog, DeviceAuthDialogState, DeviceAuthEvent, DeviceAuthStatus,
+};
+pub use dialog_select::{render_dialog_select, DialogSelectState, SelectItem};
+pub use diff_viewer::{
+    load_git_diff, parse_unified_diff, render_diff_dialog, DiffPane, DiffType, DiffViewerState,
+};
+pub use elicitation_dialog::{
+    render_elicitation_dialog, ElicitationDialogState, ElicitationField, ElicitationFieldKind,
+    ElicitationResult,
+};
+pub use feedback_survey::{FeedbackResponse, FeedbackSurveyStage, FeedbackSurveyState};
+pub use hooks_config_menu::{HookEntry, HooksConfigMenuState};
 pub use input::{is_slash_command, parse_slash_command};
-pub use feedback_survey::{FeedbackSurveyState, FeedbackSurveyStage, FeedbackResponse};
-pub use memory_file_selector::{MemoryFileSelectorState, MemoryFile, MemoryFileType};
-pub use hooks_config_menu::{HooksConfigMenuState, HookEntry};
-pub use overage_upsell::{OverageCreditUpsellState, render_overage_upsell};
-pub use voice_mode_notice::{VoiceModeNoticeState, render_voice_mode_notice};
-pub use desktop_upsell_startup::{DesktopUpsellStartupState, DesktopUpsellSelection, render_desktop_upsell_startup};
-pub use memory_update_notification::{MemoryUpdateNotificationState, render_memory_update_notification, get_relative_memory_path};
-pub use elicitation_dialog::{ElicitationDialogState, ElicitationField, ElicitationFieldKind, ElicitationResult, render_elicitation_dialog};
-pub use diff_viewer::{DiffViewerState, DiffPane, DiffType, load_git_diff, parse_unified_diff, render_diff_dialog};
-pub use agents_view::{AgentInfo, AgentStatus, AgentsMenuState, AgentDefinition, render_agents_menu, render_coordinator_status, load_agent_definitions};
-pub use stats_dialog::{StatsDialogState, StatsTab, load_stats, render_stats_dialog};
-pub use mcp_view::{McpViewState, McpServerView, McpToolView, McpViewStatus, render_mcp_view};
-pub use prompt_input::{PromptInputState, VimMode, VimPendingState, VimOperator, VimFindKind, InputMode, render_prompt_input, handle_paste, compute_typeahead};
-pub use model_picker::{ModelPickerState, ModelEntry, EffortLevel, render_model_picker, model_supports_effort};
-pub use session_browser::{SessionBrowserState, SessionBrowserMode, SessionEntry, render_session_browser};
-pub use session_branching::{SessionBranchingState, BranchBrowserMode, BranchInfo, render_session_branching};
-pub use invalid_config_dialog::{InvalidConfigDialogState, InvalidConfigKind, render_invalid_config_dialog};
-pub use bypass_permissions_dialog::{BypassPermissionsDialogState, render_bypass_permissions_dialog};
-pub use onboarding_dialog::{OnboardingDialogState, render_onboarding_dialog};
-pub use dialog_select::{DialogSelectState, SelectItem, render_dialog_select};
-pub use key_input_dialog::{KeyInputDialogState, render_key_input_dialog};
-pub use device_auth_dialog::{DeviceAuthDialogState, DeviceAuthStatus, DeviceAuthEvent, render_device_auth_dialog};
+pub use invalid_config_dialog::{
+    render_invalid_config_dialog, InvalidConfigDialogState, InvalidConfigKind,
+};
+pub use key_input_dialog::{render_key_input_dialog, KeyInputDialogState};
+pub use mcp_view::{render_mcp_view, McpServerView, McpToolView, McpViewState, McpViewStatus};
+pub use memory_file_selector::{MemoryFile, MemoryFileSelectorState, MemoryFileType};
+pub use memory_update_notification::{
+    get_relative_memory_path, render_memory_update_notification, MemoryUpdateNotificationState,
+};
+pub use model_picker::{
+    model_supports_effort, render_model_picker, EffortLevel, ModelEntry, ModelPickerState,
+};
+pub use notifications::NotificationKind;
+pub use onboarding_dialog::{render_onboarding_dialog, OnboardingDialogState};
+pub use overage_upsell::{render_overage_upsell, OverageCreditUpsellState};
+pub use prompt_input::{
+    compute_typeahead, handle_paste, render_prompt_input, InputMode, PromptInputState, VimFindKind,
+    VimMode, VimOperator, VimPendingState,
+};
+pub use session_branching::{
+    render_session_branching, BranchBrowserMode, BranchInfo, SessionBranchingState,
+};
+pub use session_browser::{
+    render_session_browser, SessionBrowserMode, SessionBrowserState, SessionEntry,
+};
+pub use stats_dialog::{load_stats, render_stats_dialog, StatsDialogState, StatsTab};
+pub use voice_mode_notice::{render_voice_mode_notice, VoiceModeNoticeState};
 
 // ---------------------------------------------------------------------------
 // Terminal initialization / teardown helpers (public API)
@@ -194,11 +221,12 @@ pub fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
 pub fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> {
     disable_raw_mode()?;
     // Restore the original title by clearing it (terminals fall back to default).
-    let _ = execute!(
+    let _ = execute!(terminal.backend_mut(), crossterm::terminal::SetTitle(""),);
+    execute!(
         terminal.backend_mut(),
-        crossterm::terminal::SetTitle(""),
-    );
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     Ok(())
 }
@@ -337,12 +365,18 @@ mod tests {
         assert!(app.intercept_slash_command("agents"));
         assert!(app.agents_menu.open);
         assert_eq!(app.agents_menu.active_agents.len(), 3);
-        assert_eq!(app.agents_menu.active_agents[0].status, AgentStatus::Running);
+        assert_eq!(
+            app.agents_menu.active_agents[0].status,
+            AgentStatus::Running
+        );
         assert_eq!(
             app.agents_menu.active_agents[1].status,
             AgentStatus::WaitingForTool
         );
-        assert_eq!(app.agents_menu.active_agents[2].status, AgentStatus::Complete);
+        assert_eq!(
+            app.agents_menu.active_agents[2].status,
+            AgentStatus::Complete
+        );
     }
 
     #[test]
@@ -357,12 +391,19 @@ mod tests {
 
         app.handle_key_event(ctrl(KeyCode::Char('s')));
 
-        let saved = temp.path().join(".claurst").join("agents").join("planner.md");
+        let saved = temp
+            .path()
+            .join(".claurst")
+            .join("agents")
+            .join("planner.md");
         assert!(saved.exists());
         let content = std::fs::read_to_string(saved).unwrap();
         assert!(content.contains("name: Planner"));
         assert!(content.contains("Help break work into steps."));
-        assert!(matches!(app.agents_menu.route, agents_view::AgentsRoute::Detail(_)));
+        assert!(matches!(
+            app.agents_menu.route,
+            agents_view::AgentsRoute::Detail(_)
+        ));
     }
 
     #[test]
@@ -375,7 +416,12 @@ mod tests {
         state.editor.description = "Builds code".to_string();
         state.editor.prompt = "Ship the feature.".to_string();
 
-        let area = Rect { x: 0, y: 0, width: 90, height: 24 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 90,
+            height: 24,
+        };
         let mut buf = Buffer::empty(area);
         agents_view::render_agents_menu(&state, area, &mut buf);
 
@@ -784,7 +830,12 @@ mod tests {
         let mut state = DiffViewerState::new();
         state.open = true;
         state.diff_type = DiffType::TurnDiff;
-        let area = Rect { x: 0, y: 0, width: 80, height: 20 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 20,
+        };
         let mut buf = Buffer::empty(area);
 
         diff_viewer::render_diff_dialog(&mut state, area, &mut buf);
@@ -890,7 +941,12 @@ mod tests {
         state.switch_pane();
         state.switch_pane();
 
-        let area = Rect { x: 0, y: 0, width: 120, height: 30 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 30,
+        };
         let mut buf = Buffer::empty(area);
         mcp_view::render_mcp_view(&state, area, &mut buf);
         let rendered = buf
@@ -924,7 +980,12 @@ mod tests {
         let rendered = messages::render_message(&msg, &messages::RenderContext::default());
         let text = rendered
             .iter()
-            .map(|line| line.spans.iter().map(|span| span.content.clone()).collect::<String>())
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.clone())
+                    .collect::<String>()
+            })
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -944,7 +1005,12 @@ mod tests {
         let rendered = messages::render_message(&msg, &messages::RenderContext::default());
         let text = rendered
             .iter()
-            .map(|line| line.spans.iter().map(|span| span.content.clone()).collect::<String>())
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.clone())
+                    .collect::<String>()
+            })
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -1053,7 +1119,9 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let mut app = make_app();
         app.push_message(claurst_core::types::Message::user("hello".to_string()));
-        app.push_message(claurst_core::types::Message::assistant("hi there".to_string()));
+        app.push_message(claurst_core::types::Message::assistant(
+            "hi there".to_string(),
+        ));
 
         terminal
             .draw(|frame| crate::render::render_app(frame, &app))
@@ -1114,6 +1182,3 @@ mod tests {
         assert_eq!(pr.options[3].key, 'n');
     }
 }
-
-
-

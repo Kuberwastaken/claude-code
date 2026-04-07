@@ -68,7 +68,10 @@ impl Tool for WebSearchTool {
         debug!(query = %params.query, num_results, "Web search");
 
         // Try Brave Search API first, then fall back to DuckDuckGo
-        if let Some(api_key) = std::env::var("BRAVE_SEARCH_API_KEY").ok().filter(|k| !k.is_empty()) {
+        if let Some(api_key) = std::env::var("BRAVE_SEARCH_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty())
+        {
             search_brave(&params.query, num_results, &api_key).await
         } else {
             search_duckduckgo(&params.query, num_results).await
@@ -120,11 +123,23 @@ fn format_brave_results(data: &Value, max: usize) -> String {
 
     if let Some(items) = web_results {
         for (i, item) in items.iter().take(max).enumerate() {
-            let title = item.get("title").and_then(|t| t.as_str()).unwrap_or("(No title)");
+            let title = item
+                .get("title")
+                .and_then(|t| t.as_str())
+                .unwrap_or("(No title)");
             let url = item.get("url").and_then(|u| u.as_str()).unwrap_or("");
-            let snippet = item.get("description").and_then(|s| s.as_str()).unwrap_or("");
+            let snippet = item
+                .get("description")
+                .and_then(|s| s.as_str())
+                .unwrap_or("");
 
-            output.push_str(&format!("{}. **{}**\n   URL: {}\n   {}\n\n", i + 1, title, url, snippet));
+            output.push_str(&format!(
+                "{}. **{}**\n   URL: {}\n   {}\n\n",
+                i + 1,
+                title,
+                url,
+                snippet
+            ));
         }
     }
 
@@ -175,9 +190,18 @@ fn format_ddg_results(data: &Value, max: usize) -> String {
     // Abstract (main answer)
     if let Some(abstract_text) = data.get("Abstract").and_then(|a| a.as_str()) {
         if !abstract_text.is_empty() {
-            let source = data.get("AbstractSource").and_then(|s| s.as_str()).unwrap_or("");
-            let url = data.get("AbstractURL").and_then(|u| u.as_str()).unwrap_or("");
-            output.push_str(&format!("**{}**\n{}\nURL: {}\n\n", source, abstract_text, url));
+            let source = data
+                .get("AbstractSource")
+                .and_then(|s| s.as_str())
+                .unwrap_or("");
+            let url = data
+                .get("AbstractURL")
+                .and_then(|u| u.as_str())
+                .unwrap_or("");
+            output.push_str(&format!(
+                "**{}**\n{}\nURL: {}\n\n",
+                source, abstract_text, url
+            ));
             count += 1;
         }
     }

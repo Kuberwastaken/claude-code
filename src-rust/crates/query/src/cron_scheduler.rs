@@ -8,13 +8,13 @@
 // One-shot tasks (recurring=false) are automatically removed from the store
 // by `pop_due_tasks` after they are returned.
 
-use crate::{QueryConfig, QueryOutcome, run_query_loop};
+use crate::{run_query_loop, QueryConfig, QueryOutcome};
+use chrono::Timelike;
 use claurst_core::types::Message;
 use claurst_tools::Tool;
 use claurst_tools::ToolContext;
-use chrono::Timelike;
 use std::sync::Arc;
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
@@ -108,7 +108,10 @@ async fn run_scheduler_loop(
                     QueryOutcome::Cancelled => {
                         debug!(id = %task_id, "Cron task cancelled");
                     }
-                    QueryOutcome::BudgetExceeded { cost_usd, limit_usd } => {
+                    QueryOutcome::BudgetExceeded {
+                        cost_usd,
+                        limit_usd,
+                    } => {
                         eprintln!(
                             "[cron] task {} budget exceeded: spent ${:.4} of ${:.4}",
                             task_id, cost_usd, limit_usd

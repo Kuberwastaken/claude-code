@@ -83,7 +83,11 @@ fn read_text_windows() -> Option<String> {
         .output()
         .ok()?;
     if out.status.success() && !out.stdout.is_empty() {
-        Some(String::from_utf8_lossy(&out.stdout).trim_end_matches('\n').to_string())
+        Some(
+            String::from_utf8_lossy(&out.stdout)
+                .trim_end_matches('\n')
+                .to_string(),
+        )
     } else {
         None
     }
@@ -135,7 +139,10 @@ close access fp"#,
         tmp.display()
     );
 
-    let write_out = Command::new("osascript").args(["-e", &script]).output().ok()?;
+    let write_out = Command::new("osascript")
+        .args(["-e", &script])
+        .output()
+        .ok()?;
     if write_out.status.success() && tmp.exists() && tmp.metadata().ok()?.len() > 0 {
         let dims = png_dimensions(&tmp);
         Some(PastedImage {
@@ -216,7 +223,10 @@ fn try_save_linux_image(path: &PathBuf) -> bool {
         }
     }
     // wl-paste
-    if let Ok(out) = Command::new("wl-paste").args(["--type", "image/png"]).output() {
+    if let Ok(out) = Command::new("wl-paste")
+        .args(["--type", "image/png"])
+        .output()
+    {
         if out.status.success() && !out.stdout.is_empty() {
             if std::fs::write(path, &out.stdout).is_ok() {
                 return true;
@@ -283,11 +293,17 @@ fn read_image_windows() -> Option<PastedImage> {
 /// Write text to the system clipboard. Returns `true` on success.
 pub fn write_clipboard_text(text: &str) -> bool {
     #[cfg(target_os = "macos")]
-    { write_text_macos_w(text) }
+    {
+        write_text_macos_w(text)
+    }
     #[cfg(target_os = "windows")]
-    { write_text_windows_w(text) }
+    {
+        write_text_windows_w(text)
+    }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    { write_text_linux_w(text) }
+    {
+        write_text_linux_w(text)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -309,7 +325,8 @@ fn write_text_windows_w(text: &str) -> bool {
     use std::io::Write;
     use std::process::Stdio;
     // PowerShell Set-Clipboard reads from stdin via pipe
-    let script = format!("[Console]::InputEncoding = [System.Text.Encoding]::UTF8; $input | Set-Clipboard");
+    let script =
+        format!("[Console]::InputEncoding = [System.Text.Encoding]::UTF8; $input | Set-Clipboard");
     let mut child = match Command::new("powershell")
         .args(["-NoProfile", "-Command", &script])
         .stdin(Stdio::piped())
@@ -447,10 +464,8 @@ mod tests {
         let tmp = make_temp_png().unwrap();
         std::fs::write(&tmp, b"hello world").unwrap();
         let b64 = encode_image_base64(&tmp).unwrap();
-        let decoded = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            &b64,
-        ).unwrap();
+        let decoded =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &b64).unwrap();
         assert_eq!(decoded, b"hello world");
         let _ = std::fs::remove_file(&tmp);
     }

@@ -23,8 +23,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 
 /// Returns true when Claurst Desktop is a supported platform option.
 pub fn is_desktop_supported_platform() -> bool {
-    cfg!(target_os = "macos")
-        || (cfg!(target_os = "windows") && cfg!(target_arch = "x86_64"))
+    cfg!(target_os = "macos") || (cfg!(target_os = "windows") && cfg!(target_arch = "x86_64"))
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +122,11 @@ impl DesktopUpsellStartupState {
 
     /// Height the dialog occupies (0 if not visible).
     pub fn height(&self) -> u16 {
-        if self.visible { 12 } else { 0 }
+        if self.visible {
+            12
+        } else {
+            0
+        }
     }
 }
 
@@ -145,7 +148,12 @@ pub fn render_desktop_upsell_startup(
     let dialog_h = 12u16.min(area.height.saturating_sub(2));
     let x = area.x + (area.width.saturating_sub(dialog_w)) / 2;
     let y = area.y + (area.height.saturating_sub(dialog_h)) / 2;
-    let dialog_area = Rect { x, y, width: dialog_w, height: dialog_h };
+    let dialog_area = Rect {
+        x,
+        y,
+        width: dialog_w,
+        height: dialog_h,
+    };
 
     Clear.render(dialog_area, buf);
 
@@ -292,20 +300,40 @@ mod tests {
     fn desktop_upsell_render_smoke() {
         let mut state = DesktopUpsellStartupState::new();
         state.visible = true;
-        let area = Rect { x: 0, y: 0, width: 80, height: 24 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 24,
+        };
         let mut buf = ratatui::buffer::Buffer::empty(area);
         render_desktop_upsell_startup(&state, area, &mut buf);
-        let rendered = buf.content.iter().map(|c| c.symbol()).collect::<Vec<_>>().join("");
+        let rendered = buf
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<Vec<_>>()
+            .join("");
         assert!(rendered.contains("Claurst Code Desktop") || rendered.contains("visual diffs"));
     }
 
     #[test]
     fn desktop_upsell_not_rendered_when_invisible() {
         let state = DesktopUpsellStartupState::new();
-        let area = Rect { x: 0, y: 0, width: 80, height: 24 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 24,
+        };
         let mut buf = ratatui::buffer::Buffer::empty(area);
         render_desktop_upsell_startup(&state, area, &mut buf);
-        let rendered = buf.content.iter().map(|c| c.symbol()).collect::<Vec<_>>().join("");
+        let rendered = buf
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<Vec<_>>()
+            .join("");
         assert!(!rendered.contains("visual diffs"));
     }
 }
