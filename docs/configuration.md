@@ -68,7 +68,7 @@ The `config` object holds runtime behaviour options.
 |-----|------|---------|-------------|
 | `api_key` | string \| null | null | Anthropic API key. Overrides `ANTHROPIC_API_KEY` env var. Prefer the env var in shared environments. |
 | `model` | string \| null | provider default | Model ID to use. When absent, the provider's default is used (e.g. `claude-sonnet-4-6` for Anthropic, `gpt-4o` for OpenAI). |
-| `max_tokens` | integer \| null | 8192 | Maximum tokens per model response. |
+| `max_tokens` | integer \| null | per-model | Maximum tokens per model response. When null, uses the model's maximum output capacity (e.g. 32 000 for Opus, 16 000 for Sonnet, 8 096 for Haiku). When set, the value is clamped to the model's limit so you never request more than it supports. |
 | `provider` | string \| null | `"anthropic"` | Active provider. See the [Providers](#providers) section. |
 
 ### Permission mode
@@ -525,8 +525,8 @@ matches. They are defined in the `formatter` map:
     // Model — leave null to use the provider's default
     "model": null,
 
-    // Cap responses at 8 192 tokens
-    "max_tokens": 8192,
+    // Cap responses (null = use model's max output tokens)
+    "max_tokens": null,
 
     // In the TUI, ask before writing files or running commands
     "permission_mode": "default",

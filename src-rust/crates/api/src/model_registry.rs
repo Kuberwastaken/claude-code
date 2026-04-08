@@ -259,6 +259,35 @@ impl ModelRegistry {
         None
     }
 
+    /// Look up a [`ModelEntry`] by model name.
+    ///
+    /// Accepts `"provider/model"` (exact key lookup) or a bare model name
+    /// (searches by exact ID match, then prefix match).
+    pub fn find_entry_by_model(&self, model: &str) -> Option<&ModelEntry> {
+        // 1. "provider/model" — direct key lookup.
+        if let Some((provider, model_id)) = model.split_once('/') {
+            return self.get(provider, model_id);
+        }
+
+        // 2. Exact match on model ID.
+        for entry in self.entries.values() {
+            if &*entry.info.id == model {
+                return Some(entry);
+            }
+        }
+
+        // 3. Prefix match (handles version suffixes).
+        for entry in self.entries.values() {
+            if (&*entry.info.id).starts_with(model)
+                || model.starts_with(&*entry.info.id)
+            {
+                return Some(entry);
+            }
+        }
+
+        None
+    }
+
     /// List all models for a given provider.
     pub fn list_by_provider(&self, provider_id: &str) -> Vec<&ModelEntry> {
         self.entries
@@ -574,4 +603,121 @@ pub fn effective_model_for_config(
 
     // Fall back to the hardcoded table.
     config.effective_model().to_string()
+}
+
+/// Resolve the effective `max_tokens` for a model, using the model registry's
+/// `max_output_tokens` as the per-model default.
+///
+/// **Resolution order:**
+///  1. If the user explicitly set `config.max_tokens` (via `--max-tokens` or
+///     config file), use it — but clamp to the model's `max_output_tokens` if
+///     known, so we never request more than the model supports.
+///  2. Otherwise, use the model's `max_output_tokens` from the registry.
+///  3. Fall back to [`DEFAULT_MAX_TOKENS`] if the model is not in the registry.
+pub fn effective_max_tokens_for_model(
+    config: &claurst_core::Config,
+    registry: &ModelRegistry,
+    model: &str,
+) -> u32 {
+    let model_max = registry
+        .find_entry_by_model(model)
+        .map(|e| e.info.max_output_tokens);
+
+    match (config.max_tokens, model_max) {
+        // User override, model known — clamp to model limit.
+        (Some(user), Some(cap)) => user.min(cap),
+        // User override, model unknown — use as-is.
+        (Some(user), None) => user,
+        // No override, model known — use model's max.
+        (None, Some(cap)) => cap,
+        // No override, model unknown — global default.
+        (None, None) => claurst_core::constants::DEFAULT_MAX_TOKENS,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn find_entry_by_exact_model_id() {
+        let reg = ModelRegistry::new();
+        let entry = reg.find_entry_by_model("claude-opus-4-6").unwrap();
+        assert_eq!(&*entry.info.id, "claude-opus-4-6");
+        assert_eq!(entry.info.max_output_tokens, 32_000);
+    }
+
+    #[test]
+    fn find_entry_by_provider_slash_model() {
+        let reg = ModelRegistry::new();
+        let entry = reg.find_entry_by_model("anthropic/claude-sonnet-4-6").unwrap();
+        assert_eq!(&*entry.info.id, "claude-sonnet-4-6");
+    }
+
+    #[test]
+    fn find_entry_unknown_model_returns_none() {
+        let reg = ModelRegistry::new();
+        assert!(reg.find_entry_by_model("nonexistent-model-xyz").is_none());
+    }
+
+    #[test]
+    fn max_tokens_uses_model_default_when_no_override() {
+        let reg = ModelRegistry::new();
+        let cfg = claurst_core::Config::default(); // max_tokens = None
+        // Claude Sonnet has 16K max_output_tokens
+        let mt = effective_max_tokens_for_model(&cfg, &reg, "claude-sonnet-4-6");
+        assert_eq!(mt, 16_000);
+    }
+
+    #[test]
+    fn max_tokens_clamps_user_override_to_model_limit() {
+        let reg = ModelRegistry::new();
+        let mut cfg = claurst_core::Config::default();
+        cfg.max_tokens = Some(64_000); // Higher than Haiku's 8096
+        let mt = effective_max_tokens_for_model(&cfg, &reg, "claude-haiku-4-5-20251001");
+        assert_eq!(mt, 8_096);
+    }
+
+    #[test]
+    fn max_tokens_respects_user_override_below_model_limit() {
+        let reg = ModelRegistry::new();
+        let mut cfg = claurst_core::Config::default();
+        cfg.max_tokens = Some(4_000); // Lower than Opus's 32K
+        let mt = effective_max_tokens_for_model(&cfg, &reg, "claude-opus-4-6");
+        assert_eq!(mt, 4_000);
+    }
+
+    #[test]
+    fn max_tokens_falls_back_to_default_for_unknown_model() {
+        let reg = ModelRegistry::new();
+        let cfg = claurst_core::Config::default();
+        let mt = effective_max_tokens_for_model(&cfg, &reg, "some-unknown-model");
+        assert_eq!(mt, claurst_core::constants::DEFAULT_MAX_TOKENS);
+    }
+
+    #[test]
+    fn max_tokens_user_override_passthrough_for_unknown_model() {
+        let reg = ModelRegistry::new();
+        let mut cfg = claurst_core::Config::default();
+        cfg.max_tokens = Some(50_000);
+        let mt = effective_max_tokens_for_model(&cfg, &reg, "some-unknown-model");
+        assert_eq!(mt, 50_000);
+    }
+
+    #[test]
+    fn max_tokens_per_model_varies() {
+        let reg = ModelRegistry::new();
+        let cfg = claurst_core::Config::default();
+        // Different models should get different defaults.
+        let opus = effective_max_tokens_for_model(&cfg, &reg, "claude-opus-4-6");
+        let sonnet = effective_max_tokens_for_model(&cfg, &reg, "claude-sonnet-4-6");
+        let gpt4o = effective_max_tokens_for_model(&cfg, &reg, "gpt-4o");
+        assert_eq!(opus, 32_000);
+        assert_eq!(sonnet, 16_000);
+        assert_eq!(gpt4o, 16_384);
+    }
 }

@@ -172,9 +172,11 @@ impl QueryConfig {
     pub fn from_config_with_registry(cfg: &Config, registry: &claurst_api::ModelRegistry) -> Self {
         // We can't move the Arc here, but we need a clone for the query loop.
         // Callers typically wrap the registry in an Arc already.
+        let model = claurst_api::effective_model_for_config(cfg, registry);
+        let max_tokens = claurst_api::effective_max_tokens_for_model(cfg, registry, &model);
         Self {
-            model: claurst_api::effective_model_for_config(cfg, registry),
-            max_tokens: cfg.effective_max_tokens(),
+            model,
+            max_tokens,
             output_style: cfg.effective_output_style(),
             output_style_prompt: cfg.resolve_output_style_prompt(),
             working_directory: cfg

@@ -516,12 +516,12 @@ fn build_general_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
     let max_tokens_val = cfg
         .max_tokens
         .map(|n| n.to_string())
-        .unwrap_or_else(|| claurst_core::constants::DEFAULT_MAX_TOKENS.to_string());
+        .unwrap_or_else(|| "auto (per-model)".to_string());
     lines.extend(field_lines(
         "max_tokens",
         "Max Tokens",
         &max_tokens_val,
-        "Maximum tokens per response.",
+        "Maximum tokens per response. Leave empty for per-model default, clamped to model limit.",
         screen,
     ));
     lines.push(Line::from(""));

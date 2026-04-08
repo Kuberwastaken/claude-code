@@ -183,7 +183,7 @@ Central shared crate. Defines all types consumed by every other crate. Contains 
 - `resolve_api_key() -> Option<String>` — checks `config.api_key` then `ANTHROPIC_API_KEY` env var
 - `resolve_api_base() -> String` — checks `ANTHROPIC_BASE_URL` env var, falls back to constant
 - `effective_model() -> &str`
-- `effective_max_tokens() -> u32`
+- `effective_max_tokens() -> u32` — global fallback (prefers `effective_max_tokens_for_model()` in `claurst_api` for per-model resolution)
 
 **`PermissionMode` enum:**
 - `Default` — allow read-only operations automatically
@@ -213,7 +213,7 @@ All constants are `pub const`:
 | `DEFAULT_MODEL` | `"claude-opus-4-6"` |
 | `SONNET_MODEL` | `"claude-sonnet-4-6"` |
 | `HAIKU_MODEL` | `"claude-haiku-4-5-20251001"` |
-| `DEFAULT_MAX_TOKENS` | `32_000` |
+| `DEFAULT_MAX_TOKENS` | `32_000` | Fallback when model not in registry; per-model limits used otherwise |
 | `MAX_TOKENS_HARD_LIMIT` | `65_536` |
 | `DEFAULT_COMPACT_THRESHOLD` | `0.9` |
 | `MAX_TURNS_DEFAULT` | `10` |
@@ -478,6 +478,40 @@ Internal `PartialBlock` enum during accumulation:
 - `"message_delta"` → `StreamEvent::MessageDelta`
 - `"message_stop"` → `StreamEvent::MessageStop`
 - `"error"` → `StreamEvent::Error`
+
+### Module: `model_registry`
+
+**`ModelRegistry`** — model catalogue with bundled snapshot and optional models.dev refresh:
+- `ModelRegistry::new()` — pre-populated with Anthropic, OpenAI, and Google models
+- `get(provider_id, model_id) -> Option<&ModelEntry>` — exact key lookup
+- `find_entry_by_model(model) -> Option<&ModelEntry>` — accepts `"provider/model"` or bare name; searches exact match then prefix match
+- `find_provider_for_model(model) -> Option<ProviderId>` — family-based heuristic + registry lookup
+- `best_model_for_provider(provider_id) -> Option<String>` — flagship priority scoring
+
+**`ModelEntry`:** `{ info: ModelInfo, cost_input, cost_output, tool_calling, reasoning, vision, family, status }`
+
+**`ModelInfo`:** `{ id: ModelId, provider_id: ProviderId, name: String, context_window: u32, max_output_tokens: u32 }`
+
+**Per-model `max_tokens` resolution:**
+
+`effective_max_tokens_for_model(config, registry, model) -> u32`:
+- User set `--max-tokens` + model known → `min(user_value, model.max_output_tokens)`
+- User set `--max-tokens` + model unknown → user value as-is
+- No override + model known → `model.max_output_tokens`
+- No override + model unknown → `DEFAULT_MAX_TOKENS` (32 000)
+
+Bundled model output limits:
+| Model | max_output_tokens |
+|---|---|
+| Claude Opus 4.6 | 32 000 |
+| Claude Sonnet 4.6 | 16 000 |
+| Claude Haiku 4.5 | 8 096 |
+| GPT-4o / GPT-4o mini | 16 384 |
+| o3 / o4-mini | 100 000 |
+| Gemini 2.5 Pro / Flash | 65 536 |
+| Gemini 2.0 Flash | 8 192 |
+
+`effective_model_for_config(config, registry) -> String` — resolves model: explicit user override → registry best-for-provider → hardcoded default.
 
 ### Relationship to TypeScript
 
@@ -877,6 +911,7 @@ The core agentic query loop crate. Contains 4 source files.
 - `temperature: Option<f32>`
 - `QueryConfig::default()` uses `DEFAULT_MODEL` + `DEFAULT_MAX_TOKENS`
 - `QueryConfig::from_config(cfg: &Config)` — reads model + max_tokens from Config
+- `QueryConfig::from_config_with_registry(cfg, registry)` — resolves model via registry and sets `max_tokens` per-model using `effective_max_tokens_for_model()`
 
 **`QueryEvent` enum:**
 - `Stream(StreamEvent)` — raw API stream event

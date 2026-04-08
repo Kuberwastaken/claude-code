@@ -160,7 +160,7 @@ struct Cli {
     #[arg(long = "api-key")]
     api_key: Option<String>,
 
-    /// Maximum tokens per response
+    /// Maximum tokens per response (default: model's max output tokens; clamped to model limit)
     #[arg(long = "max-tokens")]
     max_tokens: Option<u32>,
 
@@ -2054,7 +2054,7 @@ async fn run_interactive(
                         let ctx_clone = tool_ctx.clone();
                         let mut qcfg = base_query_config.clone();
                         qcfg.model = claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
-                        qcfg.max_tokens = cmd_ctx.config.effective_max_tokens();
+                        qcfg.max_tokens = claurst_api::effective_max_tokens_for_model(&cmd_ctx.config, &model_registry, &qcfg.model);
                         qcfg.append_system_prompt = cmd_ctx.config.append_system_prompt.clone();
                         qcfg.system_prompt = base_query_config.system_prompt.clone();
                         qcfg.output_style = cmd_ctx.config.effective_output_style();
@@ -2247,7 +2247,7 @@ async fn run_interactive(
                 let ctx_clone = tool_ctx.clone();
                 let mut qcfg = base_query_config.clone();
                 qcfg.model = claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
-                qcfg.max_tokens = cmd_ctx.config.effective_max_tokens();
+                qcfg.max_tokens = claurst_api::effective_max_tokens_for_model(&cmd_ctx.config, &model_registry, &qcfg.model);
                 let tracker = cost_tracker.clone();
                 let tx = event_tx.clone();
                 let client_clone = client.clone();
@@ -2401,7 +2401,7 @@ async fn run_interactive(
                         let ctx_clone = tool_ctx.clone();
                         let mut qcfg = base_query_config.clone();
                         qcfg.model = claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
-                        qcfg.max_tokens = cmd_ctx.config.effective_max_tokens();
+                        qcfg.max_tokens = claurst_api::effective_max_tokens_for_model(&cmd_ctx.config, &model_registry, &qcfg.model);
                         let tracker = cost_tracker.clone();
                         let tx = event_tx.clone();
                         let client_clone = client.clone();
@@ -2509,7 +2509,7 @@ async fn run_interactive(
                 let ctx_clone = tool_ctx.clone();
                 let mut qcfg = base_query_config.clone();
                 qcfg.model = claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
-                qcfg.max_tokens = cmd_ctx.config.effective_max_tokens();
+                qcfg.max_tokens = claurst_api::effective_max_tokens_for_model(&cmd_ctx.config, &model_registry, &qcfg.model);
                 let tracker = cost_tracker.clone();
                 let tx = event_tx.clone();
                 let client_clone = client.clone();
