@@ -5076,11 +5076,18 @@ impl App {
                     let (tx, rx) = tokio::sync::mpsc::channel(1);
                     self.model_fetch_rx = Some(rx);
                     self.model_picker.loading_models = true;
+                    // mlxlm can only serve one model at a time, but its server
+                    // accumulates all previously-loaded models in /v1/models.
+                    let single_model_only = provider_id_str == "mlxlm";
                     tokio::spawn(async move {
                         match provider.list_models().await {
                             Ok(models) => {
+                                let models: Box<dyn Iterator<Item = _>> = if single_model_only {
+                                    Box::new(models.into_iter().take(1))
+                                } else {
+                                    Box::new(models.into_iter())
+                                };
                                 let entries: Vec<crate::model_picker::ModelEntry> = models
-                                    .into_iter()
                                     .map(|m| {
                                         let ctx_k = m.context_window / 1000;
                                         crate::model_picker::ModelEntry {
@@ -5188,11 +5195,16 @@ impl App {
                         let (tx, rx) = tokio::sync::mpsc::channel(1);
                         self.model_fetch_rx = Some(rx);
                         self.model_picker.loading_models = true;
+                        let single_model_only = provider_id_str == "mlxlm";
                         tokio::spawn(async move {
                             match provider.list_models().await {
                                 Ok(models) => {
+                                    let models: Box<dyn Iterator<Item = _>> = if single_model_only {
+                                        Box::new(models.into_iter().take(1))
+                                    } else {
+                                        Box::new(models.into_iter())
+                                    };
                                     let entries: Vec<crate::model_picker::ModelEntry> = models
-                                        .into_iter()
                                         .map(|m| {
                                             let ctx_k = m.context_window / 1000;
                                             crate::model_picker::ModelEntry {
