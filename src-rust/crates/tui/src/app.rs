@@ -3327,7 +3327,14 @@ impl App {
                 self.notifications.push(NotificationKind::Info, msg, Some(3));
             } else if let Some(text) = read_clipboard_text().or_else(read_primary_text) {
                 self.prompt_input.paste(&text);
+                self.refresh_prompt_input();
             }
+            return false;
+        }
+
+        // ---- Shift+Insert — selection/clipboard paste fallback -------------
+        if key.code == KeyCode::Insert && key.modifiers.contains(KeyModifiers::SHIFT) {
+            let _ = self.paste_primary_into_prompt();
             return false;
         }
 
@@ -4544,6 +4551,37 @@ impl App {
         }
     }
 
+    fn prompt_can_accept_selection_paste(&self) -> bool {
+        !self.is_streaming
+            && self.permission_request.is_none()
+            && !self.history_search_overlay.visible
+            && self.history_search.is_none()
+            && !matches!(
+                self.prompt_input.vim_mode,
+                crate::prompt_input::VimMode::Normal
+                    | crate::prompt_input::VimMode::Visual
+                    | crate::prompt_input::VimMode::VisualBlock
+            )
+    }
+
+    fn paste_primary_into_prompt(&mut self) -> bool {
+        if !self.prompt_can_accept_selection_paste() {
+            return false;
+        }
+
+        if let Some(text) = crate::image_paste::read_primary_text()
+            .or_else(crate::image_paste::read_clipboard_text)
+        {
+            self.focus = FocusTarget::Input;
+            self.clear_selection();
+            self.prompt_input.paste(&text);
+            self.refresh_prompt_input();
+            return true;
+        }
+
+        false
+    }
+
     /// Process mouse events (trackpad scroll, text selection, etc.).
     pub fn handle_mouse_event(&mut self, mouse_event: MouseEvent) {
         use crossterm::event::MouseButton;
@@ -4686,29 +4724,7 @@ impl App {
 
             // ---- Primary-selection paste into the prompt ---------------
             MouseEventKind::Down(MouseButton::Middle) => {
-                let input_area = self.last_input_area.get();
-                let in_input = input_area.width > 0 && input_area.height > 0
-                    && mouse_event.row >= input_area.y
-                    && mouse_event.row < input_area.y.saturating_add(input_area.height)
-                    && mouse_event.column >= input_area.x
-                    && mouse_event.column < input_area.x.saturating_add(input_area.width);
-
-                if in_input {
-                    self.focus = FocusTarget::Input;
-                    self.clear_selection();
-                    if !matches!(
-                        self.prompt_input.vim_mode,
-                        crate::prompt_input::VimMode::Normal
-                            | crate::prompt_input::VimMode::Visual
-                            | crate::prompt_input::VimMode::VisualBlock
-                    ) {
-                        if let Some(text) = crate::image_paste::read_primary_text()
-                            .or_else(crate::image_paste::read_clipboard_text)
-                        {
-                            self.prompt_input.paste(&text);
-                        }
-                    }
-                }
+                let _ = self.paste_primary_into_prompt();
             }
 
             // ---- Text selection / focus routing -------------------------
