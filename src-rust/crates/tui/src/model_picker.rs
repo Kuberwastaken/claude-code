@@ -387,6 +387,9 @@ pub fn models_for_provider(provider_id: &str) -> Vec<ModelEntry> {
         "llamacpp" => vec![
             model_entry("default", "Default model", "local"),
         ],
+        // mlxlm: no static placeholder — the real model name comes from the
+        // live GET /v1/models fetch against the running server.
+        "mlxlm" => vec![],
         _ => vec![
             model_entry("default", "Default model", ""),
         ],
@@ -418,6 +421,7 @@ pub fn default_model_for_provider(provider_id: &str) -> String {
         "ollama" => "ollama/llama3.2".to_string(),
         "lmstudio" => "lmstudio/default".to_string(),
         "llamacpp" => "llamacpp/default".to_string(),
+        "mlxlm" => "mlxlm/default".to_string(),
         "azure" => "azure/gpt-4o".to_string(),
         "amazon-bedrock" => "amazon-bedrock/anthropic.claude-sonnet-4-6-v1".to_string(),
         other => format!("{}/default", other),
@@ -568,11 +572,17 @@ impl ModelPickerState {
     /// in the correct provider-aware format.
     pub fn confirm(&mut self) -> Option<(String, Option<EffortLevel>)> {
         let filtered = self.filtered_models();
-        let entry = filtered.get(self.selected_idx)?;
-        let id = entry.id.clone();
+        let id = if let Some(entry) = filtered.get(self.selected_idx) {
+            entry.id.clone()
+        } else if !self.filter.is_empty() {
+            // No list match — treat the typed text as a custom model ID.
+            // This lets users enter arbitrary model names (e.g. for local
+            // providers like MLX LM where the model name is set at server start).
+            self.filter.clone()
+        } else {
+            return None;
+        };
         let effort = if model_supports_effort(&id) { Some(self.effort_level) } else { None };
-        // If user chose a model other than the fast-mode model while fast mode is
-        // active, the caller should turn off fast mode (mirrors TS behaviour).
         self.close();
         Some((id, effort))
     }

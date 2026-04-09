@@ -221,6 +221,7 @@ fn provider_picker_items() -> Vec<SelectItem> {
         SelectItem { id: "sambanova".into(), title: "SambaNova".into(), description: "Fast hosted inference".into(), category: "Other".into(), badge: Some("FREE".into()) },
         SelectItem { id: "lmstudio".into(), title: "LM Studio".into(), description: "Local model server".into(), category: "Other".into(), badge: Some("LOCAL".into()) },
         SelectItem { id: "llamacpp".into(), title: "llama.cpp".into(), description: "Local inference server".into(), category: "Other".into(), badge: Some("LOCAL".into()) },
+        SelectItem { id: "mlxlm".into(), title: "MLX LM".into(), description: "Apple MLX local inference".into(), category: "Other".into(), badge: Some("LOCAL".into()) },
         SelectItem { id: "deepseek".into(), title: "DeepSeek".into(), description: "Reasoning and coding models".into(), category: "Other".into(), badge: None },
         SelectItem { id: "mistral".into(), title: "Mistral".into(), description: "Hosted Mistral models".into(), category: "Other".into(), badge: None },
         SelectItem { id: "togetherai".into(), title: "Together AI".into(), description: "Open model hosting".into(), category: "Other".into(), badge: None },
@@ -1446,8 +1447,14 @@ impl App {
             provider_id,
             &self.model_registry,
         );
+        let needs_live_fetch = models.is_empty();
         self.model_picker.set_models(models);
         self.model_picker_fetch_pending = true;
+        // If no static models are available, show the loading indicator right
+        // away so there's no empty-list flash before the background fetch fires.
+        if needs_live_fetch {
+            self.model_picker.loading_models = true;
+        }
 
         let provider_prefix = format!("{}/", provider_id);
         let current_model = if self.config.provider.as_deref() == Some(provider_id) {
@@ -1512,6 +1519,8 @@ impl App {
                 "ollama",
                 "lmstudio",
                 "llamacpp",
+                "mlxlm",
+                "mlx-lm",
                 "azure",
                 "amazon-bedrock",
             ];
@@ -2708,7 +2717,7 @@ impl App {
 
                         match selected.id.as_str() {
                             // Local providers — activate immediately, no key needed
-                            "ollama" | "lmstudio" | "llamacpp" => {
+                            "ollama" | "lmstudio" | "llamacpp" | "mlxlm" => {
                                 self.activate_provider(selected.id.clone(), selected.title.clone(), "Switched to");
                             }
                             "anthropic" => {
@@ -5011,6 +5020,112 @@ impl App {
     }
 
     // -------------------------------------------------------------------
+    // Background task draining
+    // -------------------------------------------------------------------
+
+    /// Drain pending background tasks (model-list fetch, session-list load).
+    ///
+    /// Must be called once per frame from the host event loop (main.rs).
+    /// The logic here was originally inside the unused `run()` method's
+    /// loop — it is factored out so main.rs can call it from its own loop.
+    pub fn tick_background_tasks(&mut self) {
+        // Drain background model-fetch results (non-blocking).
+        if let Some(ref mut rx) = self.model_fetch_rx {
+            match rx.try_recv() {
+                Ok(Ok(entries)) => {
+                    let provider = self
+                        .config
+                        .provider
+                        .clone()
+                        .unwrap_or_else(|| "anthropic".to_string());
+                    let provider_prefix = format!("{}/", provider);
+                    let current = self
+                        .model_name
+                        .strip_prefix(&provider_prefix)
+                        .unwrap_or(self.model_name.as_str())
+                        .to_string();
+                    self.model_picker.set_models(entries);
+                    for m in &mut self.model_picker.models {
+                        m.is_current = m.id == current;
+                    }
+                    self.model_fetch_rx = None;
+                }
+                Ok(Err(()))
+                | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                    self.model_picker.loading_models = false;
+                    self.model_fetch_rx = None;
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
+            }
+        }
+
+        // Spawn async provider model-list fetch when requested.
+        if self.model_picker_fetch_pending {
+            self.model_picker_fetch_pending = false;
+            let provider_id_str = self.config.provider.clone().unwrap_or_else(|| "anthropic".to_string());
+            if let Some(ref registry) = self.provider_registry {
+                let canonical_id = match provider_id_str.as_str() {
+                    "lmstudio" => "lm-studio",
+                    "llamacpp" => "llama-cpp",
+                    "mlxlm" => "mlx-lm",
+                    other => other,
+                };
+                let pid = claurst_core::ProviderId::new(canonical_id);
+                if let Some(provider) = registry.get(&pid) {
+                    let provider = provider.clone();
+                    let (tx, rx) = tokio::sync::mpsc::channel(1);
+                    self.model_fetch_rx = Some(rx);
+                    self.model_picker.loading_models = true;
+                    // mlxlm can only serve one model at a time, but its server
+                    // accumulates all previously-loaded models in /v1/models.
+                    let single_model_only = provider_id_str == "mlxlm";
+                    tokio::spawn(async move {
+                        match provider.list_models().await {
+                            Ok(models) => {
+                                let models: Box<dyn Iterator<Item = _>> = if single_model_only {
+                                    Box::new(models.into_iter().take(1))
+                                } else {
+                                    Box::new(models.into_iter())
+                                };
+                                let entries: Vec<crate::model_picker::ModelEntry> = models
+                                    .map(|m| {
+                                        let ctx_k = m.context_window / 1000;
+                                        crate::model_picker::ModelEntry {
+                                            id: m.id.to_string(),
+                                            display_name: m.name.clone(),
+                                            description: format!("{}K context", ctx_k),
+                                            is_current: false,
+                                        }
+                                    })
+                                    .collect();
+                                let _ = tx.send(Ok(entries)).await;
+                            }
+                            Err(_) => {
+                                let _ = tx.send(Err(())).await;
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        // Drain background session-list results.
+        if let Some(ref mut rx) = self.session_list_rx {
+            match rx.try_recv() {
+                Ok(entries) => {
+                    self.session_browser.sessions = entries;
+                    self.session_browser.selected_idx = 0;
+                    self.session_list_rx = None;
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                    self.session_list_rx = None;
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
+            }
+        }
+
+    }
+
     // Main run loop
     // -------------------------------------------------------------------
 
@@ -5067,17 +5182,29 @@ impl App {
                 self.model_picker_fetch_pending = false;
                 let provider_id_str = self.config.provider.clone().unwrap_or_else(|| "anthropic".to_string());
                 if let Some(ref registry) = self.provider_registry {
-                    let pid = claurst_core::ProviderId::new(&provider_id_str);
+                    // Normalize TUI short-form IDs to canonical registry IDs.
+                    let canonical_id = match provider_id_str.as_str() {
+                        "lmstudio" => "lm-studio",
+                        "llamacpp" => "llama-cpp",
+                        "mlxlm" => "mlx-lm",
+                        other => other,
+                    };
+                    let pid = claurst_core::ProviderId::new(canonical_id);
                     if let Some(provider) = registry.get(&pid) {
                         let provider = provider.clone();
                         let (tx, rx) = tokio::sync::mpsc::channel(1);
                         self.model_fetch_rx = Some(rx);
                         self.model_picker.loading_models = true;
+                        let single_model_only = provider_id_str == "mlxlm";
                         tokio::spawn(async move {
                             match provider.list_models().await {
                                 Ok(models) => {
+                                    let models: Box<dyn Iterator<Item = _>> = if single_model_only {
+                                        Box::new(models.into_iter().take(1))
+                                    } else {
+                                        Box::new(models.into_iter())
+                                    };
                                     let entries: Vec<crate::model_picker::ModelEntry> = models
-                                        .into_iter()
                                         .map(|m| {
                                             let ctx_k = m.context_window / 1000;
                                             crate::model_picker::ModelEntry {

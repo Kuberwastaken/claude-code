@@ -319,6 +319,43 @@ Start llama.cpp with the `--server` flag before use.
 
 ---
 
+### MLX LM (local)
+
+Connects to a locally running `mlx_lm` HTTP server. Requires Apple Silicon. No API key required.
+
+**Base URL:** Reads `MLX_LM_HOST` (defaults to `http://localhost:8081`). Claurst appends `/v1`.
+
+**Default model:** `default` (the model is loaded when starting the server)
+
+**Configuration:**
+
+```json
+{
+  "provider": "mlxlm",
+  "providers": {
+    "mlxlm": {
+      "api_base": "http://localhost:8081/v1"
+    }
+  }
+}
+```
+
+Start the server before connecting, specifying the model to load:
+
+```bash
+python -m mlx_lm.server --model BeastCode/Qwen3.5-27B-Claude-4.6-Opus-Distilled-MLX-4bit
+```
+
+Use a custom port:
+
+```bash
+MLX_LM_HOST=http://localhost:9000 claurst --provider mlxlm "hello"
+# or
+python -m mlx_lm.server --model <model> --port 9000
+```
+
+---
+
 ### Groq
 
 Fast inference cloud with OpenAI-compatible API.

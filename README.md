@@ -65,6 +65,8 @@ cd claurst/src-rust
 cargo build --release --package claurst
 
 # Binary is at target/release/claurst
+# Run with:
+cargo run -p claurst
 ```
 
 ### First run
