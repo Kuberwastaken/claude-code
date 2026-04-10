@@ -31,6 +31,8 @@ struct BashInput {
     timeout: u64,
     #[serde(default)]
     run_in_background: bool,
+    #[serde(default)]
+    notify_on_complete: bool,
 }
 
 fn default_timeout() -> u64 {
@@ -143,7 +145,13 @@ exit $__CC_EXIT_CODE
 }
 
 /// Execute a command in the background, registering it in the global task registry.
-async fn run_in_background(command: String, cwd: PathBuf, timeout_ms: u64) -> ToolResult {
+async fn run_in_background(
+    command: String,
+    cwd: PathBuf,
+    timeout_ms: u64,
+    notify_on_complete: bool,
+    completion_notifier: Option<crate::CompletionNotifier>,
+) -> ToolResult {
     let task_name = format!("bg: {}", &command[..command.len().min(60)]);
     let mut task = BackgroundTask::new(&task_name);
     task.pid = None; // Will be set after spawn
@@ -241,10 +249,66 @@ async fn run_in_background(command: String, cwd: PathBuf, timeout_ms: u64) -> To
         }
     });
 
-    ToolResult::success(format!(
-        "Command started in background.\nTask ID: {}\nCommand: {}",
-        task_id, command
-    ))
+    // If notify_on_complete is requested and a notifier is available, spawn a
+    // watcher task that polls the registry until the task reaches a terminal
+    // state, then injects a completion message into the agent's next turn.
+    if notify_on_complete {
+        if let Some(notifier) = completion_notifier {
+            let watcher_task_id = task_id.clone();
+            let watcher_command = command.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    let task = global_registry().get(&watcher_task_id);
+                    match task {
+                        Some(t) if matches!(
+                            t.status,
+                            claurst_core::tasks::TaskStatus::Completed
+                                | claurst_core::tasks::TaskStatus::Failed(_)
+                                | claurst_core::tasks::TaskStatus::Cancelled
+                        ) => {
+                            let exit_info = match &t.status {
+                                claurst_core::tasks::TaskStatus::Completed => "exit 0".to_string(),
+                                claurst_core::tasks::TaskStatus::Failed(msg) => {
+                                    format!("failed: {}", msg)
+                                }
+                                claurst_core::tasks::TaskStatus::Cancelled => {
+                                    "cancelled".to_string()
+                                }
+                                _ => unreachable!(),
+                            };
+                            let output = t.output.join("\n");
+                            let output_tail = if output.len() > 2000 {
+                                &output[output.len() - 2000..]
+                            } else {
+                                &output
+                            };
+                            let msg = format!(
+                                "[Monitor] Background task {} completed ({}).\nCommand: {}\nOutput (last 2000 chars):\n{}",
+                                watcher_task_id, exit_info, watcher_command, output_tail
+                            );
+                            notifier.notify(msg);
+                            break;
+                        }
+                        None => break, // Task disappeared from registry
+                        _ => {} // Still running, keep polling
+                    }
+                }
+            });
+        }
+    }
+
+    if notify_on_complete {
+        ToolResult::success(format!(
+            "Started background task {}.\nnotify_on_complete: enabled — you will be automatically notified when this task finishes.\nUse process_list or check task {} to monitor progress.\nCommand: {}",
+            task_id, task_id, command
+        ))
+    } else {
+        ToolResult::success(format!(
+            "Command started in background.\nTask ID: {}\nCommand: {}",
+            task_id, command
+        ))
+    }
 }
 
 #[async_trait]
@@ -284,6 +348,11 @@ impl Tool for BashTool {
                 "run_in_background": {
                     "type": "boolean",
                     "description": "Set to true to run command in the background"
+                },
+                "notify_on_complete": {
+                    "type": "boolean",
+                    "description": "When true (and run_in_background is also true), the agent will be automatically notified when the process finishes — no polling needed. Use for long-running tasks like test suites, builds, or deployments so you can keep working while they run.",
+                    "default": false
                 }
             },
             "required": ["command"]
@@ -322,7 +391,13 @@ impl Tool for BashTool {
                 let state = shell_state_arc.lock();
                 state.cwd.clone().unwrap_or_else(|| ctx.working_dir.clone())
             };
-            return run_in_background(params.command, cwd, timeout_ms).await;
+            return run_in_background(
+                params.command,
+                cwd,
+                timeout_ms,
+                params.notify_on_complete,
+                ctx.completion_notifier.clone(),
+            ).await;
         }
 
         // ── Foreground path ──────────────────────────────────────────────────
@@ -565,5 +640,53 @@ impl BashTool {
                 ToolResult::error(format!("Command timed out after {}ms", timeout_ms))
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notify_on_complete_in_schema() {
+        let tool = BashTool;
+        let schema = tool.input_schema();
+        let props = &schema["properties"];
+        assert!(
+            props["notify_on_complete"].is_object(),
+            "notify_on_complete should be in the schema"
+        );
+        assert_eq!(
+            props["notify_on_complete"]["type"], "boolean",
+            "notify_on_complete should be boolean"
+        );
+    }
+
+    #[test]
+    fn notify_on_complete_default_false() {
+        let input: BashInput =
+            serde_json::from_str(r#"{"command":"echo hi"}"#).unwrap();
+        assert!(
+            !input.notify_on_complete,
+            "notify_on_complete should default to false"
+        );
+    }
+
+    #[test]
+    fn notify_on_complete_can_be_set_true() {
+        let input: BashInput =
+            serde_json::from_str(r#"{"command":"echo hi","notify_on_complete":true}"#).unwrap();
+        assert!(input.notify_on_complete);
+    }
+
+    #[test]
+    fn run_in_background_default_false() {
+        let input: BashInput =
+            serde_json::from_str(r#"{"command":"echo hi"}"#).unwrap();
+        assert!(!input.run_in_background);
     }
 }
