@@ -64,8 +64,8 @@ impl AzureProvider {
     pub fn from_env() -> Option<Self> {
         let key = std::env::var("AZURE_API_KEY").ok()?;
         let resource = std::env::var("AZURE_RESOURCE_NAME").ok()?;
-        let version = std::env::var("AZURE_API_VERSION")
-            .unwrap_or_else(|_| "2024-08-01-preview".to_string());
+        let version =
+            std::env::var("AZURE_API_VERSION").unwrap_or_else(|_| "2024-08-01-preview".to_string());
         Some(Self::new(resource, key).with_api_version(version))
     }
 

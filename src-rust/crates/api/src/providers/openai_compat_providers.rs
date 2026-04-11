@@ -10,43 +10,6 @@ use claurst_core::provider_id::ProviderId;
 
 use super::openai_compat::{OpenAiCompatProvider, ProviderQuirks};
 
-pub fn provider_for_id(provider_id: &str) -> Option<OpenAiCompatProvider> {
-    match provider_id {
-        "ollama" => Some(ollama()),
-        "lmstudio" | "lm-studio" => Some(lm_studio()),
-        "llamacpp" | "llama-cpp" | "llama-server" => Some(llama_cpp()),
-        "deepseek" => Some(deepseek()),
-        "groq" => Some(groq()),
-        "xai" => Some(xai()),
-        "deepinfra" => Some(deepinfra()),
-        "cerebras" => Some(cerebras()),
-        "togetherai" | "together-ai" => Some(together_ai()),
-        "perplexity" => Some(perplexity()),
-        "venice" => Some(venice()),
-        "qwen" => Some(qwen()),
-        "mistral" => Some(mistral()),
-        "openrouter" => Some(openrouter()),
-        "sambanova" => Some(sambanova()),
-        "huggingface" => Some(huggingface()),
-        "nvidia" => Some(nvidia()),
-        "siliconflow" => Some(siliconflow()),
-        "moonshot" | "moonshotai" => Some(moonshot()),
-        "zhipu" | "zhipuai" => Some(zhipu()),
-        "zai" => Some(zai()),
-        "nebius" => Some(nebius()),
-        "novita" => Some(novita()),
-        "ovhcloud" => Some(ovhcloud()),
-        "scaleway" => Some(scaleway()),
-        "vultr" | "vultr-ai" => Some(vultr_ai()),
-        "baseten" => Some(baseten()),
-        "friendli" => Some(friendli()),
-        "upstage" => Some(upstage()),
-        "stepfun" => Some(stepfun()),
-        "fireworks" => Some(fireworks()),
-        _ => None,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Local / self-hosted providers (no API key required)
 // ---------------------------------------------------------------------------
@@ -62,7 +25,6 @@ pub fn ollama() -> OpenAiCompatProvider {
             "prompt too long".to_string(),
             "exceeded.*context length".to_string(),
         ],
-        no_api_key_required: true,
         ..Default::default()
     })
 }
@@ -76,7 +38,6 @@ pub fn lm_studio() -> OpenAiCompatProvider {
     OpenAiCompatProvider::new(ProviderId::LM_STUDIO, "LM Studio", base_url).with_quirks(
         ProviderQuirks {
             overflow_patterns: vec!["greater than the context length".to_string()],
-            no_api_key_required: true,
             ..Default::default()
         },
     )
@@ -91,7 +52,6 @@ pub fn llama_cpp() -> OpenAiCompatProvider {
     OpenAiCompatProvider::new(ProviderId::LLAMA_CPP, "llama.cpp", base_url).with_quirks(
         ProviderQuirks {
             overflow_patterns: vec!["exceeds the available context size".to_string()],
-            no_api_key_required: true,
             ..Default::default()
         },
     )

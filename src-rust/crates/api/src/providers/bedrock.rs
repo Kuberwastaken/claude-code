@@ -157,7 +157,11 @@ impl BedrockProvider {
         });
         let canonical_uri = {
             let p = parsed.path();
-            if p.is_empty() { "/".to_string() } else { p.to_string() }
+            if p.is_empty() {
+                "/".to_string()
+            } else {
+                p.to_string()
+            }
         };
         let canonical_query = parsed.query().unwrap_or("").to_string();
 
@@ -175,8 +179,7 @@ impl BedrockProvider {
             "content-type:{}\nhost:{}\nx-amz-content-sha256:{}\nx-amz-date:{}\n",
             content_type, host, body_hash, datetime_str
         );
-        let mut signed_headers =
-            "content-type;host;x-amz-content-sha256;x-amz-date".to_string();
+        let mut signed_headers = "content-type;host;x-amz-content-sha256;x-amz-date".to_string();
 
         if let Some(ref tok) = self.session_token {
             canonical_headers.push_str(&format!("x-amz-security-token:{}\n", tok));
@@ -186,19 +189,12 @@ impl BedrockProvider {
         // Canonical request.
         let canonical_request = format!(
             "{}\n{}\n{}\n{}\n{}\n{}",
-            method,
-            canonical_uri,
-            canonical_query,
-            canonical_headers,
-            signed_headers,
-            body_hash
+            method, canonical_uri, canonical_query, canonical_headers, signed_headers, body_hash
         );
 
         // String to sign.
-        let credential_scope =
-            format!("{}/{}/{}/aws4_request", date_str, region, service);
-        let canonical_request_hash =
-            hex::encode(Sha256::digest(canonical_request.as_bytes()));
+        let credential_scope = format!("{}/{}/{}/aws4_request", date_str, region, service);
+        let canonical_request_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
         let string_to_sign = format!(
             "AWS4-HMAC-SHA256\n{}\n{}\n{}",
             datetime_str, credential_scope, canonical_request_hash
@@ -207,28 +203,23 @@ impl BedrockProvider {
         // Signing key: HMAC-SHA256 chain.
         let sign_key = {
             let k_date = {
-                let mut mac = HmacSha256::new_from_slice(
-                    format!("AWS4{}", secret_key).as_bytes(),
-                )
-                .expect("HMAC init failed");
+                let mut mac = HmacSha256::new_from_slice(format!("AWS4{}", secret_key).as_bytes())
+                    .expect("HMAC init failed");
                 mac.update(date_str.as_bytes());
                 mac.finalize().into_bytes()
             };
             let k_region = {
-                let mut mac = HmacSha256::new_from_slice(&k_date)
-                    .expect("HMAC init failed");
+                let mut mac = HmacSha256::new_from_slice(&k_date).expect("HMAC init failed");
                 mac.update(region.as_bytes());
                 mac.finalize().into_bytes()
             };
             let k_service = {
-                let mut mac = HmacSha256::new_from_slice(&k_region)
-                    .expect("HMAC init failed");
+                let mut mac = HmacSha256::new_from_slice(&k_region).expect("HMAC init failed");
                 mac.update(service.as_bytes());
                 mac.finalize().into_bytes()
             };
             let k_signing = {
-                let mut mac = HmacSha256::new_from_slice(&k_service)
-                    .expect("HMAC init failed");
+                let mut mac = HmacSha256::new_from_slice(&k_service).expect("HMAC init failed");
                 mac.update(b"aws4_request");
                 mac.finalize().into_bytes()
             };
@@ -236,8 +227,7 @@ impl BedrockProvider {
         };
 
         let signature = {
-            let mut mac =
-                HmacSha256::new_from_slice(&sign_key).expect("HMAC init failed");
+            let mut mac = HmacSha256::new_from_slice(&sign_key).expect("HMAC init failed");
             mac.update(string_to_sign.as_bytes());
             hex::encode(mac.finalize().into_bytes())
         };
@@ -540,9 +530,8 @@ impl BedrockProvider {
                 body: None,
             })?;
 
-        let content_blocks = Self::parse_converse_content(
-            message.get("content").and_then(|c| c.as_array()),
-        );
+        let content_blocks =
+            Self::parse_converse_content(message.get("content").and_then(|c| c.as_array()));
 
         let stop_reason_str = json
             .get("stopReason")
@@ -615,14 +604,8 @@ impl BedrockProvider {
             None => return UsageInfo::default(),
         };
         UsageInfo {
-            input_tokens: u
-                .get("inputTokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0),
-            output_tokens: u
-                .get("outputTokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0),
+            input_tokens: u.get("inputTokens").and_then(|v| v.as_u64()).unwrap_or(0),
+            output_tokens: u.get("outputTokens").and_then(|v| v.as_u64()).unwrap_or(0),
             cache_creation_input_tokens: 0,
             cache_read_input_tokens: 0,
         }
@@ -906,7 +889,9 @@ fn parse_bedrock_event(
         } else {
             events.push(Ok(StreamEvent::ContentBlockStart {
                 index,
-                content_block: ContentBlock::Text { text: String::new() },
+                content_block: ContentBlock::Text {
+                    text: String::new(),
+                },
             }));
         }
         return events;
@@ -926,7 +911,9 @@ fn parse_bedrock_event(
             }));
             events.push(Ok(StreamEvent::ContentBlockStart {
                 index: 0,
-                content_block: ContentBlock::Text { text: String::new() },
+                content_block: ContentBlock::Text {
+                    text: String::new(),
+                },
             }));
             *message_started = true;
         }
