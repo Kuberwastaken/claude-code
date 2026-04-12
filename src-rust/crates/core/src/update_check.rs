@@ -113,9 +113,7 @@ fn update_cache_path() -> Option<std::path::PathBuf> {
 
 /// Compare two semver strings.  Returns `true` when `latest` > `current`.
 fn is_newer(latest: &str, current: &str) -> bool {
-    let parse = |v: &str| -> Vec<u32> {
-        v.split('.').filter_map(|p| p.parse().ok()).collect()
-    };
+    let parse = |v: &str| -> Vec<u32> { v.split('.').filter_map(|p| p.parse().ok()).collect() };
     let l = parse(latest);
     let c = parse(current);
     let max_len = l.len().max(c.len());

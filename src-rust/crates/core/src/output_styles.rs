@@ -154,7 +154,11 @@ fn load_style_file(path: &Path) -> Option<OutputStyleDef> {
 
     let raw_label = lines.next().unwrap_or("").trim().to_string();
     let label = raw_label.trim_start_matches('#').trim().to_string();
-    let label = if label.is_empty() { stem.clone() } else { label };
+    let label = if label.is_empty() {
+        stem.clone()
+    } else {
+        label
+    };
 
     let description = lines
         .next()
@@ -197,8 +201,7 @@ pub fn find_style<'a>(styles: &'a [OutputStyleDef], name: &str) -> Option<&'a Ou
 // Runtime style registry (populated by plugins at startup)
 // ---------------------------------------------------------------------------
 
-static RUNTIME_STYLES: Lazy<Mutex<Vec<OutputStyleDef>>> =
-    Lazy::new(|| Mutex::new(Vec::new()));
+static RUNTIME_STYLES: Lazy<Mutex<Vec<OutputStyleDef>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 /// Register an `OutputStyleDef` at runtime (called from plugin loading code).
 ///
@@ -215,10 +218,7 @@ pub fn register_runtime_style(style: OutputStyleDef) {
 
 /// Return all runtime-registered styles.
 pub fn runtime_styles() -> Vec<OutputStyleDef> {
-    RUNTIME_STYLES
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_default()
+    RUNTIME_STYLES.lock().map(|g| g.clone()).unwrap_or_default()
 }
 
 /// Like `all_styles`, but also includes runtime-registered plugin styles.
@@ -396,7 +396,8 @@ mod tests {
 
         // Write a user style file.
         let mut f = std::fs::File::create(output_styles_dir.join("pirate.md")).unwrap();
-        f.write_all(b"# Pirate\nSpeak like a pirate.\n\nArrr matey!").unwrap();
+        f.write_all(b"# Pirate\nSpeak like a pirate.\n\nArrr matey!")
+            .unwrap();
 
         let styles = all_styles(dir.path());
         assert!(styles.iter().any(|s| s.name == "pirate"));

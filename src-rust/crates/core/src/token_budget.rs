@@ -119,9 +119,18 @@ mod tests {
 
     #[test]
     fn warning_levels() {
-        assert_eq!(TokenBudget::new(79_000, 100_000).warning_level, TokenWarningLevel::None);
-        assert_eq!(TokenBudget::new(80_000, 100_000).warning_level, TokenWarningLevel::Warning);
-        assert_eq!(TokenBudget::new(95_000, 100_000).warning_level, TokenWarningLevel::Critical);
+        assert_eq!(
+            TokenBudget::new(79_000, 100_000).warning_level,
+            TokenWarningLevel::None
+        );
+        assert_eq!(
+            TokenBudget::new(80_000, 100_000).warning_level,
+            TokenWarningLevel::Warning
+        );
+        assert_eq!(
+            TokenBudget::new(95_000, 100_000).warning_level,
+            TokenWarningLevel::Critical
+        );
     }
 
     #[test]
