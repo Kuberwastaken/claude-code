@@ -16,7 +16,10 @@ pub fn estimate_tokens(text: &str) -> u64 {
 
 /// Estimate total tokens for a slice of messages.
 pub fn estimate_messages_tokens(messages: &[Message]) -> u64 {
-    messages.iter().map(|m| estimate_tokens(&get_message_text(m)) + 4).sum()
+    messages
+        .iter()
+        .map(|m| estimate_tokens(&get_message_text(m)) + 4)
+        .sum()
 }
 
 /// Context-window info for a model / token count pair.
@@ -30,19 +33,37 @@ pub struct ContextUsage {
 pub fn calculate_context_window_usage(messages: &[Message], model: &str) -> ContextUsage {
     let used = estimate_messages_tokens(messages);
     let total = context_window_for_model(model);
-    let pct = if total > 0 { (used as f64 / total as f64) * 100.0 } else { 0.0 };
+    let pct = if total > 0 {
+        (used as f64 / total as f64) * 100.0
+    } else {
+        0.0
+    };
     ContextUsage { used, total, pct }
 }
 
 /// Return the context window token limit for a known model.
 pub fn context_window_for_model(model: &str) -> u64 {
-    if model.contains("claude-3-5-haiku") { return 200_000; }
-    if model.contains("claude-3-5-sonnet") { return 200_000; }
-    if model.contains("claude-3-7-sonnet") { return 200_000; }
-    if model.contains("claude-sonnet-4") { return 200_000; }
-    if model.contains("claude-opus-4") { return 200_000; }
-    if model.contains("opus") { return 200_000; }
-    if model.contains("haiku") { return 200_000; }
+    if model.contains("claude-3-5-haiku") {
+        return 200_000;
+    }
+    if model.contains("claude-3-5-sonnet") {
+        return 200_000;
+    }
+    if model.contains("claude-3-7-sonnet") {
+        return 200_000;
+    }
+    if model.contains("claude-sonnet-4") {
+        return 200_000;
+    }
+    if model.contains("claude-opus-4") {
+        return 200_000;
+    }
+    if model.contains("opus") {
+        return 200_000;
+    }
+    if model.contains("haiku") {
+        return 200_000;
+    }
     200_000 // safe default
 }
 
@@ -70,9 +91,9 @@ pub fn get_message_text(msg: &Message) -> String {
 pub fn is_tool_use_message(msg: &Message) -> bool {
     msg.role == Role::Assistant
         && match &msg.content {
-            MessageContent::Blocks(blocks) => {
-                blocks.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }))
-            }
+            MessageContent::Blocks(blocks) => blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolUse { .. })),
             _ => false,
         }
 }
@@ -81,9 +102,9 @@ pub fn is_tool_use_message(msg: &Message) -> bool {
 pub fn is_tool_result_message(msg: &Message) -> bool {
     msg.role == Role::User
         && match &msg.content {
-            MessageContent::Blocks(blocks) => {
-                blocks.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. }))
-            }
+            MessageContent::Blocks(blocks) => blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolResult { .. })),
             _ => false,
         }
 }
@@ -130,12 +151,15 @@ pub fn truncate_message_content(msg: &mut Message, max_chars: usize) {
 pub fn format_tool_result(result: &Value) -> String {
     match result {
         Value::String(s) => s.clone(),
-        Value::Array(arr) => {
-            arr.iter()
-                .filter_map(|v| v.get("text").and_then(|t| t.as_str()).map(|s| s.to_string()))
-                .collect::<Vec<_>>()
-                .join("\n")
-        }
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(|v| {
+                v.get("text")
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
         other => other.to_string(),
     }
 }
@@ -146,7 +170,12 @@ mod tests {
     use crate::types::{ContentBlock, Message, MessageContent, Role};
 
     fn user_msg(text: &str) -> Message {
-        Message { role: Role::User, content: MessageContent::Text(text.to_string()), uuid: None, cost: None }
+        Message {
+            role: Role::User,
+            content: MessageContent::Text(text.to_string()),
+            uuid: None,
+            cost: None,
+        }
     }
 
     #[test]
@@ -164,8 +193,12 @@ mod tests {
     #[test]
     fn merge_text_blocks() {
         let blocks = vec![
-            ContentBlock::Text { text: "a".to_string() },
-            ContentBlock::Text { text: "b".to_string() },
+            ContentBlock::Text {
+                text: "a".to_string(),
+            },
+            ContentBlock::Text {
+                text: "b".to_string(),
+            },
         ];
         let merged = merge_consecutive_text_blocks(blocks);
         assert_eq!(merged.len(), 1);

@@ -123,10 +123,7 @@ impl DiagnosticSeverity {
 // JSON-RPC framing helpers
 // ---------------------------------------------------------------------------
 
-async fn send_message(
-    writer: &mut BufWriter<ChildStdin>,
-    body: &str,
-) -> anyhow::Result<()> {
+async fn send_message(writer: &mut BufWriter<ChildStdin>, body: &str) -> anyhow::Result<()> {
     let header = format!("Content-Length: {}\r\n\r\n", body.len());
     writer.write_all(header.as_bytes()).await?;
     writer.write_all(body.as_bytes()).await?;
@@ -134,9 +131,7 @@ async fn send_message(
     Ok(())
 }
 
-async fn read_message(
-    reader: &mut BufReader<ChildStdout>,
-) -> anyhow::Result<serde_json::Value> {
+async fn read_message(reader: &mut BufReader<ChildStdout>) -> anyhow::Result<serde_json::Value> {
     let mut content_length: usize = 0;
     loop {
         let mut line = String::new();
@@ -206,11 +201,7 @@ impl LspClient {
         }
 
         let mut child = cmd.spawn().map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to start LSP server '{}': {}",
-                config.command,
-                e
-            )
+            anyhow::anyhow!("Failed to start LSP server '{}': {}", config.command, e)
         })?;
 
         let stdin = child
@@ -223,8 +214,7 @@ impl LspClient {
             .ok_or_else(|| anyhow::anyhow!("LSP server stdout not available"))?;
 
         let pending: PendingMap = Arc::new(DashMap::new());
-        let diagnostics: Arc<DashMap<String, Vec<LspDiagnostic>>> =
-            Arc::new(DashMap::new());
+        let diagnostics: Arc<DashMap<String, Vec<LspDiagnostic>>> = Arc::new(DashMap::new());
 
         let writer = Arc::new(Mutex::new(BufWriter::new(stdin)));
         let pending_clone = pending.clone();
@@ -249,19 +239,10 @@ impl LspClient {
             loop {
                 match read_message(&mut reader).await {
                     Ok(msg) => {
-                        dispatch_incoming(
-                            msg,
-                            &pending_clone,
-                            &diagnostics_clone,
-                            &server_name,
-                        );
+                        dispatch_incoming(msg, &pending_clone, &diagnostics_clone, &server_name);
                     }
                     Err(e) => {
-                        tracing::debug!(
-                            "LSP server {} reader exited: {}",
-                            server_name,
-                            e
-                        );
+                        tracing::debug!("LSP server {} reader exited: {}", server_name, e);
                         break;
                     }
                 }
@@ -311,23 +292,22 @@ impl LspClient {
             send_message(&mut w, &body).await?;
         }
 
-        let response =
-            tokio::time::timeout(std::time::Duration::from_secs(30), rx)
-                .await
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "LSP request '{}' timed out (server: {})",
-                        method,
-                        self.server_name
-                    )
-                })?
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "LSP request '{}' channel closed (server: {})",
-                        method,
-                        self.server_name
-                    )
-                })?;
+        let response = tokio::time::timeout(std::time::Duration::from_secs(30), rx)
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "LSP request '{}' timed out (server: {})",
+                    method,
+                    self.server_name
+                )
+            })?
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "LSP request '{}' channel closed (server: {})",
+                    method,
+                    self.server_name
+                )
+            })?;
 
         if let Some(err) = response.get("error") {
             return Err(anyhow::anyhow!(
@@ -390,7 +370,8 @@ impl LspClient {
         self.send_request_inner("initialize", params).await?;
 
         // Send the `initialized` notification to complete the handshake
-        self.send_notification_inner("initialized", json!({})).await?;
+        self.send_notification_inner("initialized", json!({}))
+            .await?;
 
         self.is_initialized = true;
         tracing::debug!("LSP server '{}' initialized", self.server_name);
@@ -612,11 +593,7 @@ impl LspClient {
 
         if let Some(mut child) = self.process.take() {
             // Give the process a moment to exit cleanly.
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                child.wait(),
-            )
-            .await;
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await;
             let _ = child.kill().await;
         }
         self.is_initialized = false;
@@ -646,11 +623,7 @@ fn dispatch_incoming(
     if let Some(method) = msg.get("method").and_then(|v| v.as_str()) {
         match method {
             "textDocument/publishDiagnostics" => {
-                handle_publish_diagnostics(
-                    &msg["params"],
-                    diagnostics,
-                    server_name,
-                );
+                handle_publish_diagnostics(&msg["params"], diagnostics, server_name);
             }
             _ => {
                 tracing::trace!(
@@ -780,10 +753,7 @@ fn collect_symbol(sym: &serde_json::Value, depth: usize, out: &mut Vec<String>) 
         .get("name")
         .and_then(|n| n.as_str())
         .unwrap_or("<unnamed>");
-    let kind = sym
-        .get("kind")
-        .and_then(|k| k.as_u64())
-        .unwrap_or(0);
+    let kind = sym.get("kind").and_then(|k| k.as_u64()).unwrap_or(0);
     let kind_str = symbol_kind_name(kind);
     out.push(format!("{}{} ({})", indent, name, kind_str));
 
@@ -836,8 +806,7 @@ fn path_to_uri(path: &str) -> String {
     if path.starts_with("file://") {
         return path.to_string();
     }
-    let canonical = std::fs::canonicalize(path)
-        .unwrap_or_else(|_| std::path::PathBuf::from(path));
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| std::path::PathBuf::from(path));
     let s = canonical.to_string_lossy();
     if cfg!(target_os = "windows") {
         // Drive letters need a leading slash: file:///C:/...
@@ -995,22 +964,14 @@ impl LspManager {
                 Ok(mut client) => {
                     let root_uri = path_to_uri(&root_dir.to_string_lossy());
                     if let Err(e) = client.initialize(&root_uri).await {
-                        tracing::warn!(
-                            "Failed to initialize LSP server '{}': {}",
-                            server_name,
-                            e
-                        );
+                        tracing::warn!("Failed to initialize LSP server '{}': {}", server_name, e);
                         // Don't insert — allow retry on next call
                         return Ok(None);
                     }
                     self.clients.insert(server_name.clone(), client);
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        "Failed to start LSP server '{}': {}",
-                        server_name,
-                        e
-                    );
+                    tracing::warn!("Failed to start LSP server '{}': {}", server_name, e);
                     return Ok(None);
                 }
             }
@@ -1031,11 +992,7 @@ impl LspManager {
                 Ok(mut client) => {
                     let root_uri = path_to_uri(&root_dir.to_string_lossy());
                     if let Err(e) = client.initialize(&root_uri).await {
-                        tracing::warn!(
-                            "Failed to initialize LSP server '{}': {}",
-                            name,
-                            e
-                        );
+                        tracing::warn!("Failed to initialize LSP server '{}': {}", name, e);
                         continue;
                     }
                     self.clients.insert(name.clone(), client);
@@ -1049,11 +1006,7 @@ impl LspManager {
     }
 
     /// Open a file on the appropriate LSP server.
-    pub async fn open_file(
-        &mut self,
-        file_path: &str,
-        root_dir: &Path,
-    ) -> anyhow::Result<()> {
+    pub async fn open_file(&mut self, file_path: &str, root_dir: &Path) -> anyhow::Result<()> {
         let uri = path_to_uri(file_path);
         let server_name = match self.server_name_for_file(file_path) {
             Some(n) => n.to_string(),
@@ -1109,9 +1062,7 @@ impl LspManager {
         let uri = path_to_uri(file_path);
         let server_name = self
             .server_name_for_file(file_path)
-            .ok_or_else(|| {
-                anyhow::anyhow!("No LSP server configured for '{}'", file_path)
-            })?
+            .ok_or_else(|| anyhow::anyhow!("No LSP server configured for '{}'", file_path))?
             .to_string();
         self.ensure_started(file_path, root_dir).await?;
         let client = self
@@ -1132,9 +1083,7 @@ impl LspManager {
         let uri = path_to_uri(file_path);
         let server_name = self
             .server_name_for_file(file_path)
-            .ok_or_else(|| {
-                anyhow::anyhow!("No LSP server configured for '{}'", file_path)
-            })?
+            .ok_or_else(|| anyhow::anyhow!("No LSP server configured for '{}'", file_path))?
             .to_string();
         self.ensure_started(file_path, root_dir).await?;
         let client = self
@@ -1155,9 +1104,7 @@ impl LspManager {
         let uri = path_to_uri(file_path);
         let server_name = self
             .server_name_for_file(file_path)
-            .ok_or_else(|| {
-                anyhow::anyhow!("No LSP server configured for '{}'", file_path)
-            })?
+            .ok_or_else(|| anyhow::anyhow!("No LSP server configured for '{}'", file_path))?
             .to_string();
         self.ensure_started(file_path, root_dir).await?;
         let client = self
@@ -1176,9 +1123,7 @@ impl LspManager {
         let uri = path_to_uri(file_path);
         let server_name = self
             .server_name_for_file(file_path)
-            .ok_or_else(|| {
-                anyhow::anyhow!("No LSP server configured for '{}'", file_path)
-            })?
+            .ok_or_else(|| anyhow::anyhow!("No LSP server configured for '{}'", file_path))?
             .to_string();
         self.ensure_started(file_path, root_dir).await?;
         let client = self
@@ -1445,11 +1390,26 @@ mod tests {
 
     #[test]
     fn test_severity_from_lsp_int() {
-        assert_eq!(DiagnosticSeverity::from_lsp_int(1), DiagnosticSeverity::Error);
-        assert_eq!(DiagnosticSeverity::from_lsp_int(2), DiagnosticSeverity::Warning);
-        assert_eq!(DiagnosticSeverity::from_lsp_int(3), DiagnosticSeverity::Information);
-        assert_eq!(DiagnosticSeverity::from_lsp_int(4), DiagnosticSeverity::Hint);
-        assert_eq!(DiagnosticSeverity::from_lsp_int(99), DiagnosticSeverity::Hint);
+        assert_eq!(
+            DiagnosticSeverity::from_lsp_int(1),
+            DiagnosticSeverity::Error
+        );
+        assert_eq!(
+            DiagnosticSeverity::from_lsp_int(2),
+            DiagnosticSeverity::Warning
+        );
+        assert_eq!(
+            DiagnosticSeverity::from_lsp_int(3),
+            DiagnosticSeverity::Information
+        );
+        assert_eq!(
+            DiagnosticSeverity::from_lsp_int(4),
+            DiagnosticSeverity::Hint
+        );
+        assert_eq!(
+            DiagnosticSeverity::from_lsp_int(99),
+            DiagnosticSeverity::Hint
+        );
     }
 
     #[test]

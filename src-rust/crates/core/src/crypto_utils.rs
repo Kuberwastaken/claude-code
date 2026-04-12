@@ -3,7 +3,7 @@
 //! Provides SHA-256 hashing, UUID generation, base64url encoding,
 //! and work secret generation.
 
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 

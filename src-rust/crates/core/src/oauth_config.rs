@@ -90,7 +90,8 @@ pub const PROD_OAUTH: OAuthConfig = OAuthConfig {
     token_url: "https://platform.claude.com/v1/oauth/token",
     api_key_url: "https://api.anthropic.com/api/oauth/claude_cli/create_api_key",
     roles_url: "https://api.anthropic.com/api/oauth/claude_cli/roles",
-    console_success_url: "https://platform.claude.com/buy_credits?returnUrl=/oauth/code/success%3Fapp%3Dclaude-code",
+    console_success_url:
+        "https://platform.claude.com/buy_credits?returnUrl=/oauth/code/success%3Fapp%3Dclaude-code",
     claudeai_success_url: "https://platform.claude.com/oauth/code/success?app=claude-code",
     manual_redirect_url: "https://platform.claude.com/oauth/code/callback",
     client_id: "9d1c250a-e61b-44d9-88ed-5944d1962f5e", // Anthropic's Claude Code — will not work for Claurst
@@ -121,8 +122,7 @@ pub const STAGING_OAUTH: OAuthConfig = OAuthConfig {
 };
 
 /// Client-ID Metadata Document URL for MCP OAuth (CIMD / SEP-991).
-pub const MCP_CLIENT_METADATA_URL: &str =
-    "https://claude.ai/oauth/claude-code-client-metadata";
+pub const MCP_CLIENT_METADATA_URL: &str = "https://claude.ai/oauth/claude-code-client-metadata";
 
 // ---------------------------------------------------------------------------
 // Config selection
@@ -314,7 +314,8 @@ fn codex_tokens_path() -> Option<std::path::PathBuf> {
 
 /// Save Codex OAuth tokens to ~/.claurst/codex_tokens.json
 pub fn save_codex_tokens(tokens: &CodexTokens) -> anyhow::Result<()> {
-    let path = codex_tokens_path().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+    let path =
+        codex_tokens_path().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
     std::fs::create_dir_all(path.parent().unwrap())?;
     let json = serde_json::to_string(tokens)?;
     std::fs::write(&path, json)?;
@@ -333,7 +334,8 @@ pub fn get_codex_tokens() -> Option<CodexTokens> {
 
 /// Clear stored Codex tokens
 pub fn clear_codex_tokens() -> anyhow::Result<()> {
-    let path = codex_tokens_path().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+    let path =
+        codex_tokens_path().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
     if path.exists() {
         std::fs::remove_file(&path)?;
     }
@@ -395,7 +397,11 @@ mod tests {
             "verifier too short: {} chars",
             verifier.len()
         );
-        assert!(verifier.len() <= 128, "verifier too long: {} chars", verifier.len());
+        assert!(
+            verifier.len() <= 128,
+            "verifier too long: {} chars",
+            verifier.len()
+        );
     }
 
     #[test]
