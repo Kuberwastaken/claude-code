@@ -67,9 +67,7 @@ impl MemoryFileSelectorState {
         let user_path = claurst_core::config::Settings::config_dir().join("AGENTS.md");
         let user_display = {
             let home = dirs::home_dir().unwrap_or_default();
-            let rel = user_path
-                .strip_prefix(&home)
-                .unwrap_or(&user_path);
+            let rel = user_path.strip_prefix(&home).unwrap_or(&user_path);
             format!("~/{}", rel.display())
         };
         self.files.push(MemoryFile {
@@ -143,11 +141,7 @@ impl Default for MemoryFileSelectorState {
 // ---------------------------------------------------------------------------
 
 /// Render the memory file selector as a centered floating dialog.
-pub fn render_memory_file_selector(
-    state: &MemoryFileSelectorState,
-    area: Rect,
-    buf: &mut Buffer,
-) {
+pub fn render_memory_file_selector(state: &MemoryFileSelectorState, area: Rect, buf: &mut Buffer) {
     if !state.visible {
         return;
     }
@@ -167,10 +161,19 @@ pub fn render_memory_file_selector(
 
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(vec![
-        Span::styled(" Memory", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " Memory",
+            Style::default()
+                .fg(CLAURST_ACCENT)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" — choose a file", Style::default().fg(CLAURST_MUTED)),
         Span::styled(
-            format!("{:>width$}", "Esc close", width = inner.width.saturating_sub(24) as usize),
+            format!(
+                "{:>width$}",
+                "Esc close",
+                width = inner.width.saturating_sub(24) as usize
+            ),
             Style::default().fg(CLAURST_MUTED),
         ),
     ]));
@@ -190,15 +193,16 @@ pub fn render_memory_file_selector(
         };
 
         if i == state.selected {
-            lines.push(Line::from(vec![
-                Span::styled(
-                    pad_line(&format!("  \u{203a} {type_label} {}", file.display_path), inner.width),
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(CLAURST_ACCENT)
-                        .add_modifier(Modifier::BOLD),
+            lines.push(Line::from(vec![Span::styled(
+                pad_line(
+                    &format!("  \u{203a} {type_label} {}", file.display_path),
+                    inner.width,
                 ),
-            ]));
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(CLAURST_ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            )]));
         } else {
             lines.push(Line::from(vec![
                 Span::styled(

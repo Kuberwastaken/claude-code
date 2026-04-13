@@ -273,9 +273,9 @@ fn decode_png(data: &[u8]) -> Result<ImageData, Box<dyn std::error::Error>> {
     use std::io::Cursor;
 
     // Decode the PNG using the image crate with explicit format hint
-    let reader = ImageReader::new(Cursor::new(data))
-        .with_guessed_format()?;
-    let image = reader.decode()
+    let reader = ImageReader::new(Cursor::new(data)).with_guessed_format()?;
+    let image = reader
+        .decode()
         .map_err(|e| format!("Failed to decode PNG: {}", e))?;
 
     // Convert to RGBA8 format
@@ -299,9 +299,9 @@ fn decode_jpeg(data: &[u8]) -> Result<ImageData, Box<dyn std::error::Error>> {
     use std::io::Cursor;
 
     // Decode the JPEG using the image crate with explicit format hint
-    let reader = ImageReader::new(Cursor::new(data))
-        .with_guessed_format()?;
-    let image = reader.decode()
+    let reader = ImageReader::new(Cursor::new(data)).with_guessed_format()?;
+    let image = reader
+        .decode()
         .map_err(|e| format!("Failed to decode JPEG: {}", e))?;
 
     // Convert to RGBA8 format
@@ -399,7 +399,10 @@ mod tests {
         ];
 
         let result = decode_image_data(&png_data);
-        assert!(result.is_ok(), "decode_image_data should detect and decode PNG");
+        assert!(
+            result.is_ok(),
+            "decode_image_data should detect and decode PNG"
+        );
 
         let img = result.unwrap();
         assert_eq!(img.width, 1);
@@ -411,7 +414,10 @@ mod tests {
     fn test_decode_invalid_image() {
         let invalid_data = vec![0x00, 0x00, 0x00, 0x00];
         let result = decode_image_data(&invalid_data);
-        assert!(result.is_err(), "Invalid image data should produce an error");
+        assert!(
+            result.is_err(),
+            "Invalid image data should produce an error"
+        );
     }
 
     /// Test that decode_image_data rejects empty data.

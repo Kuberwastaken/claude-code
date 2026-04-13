@@ -64,7 +64,11 @@ pub fn get_relative_memory_path(path: &str) -> String {
     // Return shortest, fall back to normalized absolute path
     match (home_rel.is_empty(), cwd_rel.is_empty()) {
         (false, false) => {
-            if home_rel.len() <= cwd_rel.len() { home_rel } else { cwd_rel }
+            if home_rel.len() <= cwd_rel.len() {
+                home_rel
+            } else {
+                cwd_rel
+            }
         }
         (false, true) => home_rel,
         (true, false) => cwd_rel,
@@ -112,11 +116,19 @@ impl MemoryUpdateNotificationState {
 
     /// Height the notification occupies (0 if not visible).
     pub fn height(&self) -> u16 {
-        if self.visible { 1 } else { 0 }
+        if self.visible {
+            1
+        } else {
+            0
+        }
     }
 
     pub fn tick(&mut self) {
-        if self.visible && self.expires_at.is_some_and(|expires_at| Instant::now() >= expires_at) {
+        if self.visible
+            && self
+                .expires_at
+                .is_some_and(|expires_at| Instant::now() >= expires_at)
+        {
             self.dismiss();
         }
     }
@@ -243,20 +255,40 @@ mod tests {
     fn memory_notif_render_smoke() {
         let mut state = MemoryUpdateNotificationState::new();
         state.show("/home/user/.claurst/AGENTS.md");
-        let area = Rect { x: 0, y: 0, width: 100, height: 4 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 4,
+        };
         let mut buf = ratatui::buffer::Buffer::empty(area);
         render_memory_update_notification(&state, area, &mut buf);
-        let rendered = buf.content.iter().map(|c| c.symbol()).collect::<Vec<_>>().join("");
+        let rendered = buf
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<Vec<_>>()
+            .join("");
         assert!(rendered.contains("Memory updated in"));
     }
 
     #[test]
     fn memory_notif_not_rendered_when_invisible() {
         let state = MemoryUpdateNotificationState::new();
-        let area = Rect { x: 0, y: 0, width: 100, height: 4 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 4,
+        };
         let mut buf = ratatui::buffer::Buffer::empty(area);
         render_memory_update_notification(&state, area, &mut buf);
-        let rendered = buf.content.iter().map(|c| c.symbol()).collect::<Vec<_>>().join("");
+        let rendered = buf
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<Vec<_>>()
+            .join("");
         assert!(!rendered.contains("Memory updated"));
     }
 }

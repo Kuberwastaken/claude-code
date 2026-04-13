@@ -16,8 +16,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget, Wrap};
 
 use crate::overlays::{
-    begin_modal_buf, modal_header_line_area, render_modal_title_buf, CLAURST_ACCENT,
-    CLAURST_MUTED, CLAURST_PANEL_BG, CLAURST_TEXT,
+    begin_modal_buf, modal_header_line_area, render_modal_title_buf, CLAURST_ACCENT, CLAURST_MUTED,
+    CLAURST_PANEL_BG, CLAURST_TEXT,
 };
 
 // ---------------------------------------------------------------------------
@@ -45,11 +45,11 @@ impl HookEntry {
     /// Short one-line description of the hook shown in the list view.
     pub fn summary(&self) -> String {
         let prefix = match self.hook_type.as_str() {
-            "command" => "\u{f120}",  // nerd-font terminal icon, falls back to plain
-            "prompt"  => "\u{f075}",
-            "agent"   => "\u{f013}",
-            "http"    => "\u{f0c1}",
-            _         => "\u{2022}",
+            "command" => "\u{f120}", // nerd-font terminal icon, falls back to plain
+            "prompt" => "\u{f075}",
+            "agent" => "\u{f013}",
+            "http" => "\u{f0c1}",
+            _ => "\u{2022}",
         };
         format!("{} {}", prefix, self.target)
     }
@@ -158,10 +158,14 @@ impl HooksConfigMenuState {
     /// Navigate back one level (Esc key).
     pub fn back(&mut self) {
         match self.mode {
-            HooksMenuMode::SelectEvent => { self.close(); }
+            HooksMenuMode::SelectEvent => {
+                self.close();
+            }
             HooksMenuMode::SelectMatcher => {
                 self.mode = HooksMenuMode::SelectEvent;
-                self.selected = self.events.iter()
+                self.selected = self
+                    .events
+                    .iter()
                     .position(|e| Some(e) == self.selected_event.as_ref())
                     .unwrap_or(0);
                 self.selected_event = None;
@@ -170,7 +174,8 @@ impl HooksConfigMenuState {
             HooksMenuMode::SelectHook => {
                 self.mode = HooksMenuMode::SelectMatcher;
                 let matchers = self.matchers_for_event();
-                self.selected = matchers.iter()
+                self.selected = matchers
+                    .iter()
                     .position(|m| Some(m) == self.selected_matcher.as_ref())
                     .unwrap_or(0);
                 self.selected_matcher = None;
@@ -202,10 +207,10 @@ impl HooksConfigMenuState {
 
     pub fn select_next(&mut self) {
         let count = match self.mode {
-            HooksMenuMode::SelectEvent   => self.events.len(),
+            HooksMenuMode::SelectEvent => self.events.len(),
             HooksMenuMode::SelectMatcher => self.matchers_for_event().len(),
-            HooksMenuMode::SelectHook    => self.hooks_for_selection().len(),
-            HooksMenuMode::ViewHook      => 0,
+            HooksMenuMode::SelectHook => self.hooks_for_selection().len(),
+            HooksMenuMode::ViewHook => 0,
         };
         if count == 0 {
             return;
@@ -233,9 +238,18 @@ impl HooksConfigMenuState {
             }
         }
         // Canonical order for well-known events
-        let order = ["PreToolUse", "PostToolUse", "PreSession", "PostSession", "Stop"];
+        let order = [
+            "PreToolUse",
+            "PostToolUse",
+            "PreSession",
+            "PostSession",
+            "Stop",
+        ];
         seen.sort_by_key(|e| {
-            order.iter().position(|o| *o == e.as_str()).unwrap_or(usize::MAX)
+            order
+                .iter()
+                .position(|o| *o == e.as_str())
+                .unwrap_or(usize::MAX)
         });
         self.events = seen;
     }
@@ -243,7 +257,7 @@ impl HooksConfigMenuState {
     fn matchers_for_event(&self) -> Vec<String> {
         let ev = match &self.selected_event {
             Some(e) => e.as_str(),
-            None    => return Vec::new(),
+            None => return Vec::new(),
         };
         let mut seen: Vec<String> = Vec::new();
         for h in &self.hooks {
@@ -257,7 +271,10 @@ impl HooksConfigMenuState {
     fn hooks_for_selection(&self) -> Vec<&HookEntry> {
         let ev = self.selected_event.as_deref().unwrap_or("");
         let mt = self.selected_matcher.as_deref().unwrap_or("");
-        self.hooks.iter().filter(|h| h.event == ev && h.matcher == mt).collect()
+        self.hooks
+            .iter()
+            .filter(|h| h.event == ev && h.matcher == mt)
+            .collect()
     }
 
     fn hook_count_for_event(&self, event: &str) -> usize {
@@ -265,17 +282,20 @@ impl HooksConfigMenuState {
     }
 
     fn hook_count_for_matcher(&self, event: &str, matcher: &str) -> usize {
-        self.hooks.iter().filter(|h| h.event == event && h.matcher == matcher).count()
+        self.hooks
+            .iter()
+            .filter(|h| h.event == event && h.matcher == matcher)
+            .count()
     }
 
     fn load_hooks(&mut self) {
         let settings_path = claurst_core::config::Settings::config_dir().join("settings.json");
         let json_str = match std::fs::read_to_string(&settings_path) {
-            Ok(s)  => s,
+            Ok(s) => s,
             Err(_) => return,
         };
         let root: serde_json::Value = match serde_json::from_str(&json_str) {
-            Ok(v)  => v,
+            Ok(v) => v,
             Err(_) => return,
         };
 
@@ -289,13 +309,13 @@ impl HooksConfigMenuState {
         // }
         let hooks_map = match root.get("hooks").and_then(|h| h.as_object()) {
             Some(m) => m,
-            None    => return,
+            None => return,
         };
 
         for (event_name, event_val) in hooks_map {
             let entries = match event_val.as_array() {
                 Some(a) => a,
-                None    => continue,
+                None => continue,
             };
             for entry in entries {
                 let matcher = entry
@@ -307,15 +327,36 @@ impl HooksConfigMenuState {
                 if let Some(hook_list) = entry.get("hooks").and_then(|h| h.as_array()) {
                     for hook in hook_list {
                         let hook_type = hook
-                            .get("type").and_then(|v| v.as_str())
+                            .get("type")
+                            .and_then(|v| v.as_str())
                             .unwrap_or("command")
                             .to_string();
                         let target = match hook_type.as_str() {
-                            "command" => hook.get("command").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            "prompt"  => hook.get("prompt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            "agent"   => hook.get("agent").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            "http"    => hook.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            _         => hook.get("command").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            "command" => hook
+                                .get("command")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            "prompt" => hook
+                                .get("prompt")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            "agent" => hook
+                                .get("agent")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            "http" => hook
+                                .get("url")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            _ => hook
+                                .get("command")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                         };
                         if !target.is_empty() {
                             self.hooks.push(HookEntry {
@@ -333,36 +374,35 @@ impl HooksConfigMenuState {
 }
 
 impl Default for HooksConfigMenuState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 
-pub fn render_hooks_config_menu(
-    state: &HooksConfigMenuState,
-    area: Rect,
-    buf: &mut Buffer,
-) {
-    if !state.visible { return; }
+pub fn render_hooks_config_menu(state: &HooksConfigMenuState, area: Rect, buf: &mut Buffer) {
+    if !state.visible {
+        return;
+    }
 
     let layout = begin_modal_buf(buf, area, 80, 28, 2, 1);
     let inner_h = layout.body_area.height as usize;
 
     let (title, lines) = match state.mode {
-        HooksMenuMode::SelectEvent   => render_event_list(state),
+        HooksMenuMode::SelectEvent => render_event_list(state),
         HooksMenuMode::SelectMatcher => render_matcher_list(state),
-        HooksMenuMode::SelectHook    => render_hook_list(state),
-        HooksMenuMode::ViewHook      => render_hook_detail(state),
+        HooksMenuMode::SelectHook => render_hook_list(state),
+        HooksMenuMode::ViewHook => render_hook_detail(state),
     };
     render_modal_title_buf(buf, layout.header_area, title.trim(), "esc");
     let breadcrumb = match state.mode {
         HooksMenuMode::SelectEvent => " Review configured hook events and matchers.".to_string(),
-        HooksMenuMode::SelectMatcher => format!(
-            " Event: {}",
-            state.selected_event.as_deref().unwrap_or("?")
-        ),
+        HooksMenuMode::SelectMatcher => {
+            format!(" Event: {}", state.selected_event.as_deref().unwrap_or("?"))
+        }
         HooksMenuMode::SelectHook => format!(
             " {} / {}",
             state.selected_event.as_deref().unwrap_or("?"),
@@ -395,7 +435,9 @@ pub fn render_hooks_config_menu(
     };
     Paragraph::new(Line::from(vec![Span::styled(
         footer,
-        Style::default().fg(CLAURST_MUTED).add_modifier(Modifier::ITALIC),
+        Style::default()
+            .fg(CLAURST_MUTED)
+            .add_modifier(Modifier::ITALIC),
     )]))
     .render(layout.footer_area, buf);
 }
@@ -419,7 +461,12 @@ fn render_event_list(state: &HooksConfigMenuState) -> (&'static str, Vec<Line<'s
         for (i, event) in state.events.iter().enumerate() {
             let selected = i == state.selected;
             let count = state.hook_count_for_event(event);
-            push_list_row(&mut lines, event, &format!("{count} hook{}", if count == 1 { "" } else { "s" }), selected);
+            push_list_row(
+                &mut lines,
+                event,
+                &format!("{count} hook{}", if count == 1 { "" } else { "s" }),
+                selected,
+            );
         }
     }
 
@@ -435,7 +482,12 @@ fn render_matcher_list(state: &HooksConfigMenuState) -> (&'static str, Vec<Line<
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled("  Event: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(event.to_string(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            event.to_string(),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]));
     lines.push(Line::from(""));
 
@@ -443,7 +495,12 @@ fn render_matcher_list(state: &HooksConfigMenuState) -> (&'static str, Vec<Line<
     for (i, matcher) in matchers.iter().enumerate() {
         let selected = i == state.selected;
         let count = state.hook_count_for_matcher(event, matcher);
-        push_list_row(&mut lines, matcher, &format!("{count} hook{}", if count == 1 { "" } else { "s" }), selected);
+        push_list_row(
+            &mut lines,
+            matcher,
+            &format!("{count} hook{}", if count == 1 { "" } else { "s" }),
+            selected,
+        );
     }
 
     (" Hooks — Select Matcher ", lines)
@@ -453,7 +510,7 @@ fn render_matcher_list(state: &HooksConfigMenuState) -> (&'static str, Vec<Line<
 
 fn render_hook_list(state: &HooksConfigMenuState) -> (&'static str, Vec<Line<'static>>) {
     let mut lines: Vec<Line<'static>> = Vec::new();
-    let event   = state.selected_event.as_deref().unwrap_or("?");
+    let event = state.selected_event.as_deref().unwrap_or("?");
     let matcher = state.selected_matcher.as_deref().unwrap_or("?");
 
     lines.push(Line::from(""));
@@ -461,7 +518,12 @@ fn render_hook_list(state: &HooksConfigMenuState) -> (&'static str, Vec<Line<'st
         Span::styled("  ", Style::default()),
         Span::styled(event.to_string(), Style::default().fg(Color::Cyan)),
         Span::styled(" / ", Style::default().fg(Color::DarkGray)),
-        Span::styled(matcher.to_string(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            matcher.to_string(),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]));
     lines.push(Line::from(""));
 
@@ -482,23 +544,32 @@ fn render_hook_detail(state: &HooksConfigMenuState) -> (&'static str, Vec<Line<'
     let hooks = state.hooks_for_selection();
     let hook = match hooks.get(state.selected) {
         Some(h) => h,
-        None    => {
-            lines.push(Line::from(vec![Span::styled("  Hook not found.", Style::default().fg(Color::Red))]));
+        None => {
+            lines.push(Line::from(vec![Span::styled(
+                "  Hook not found.",
+                Style::default().fg(Color::Red),
+            )]));
             return (" Hook Detail ", lines);
         }
     };
 
     lines.push(Line::from(""));
-    push_detail_row(&mut lines, "Event",   &hook.event);
+    push_detail_row(&mut lines, "Event", &hook.event);
     push_detail_row(&mut lines, "Matcher", &hook.matcher);
-    push_detail_row(&mut lines, "Type",    &hook.hook_type);
+    push_detail_row(&mut lines, "Type", &hook.hook_type);
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
         "  Target:",
         Style::default().fg(Color::DarkGray),
     )]));
     // Wrap long target strings across multiple lines
-    for (i, chunk) in hook.target.chars().collect::<Vec<_>>().chunks(60).enumerate() {
+    for (i, chunk) in hook
+        .target
+        .chars()
+        .collect::<Vec<_>>()
+        .chunks(60)
+        .enumerate()
+    {
         let text: String = chunk.iter().collect();
         let indent = if i == 0 { "    " } else { "    " };
         lines.push(Line::from(vec![Span::styled(
@@ -509,7 +580,9 @@ fn render_hook_detail(state: &HooksConfigMenuState) -> (&'static str, Vec<Line<'
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
         "  Edit ~/.claurst/settings.json to modify hooks.",
-        Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::ITALIC),
     )]));
     (" Hook Detail ", lines)
 }
@@ -517,9 +590,16 @@ fn render_hook_detail(state: &HooksConfigMenuState) -> (&'static str, Vec<Line<'
 // ---- Line helpers ----------------------------------------------------------
 
 fn push_list_row(lines: &mut Vec<Line<'static>>, label: &str, badge: &str, selected: bool) {
-    let bg = if selected { CLAURST_ACCENT } else { CLAURST_PANEL_BG };
+    let bg = if selected {
+        CLAURST_ACCENT
+    } else {
+        CLAURST_PANEL_BG
+    };
     let row_style = if selected {
-        Style::default().fg(Color::White).bg(bg).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::White)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(CLAURST_TEXT).bg(bg)
     };
@@ -537,7 +617,10 @@ fn push_list_row(lines: &mut Vec<Line<'static>>, label: &str, badge: &str, selec
 
 fn push_detail_row(lines: &mut Vec<Line<'static>>, key: &str, value: &str) {
     lines.push(Line::from(vec![
-        Span::styled(format!("  {key:<10}  "), Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            format!("  {key:<10}  "),
+            Style::default().fg(Color::DarkGray),
+        ),
         Span::styled(value.to_string(), Style::default().fg(Color::White)),
     ]));
 }
@@ -559,7 +642,12 @@ mod tests {
         }];
         state.build_events();
 
-        let area = Rect { x: 0, y: 0, width: 90, height: 28 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 90,
+            height: 28,
+        };
         let mut buf = Buffer::empty(area);
         render_hooks_config_menu(&state, area, &mut buf);
 
@@ -573,4 +661,3 @@ mod tests {
         assert!(rendered.contains("PreToolUse"));
     }
 }
-
