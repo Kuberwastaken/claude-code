@@ -377,10 +377,7 @@ fn normalize_manifest_json(mut v: serde_json::Value) -> serde_json::Value {
                     entry
                 })
                 .collect();
-            obj.insert(
-                "mcp_servers".to_string(),
-                serde_json::Value::Array(arr),
-            );
+            obj.insert("mcp_servers".to_string(), serde_json::Value::Array(arr));
         } else if mcp.is_array() {
             obj.insert("mcp_servers".to_string(), mcp);
         }
@@ -401,10 +398,7 @@ fn normalize_manifest_json(mut v: serde_json::Value) -> serde_json::Value {
                     entry
                 })
                 .collect();
-            obj.insert(
-                "lsp_servers".to_string(),
-                serde_json::Value::Array(arr),
-            );
+            obj.insert("lsp_servers".to_string(), serde_json::Value::Array(arr));
         } else if lsp.is_array() {
             obj.insert("lsp_servers".to_string(), lsp);
         }

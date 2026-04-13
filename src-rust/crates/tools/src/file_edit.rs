@@ -68,20 +68,16 @@ impl Tool for FileEditTool {
 
         // Validate old != new
         if params.old_string == params.new_string {
-            return ToolResult::error(
-                "old_string and new_string must be different".to_string(),
-            );
+            return ToolResult::error("old_string and new_string must be different".to_string());
         }
 
         let path = ctx.resolve_path(&params.file_path);
         debug!(path = %path.display(), "Editing file");
 
         // Permission check
-        if let Err(e) = ctx.check_permission(
-            self.name(),
-            &format!("Edit {}", path.display()),
-            false,
-        ) {
+        if let Err(e) =
+            ctx.check_permission(self.name(), &format!("Edit {}", path.display()), false)
+        {
             return ToolResult::error(e.to_string());
         }
 
@@ -89,11 +85,7 @@ impl Tool for FileEditTool {
         let content = match tokio::fs::read_to_string(&path).await {
             Ok(c) => c,
             Err(e) => {
-                return ToolResult::error(format!(
-                    "Failed to read file {}: {}",
-                    path.display(),
-                    e
-                ))
+                return ToolResult::error(format!("Failed to read file {}: {}", path.display(), e))
             }
         };
 
@@ -128,11 +120,7 @@ impl Tool for FileEditTool {
 
         // Write back
         if let Err(e) = tokio::fs::write(&path, &new_content).await {
-            return ToolResult::error(format!(
-                "Failed to write file {}: {}",
-                path.display(),
-                e
-            ));
+            return ToolResult::error(format!("Failed to write file {}: {}", path.display(), e));
         }
 
         ctx.record_file_change(

@@ -107,7 +107,10 @@ pub fn is_env_truthy(val: Option<&str>) -> bool {
 pub fn is_env_defined_falsy(val: Option<&str>) -> bool {
     match val {
         Some(v) => {
-            matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off")
+            matches!(
+                v.to_ascii_lowercase().as_str(),
+                "0" | "false" | "no" | "off"
+            )
         }
         None => false,
     }

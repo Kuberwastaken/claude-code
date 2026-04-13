@@ -8,11 +8,11 @@
 //!   2. Sessions: transcript count with mtime > last_consolidated_at >= min_sessions
 //!   3. Lock:     no other process mid-consolidation (stale after 1 hour)
 
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::fs;
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 
 // Scan throttle: when time-gate passes but session-gate doesn't, the lock
 // mtime doesn't advance, so the time-gate keeps passing every turn.
@@ -374,14 +374,20 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let dream = make_dream(&tmp);
         let state = ConsolidationState::default();
-        assert!(dream.time_gate_passes(&state), "no prior consolidation → gate passes");
+        assert!(
+            dream.time_gate_passes(&state),
+            "no prior consolidation → gate passes"
+        );
     }
 
     #[test]
     fn test_time_gate_recent_consolidation() {
         let tmp = TempDir::new().unwrap();
         let dream = AutoDream::with_config(
-            AutoDreamConfig { min_hours: 24.0, min_sessions: 5 },
+            AutoDreamConfig {
+                min_hours: 24.0,
+                min_sessions: 5,
+            },
             tmp.path().join("memory"),
             tmp.path().join("conversations"),
         );
@@ -389,14 +395,20 @@ mod tests {
             last_consolidated_at: Some(now_secs()), // just now
             lock_etag: None,
         };
-        assert!(!dream.time_gate_passes(&state), "just consolidated → gate blocked");
+        assert!(
+            !dream.time_gate_passes(&state),
+            "just consolidated → gate blocked"
+        );
     }
 
     #[test]
     fn test_time_gate_old_consolidation() {
         let tmp = TempDir::new().unwrap();
         let dream = AutoDream::with_config(
-            AutoDreamConfig { min_hours: 24.0, min_sessions: 5 },
+            AutoDreamConfig {
+                min_hours: 24.0,
+                min_sessions: 5,
+            },
             tmp.path().join("memory"),
             tmp.path().join("conversations"),
         );
@@ -406,7 +418,10 @@ mod tests {
             last_consolidated_at: Some(old),
             lock_etag: None,
         };
-        assert!(dream.time_gate_passes(&state), "consolidated 25h ago → gate passes");
+        assert!(
+            dream.time_gate_passes(&state),
+            "consolidated 25h ago → gate passes"
+        );
     }
 
     // --- lock_gate_passes (sync-friendly via tokio::test) ---

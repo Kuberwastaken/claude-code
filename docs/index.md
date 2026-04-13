@@ -156,3 +156,4 @@ See [Slash Commands](commands) for the complete reference.
 - [Agents](agents) — multi-agent orchestration
 - [Hooks](hooks) — event-driven automation
 - [Advanced Features](advanced) — extended thinking, sessions, and more
+- [Live Execution Timeline](live-execution-timeline) - real-time execution observability in the TUI

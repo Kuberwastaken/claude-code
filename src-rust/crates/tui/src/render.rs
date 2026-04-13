@@ -1,52 +1,52 @@
-﻿// render.rs â€” All ratatui rendering logic.
+// render.rs Ã¢â‚¬â€ All ratatui rendering logic.
 
 use std::cell::RefCell;
 
 use crate::agents_view::render_agents_menu;
-use crate::context_viz::render_context_viz;
-use crate::export_dialog::render_export_dialog;
 use crate::app::{App, ContextMenuKind, SystemAnnotation, SystemMessageStyle, ToolStatus};
-use crate::rustle::rustle_lines;
-use crate::diff_viewer::render_diff_dialog;
-use crate::model_picker::render_model_picker;
-use crate::session_browser::render_session_browser;
-use crate::session_branching::render_session_branching;
-use crate::tasks_overlay::render_tasks_overlay;
-use crate::dialogs::{render_mcp_approval_dialog, render_permission_dialog};
-use crate::feedback_survey::render_feedback_survey;
-use crate::overage_upsell::render_overage_upsell;
-use crate::voice_mode_notice::render_voice_mode_notice;
-use crate::desktop_upsell_startup::render_desktop_upsell_startup;
-use crate::memory_update_notification::render_memory_update_notification;
-use crate::invalid_config_dialog::render_invalid_config_dialog;
 use crate::bypass_permissions_dialog::render_bypass_permissions_dialog;
-use crate::onboarding_dialog::render_onboarding_dialog;
-use crate::dialog_select::render_dialog_select;
-use crate::key_input_dialog::render_key_input_dialog;
+use crate::context_viz::render_context_viz;
+use crate::desktop_upsell_startup::render_desktop_upsell_startup;
 use crate::device_auth_dialog::render_device_auth_dialog;
+use crate::dialog_select::render_dialog_select;
+use crate::dialogs::{render_mcp_approval_dialog, render_permission_dialog};
+use crate::diff_viewer::render_diff_dialog;
 use crate::elicitation_dialog::render_elicitation_dialog;
+use crate::export_dialog::render_export_dialog;
+use crate::feedback_survey::render_feedback_survey;
 use crate::figures;
 use crate::hooks_config_menu::render_hooks_config_menu;
+use crate::invalid_config_dialog::render_invalid_config_dialog;
+use crate::key_input_dialog::render_key_input_dialog;
 use crate::mcp_view::render_mcp_view;
 use crate::memory_file_selector::render_memory_file_selector;
+use crate::memory_update_notification::render_memory_update_notification;
 use crate::messages::{
-    render_transcript_assistant_message,
-    render_transcript_assistant_meta, render_transcript_live_text, render_transcript_user_message,
-    RenderContext,
+    render_transcript_assistant_message, render_transcript_assistant_meta,
+    render_transcript_live_text, render_transcript_user_message, RenderContext,
 };
+use crate::model_picker::render_model_picker;
 use crate::notifications::render_notification_banner;
+use crate::onboarding_dialog::render_onboarding_dialog;
+use crate::overage_upsell::render_overage_upsell;
 use crate::overlays::{
     render_global_search, render_help_overlay, render_history_search_overlay, render_rewind_flow,
-    CLAURST_ACCENT,
+    CLAURST_ACCENT, CLAURST_MUTED, CLAURST_PANEL_BG, CLAURST_PANEL_BORDER, CLAURST_TEXT,
 };
 use crate::plugin_views::render_plugin_hints;
 use crate::privacy_screen::render_privacy_screen;
-use crate::prompt_input::{InputMode, TypeaheadSource, VimMode, input_height, render_prompt_input};
+use crate::prompt_input::{input_height, render_prompt_input, InputMode, TypeaheadSource, VimMode};
+use crate::rustle::rustle_lines;
+use crate::session_branching::render_session_branching;
+use crate::session_browser::render_session_browser;
 use crate::settings_screen::render_settings_screen;
 use crate::stats_dialog::render_stats_dialog;
+use crate::tasks_overlay::render_tasks_overlay;
 use crate::theme_screen::render_theme_screen;
+use crate::timeline::{Timeline, TimelineKind, TimelineRow, TimelineStatus};
 use crate::transcript_turn::{build_transcript_turns, TranscriptTurn};
 use crate::virtual_list::{VirtualItem, VirtualList};
+use crate::voice_mode_notice::render_voice_mode_notice;
 use claurst_core::constants::APP_VERSION;
 use claurst_core::types::Role;
 use ratatui::buffer::Buffer;
@@ -59,13 +59,17 @@ use unicode_width::UnicodeWidthStr;
 
 // Spinner frames matching the TypeScript SpinnerGlyph: platform-specific base
 // characters mirrored (forward + reverse) for a smooth pulse effect.
-// Windows uses '*' instead of '✳'/'✽' for better font coverage.
+// Windows uses '*' instead of 'âœ³'/'âœ½' for better font coverage.
 #[cfg(target_os = "windows")]
-const SPINNER: &[char] = &['\u{00b7}', '\u{2722}', '*', '\u{2736}', '\u{273b}', '\u{273d}',
-                            '\u{273d}', '\u{273b}', '\u{2736}', '*', '\u{2722}', '\u{00b7}'];
+const SPINNER: &[char] = &[
+    '\u{00b7}', '\u{2722}', '*', '\u{2736}', '\u{273b}', '\u{273d}', '\u{273d}', '\u{273b}',
+    '\u{2736}', '*', '\u{2722}', '\u{00b7}',
+];
 #[cfg(not(target_os = "windows"))]
-const SPINNER: &[char] = &['\u{00b7}', '\u{2722}', '\u{2733}', '\u{2736}', '\u{273b}', '\u{273d}',
-                            '\u{273d}', '\u{273b}', '\u{2736}', '\u{2733}', '\u{2722}', '\u{00b7}'];
+const SPINNER: &[char] = &[
+    '\u{00b7}', '\u{2722}', '\u{2733}', '\u{2736}', '\u{273b}', '\u{273d}', '\u{273d}', '\u{273b}',
+    '\u{2736}', '\u{2733}', '\u{2722}', '\u{00b7}',
+];
 const CLAUDE_ORANGE: Color = Color::Rgb(233, 30, 99);
 const WELCOME_BOX_HEIGHT: u16 = 12;
 
@@ -204,7 +208,9 @@ fn startup_notice_lines(app: &App, width: u16) -> Vec<Line<'static>> {
         lines.push(Line::from(vec![
             Span::styled(
                 format!(" {} ", crate::figures::REFERENCE_MARK),
-                Style::default().fg(CLAUDE_ORANGE).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(CLAUDE_ORANGE)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 truncate_end(summary, max_width),
@@ -216,7 +222,11 @@ fn startup_notice_lines(app: &App, width: u16) -> Vec<Line<'static>> {
     match &app.bridge_state {
         crate::bridge_state::BridgeConnectionState::Connected { peer_count, .. } => {
             let label = if *peer_count > 0 {
-                format!("Remote session active \u{00b7} {} peer{}", peer_count, if *peer_count == 1 { "" } else { "s" })
+                format!(
+                    "Remote session active \u{00b7} {} peer{}",
+                    peer_count,
+                    if *peer_count == 1 { "" } else { "s" }
+                )
             } else {
                 "Remote session active".to_string()
             };
@@ -261,7 +271,12 @@ fn startup_notice_lines(app: &App, width: u16) -> Vec<Line<'static>> {
     //  experience, launch it in a project directory instead."
     if app.home_dir_warning {
         lines.push(Line::from(vec![
-            Span::styled(" note ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " note ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(
                 truncate_end(
                     "You have launched claude in your home directory. \
@@ -349,7 +364,7 @@ struct MessageLinesCache {
     lines: Vec<RenderedLineItem>,
 }
 
-/// Cache key for completed messages only (no ptr — len change = new message).
+/// Cache key for completed messages only (no ptr â€” len change = new message).
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct CompletedMsgCacheKey {
     width: u16,
@@ -371,6 +386,508 @@ thread_local! {
     static COMPLETED_MSG_CACHE: RefCell<Option<CompletedMsgCache>> = const { RefCell::new(None) };
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct TimelinePanelLayout {
+    pub transcript_area: Rect,
+    pub panel_area: Option<Rect>,
+}
+
+pub fn split_area_for_timeline(area: Rect, timeline_visible: bool) -> TimelinePanelLayout {
+    if !timeline_visible || area.width < 32 || area.height < 8 {
+        return TimelinePanelLayout {
+            transcript_area: area,
+            panel_area: None,
+        };
+    }
+
+    if area.width >= 120 {
+        let panel_width = area.width.saturating_mul(34) / 100;
+        let panel_width = panel_width.clamp(34, 52);
+        let transcript_width = area.width.saturating_sub(panel_width);
+        if transcript_width >= 40 {
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(40), Constraint::Length(panel_width)])
+                .split(area);
+            return TimelinePanelLayout {
+                transcript_area: chunks[0],
+                panel_area: Some(chunks[1]),
+            };
+        }
+    }
+
+    let panel_height = (area.height / 3).clamp(8, 12);
+    let transcript_height = area.height.saturating_sub(panel_height);
+    if transcript_height >= 6 {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(6), Constraint::Length(panel_height)])
+            .split(area);
+        TimelinePanelLayout {
+            transcript_area: chunks[0],
+            panel_area: Some(chunks[1]),
+        }
+    } else {
+        TimelinePanelLayout {
+            transcript_area: area,
+            panel_area: None,
+        }
+    }
+}
+
+pub fn render_live_execution_timeline(
+    frame: &mut Frame,
+    area: Rect,
+    timeline: &Timeline,
+    selected_expanded: bool,
+    focused: bool,
+    frame_count: u64,
+    now_ms: u64,
+) {
+    if area.width < 16 || area.height < 4 {
+        return;
+    }
+
+    let border_style = if timeline.is_empty() {
+        Style::default().fg(CLAURST_PANEL_BORDER)
+    } else {
+        Style::default().fg(CLAURST_ACCENT)
+    };
+
+    let block = Block::default()
+        .title(" Live Execution Timeline ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(border_style)
+        .style(Style::default().bg(CLAURST_PANEL_BG).fg(CLAURST_TEXT));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    if timeline.is_empty() {
+        let empty = Paragraph::new(vec![
+            Line::from(vec![Span::styled(
+                " No execution events yet",
+                Style::default()
+                    .fg(CLAURST_MUTED)
+                    .add_modifier(Modifier::ITALIC),
+            )]),
+            Line::from(vec![Span::styled(
+                " Tool calls and turn summaries appear here.",
+                Style::default().fg(CLAURST_MUTED),
+            )]),
+        ])
+        .wrap(Wrap { trim: false })
+        .style(Style::default().bg(CLAURST_PANEL_BG));
+        frame.render_widget(empty, inner);
+        return;
+    }
+
+    let header_height = 1;
+    let available_body_height = inner.height.saturating_sub(header_height);
+    let (detail_height, separator_height, compact_details) = if selected_expanded {
+        if available_body_height >= 6 {
+            // Spacious mode: keep at least one list row and a separator.
+            let max_detail_height = available_body_height.saturating_sub(2);
+            let preferred_detail_height = (available_body_height / 3).clamp(4, 7);
+            (preferred_detail_height.min(max_detail_height), 1, false)
+        } else if available_body_height >= 4 {
+            // Compact mode for short panels: no separator and no nested bordered block.
+            let compact_height = available_body_height.saturating_sub(1);
+            (compact_height, 0, true)
+        } else {
+            (0, 0, false)
+        }
+    } else {
+        (0, 0, false)
+    };
+    let list_height = available_body_height.saturating_sub(detail_height + separator_height);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(header_height),
+            Constraint::Length(list_height),
+            Constraint::Length(separator_height),
+            Constraint::Length(detail_height),
+        ])
+        .split(inner);
+
+    let running_count = timeline
+        .rows
+        .iter()
+        .filter(|row| row.status == TimelineStatus::Running)
+        .count();
+    let error_count = timeline
+        .rows
+        .iter()
+        .filter(|row| row.status == TimelineStatus::Error)
+        .count();
+    let header_line = Line::from(vec![
+        Span::styled(
+            format!(" {} items", timeline.len()),
+            Style::default()
+                .fg(CLAURST_TEXT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("  ", Style::default().fg(CLAURST_MUTED)),
+        Span::styled(
+            format!("{running_count} running"),
+            Style::default().fg(Color::Yellow),
+        ),
+        Span::styled("  ", Style::default().fg(CLAURST_MUTED)),
+        Span::styled(
+            format!("{error_count} errors"),
+            Style::default().fg(Color::Red),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(header_line), chunks[0]);
+
+    let visible_rows = chunks[1].height as usize;
+    let start = timeline_window_start(timeline.selected_idx, visible_rows, timeline.rows.len());
+    for display_idx in 0..visible_rows {
+        let Some(row) = timeline.rows.get(start + display_idx) else {
+            break;
+        };
+        let row_area = Rect {
+            x: chunks[1].x,
+            y: chunks[1].y + display_idx as u16,
+            width: chunks[1].width,
+            height: 1,
+        };
+        render_timeline_row(
+            frame,
+            row_area,
+            row,
+            start + display_idx == timeline.selected_idx,
+            focused,
+            frame_count,
+            now_ms,
+        );
+    }
+
+    if detail_height > 0 && selected_expanded {
+        if separator_height > 0 {
+            let separator = Line::from(vec![Span::styled(
+                "\u{2500}".repeat(chunks[2].width as usize),
+                Style::default().fg(CLAURST_PANEL_BORDER),
+            )]);
+            frame.render_widget(Paragraph::new(separator), chunks[2]);
+        }
+        if let Some(selected_row) = timeline.selected_row() {
+            if compact_details {
+                render_timeline_details_compact(frame, chunks[3], selected_row, now_ms);
+            } else {
+                render_timeline_details(frame, chunks[3], selected_row, now_ms);
+            }
+        }
+    }
+}
+
+fn timeline_window_start(selected_idx: usize, visible_rows: usize, total_rows: usize) -> usize {
+    if visible_rows == 0 || total_rows <= visible_rows {
+        return 0;
+    }
+
+    let centered = selected_idx.saturating_sub(visible_rows / 2);
+    centered.min(total_rows.saturating_sub(visible_rows))
+}
+
+fn render_timeline_row(
+    frame: &mut Frame,
+    area: Rect,
+    row: &TimelineRow,
+    selected: bool,
+    focused: bool,
+    frame_count: u64,
+    now_ms: u64,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let base_style = if selected && focused {
+        Style::default()
+            .bg(Color::Rgb(58, 20, 34))
+            .fg(CLAURST_TEXT)
+            .add_modifier(Modifier::BOLD)
+    } else if selected {
+        Style::default()
+            .bg(Color::Rgb(42, 18, 28))
+            .fg(CLAURST_TEXT)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().bg(CLAURST_PANEL_BG).fg(CLAURST_TEXT)
+    };
+
+    frame.render_widget(Block::default().style(base_style), area);
+
+    let status_style = timeline_status_style(row.status);
+    let status_mark = timeline_status_mark(row.status, frame_count);
+    let duration = format_timeline_duration(row, now_ms);
+    let tokens = format_token_delta(row, area.width);
+    let cost = format_cost_delta(row, area.width);
+    let mut meta_parts = vec![duration];
+    if !tokens.is_empty() {
+        meta_parts.push(tokens);
+    }
+    if !cost.is_empty() {
+        meta_parts.push(cost);
+    }
+    let meta = meta_parts.join("  ");
+
+    let prefix = if selected { ">" } else { " " };
+    let kind = timeline_kind_tag(row.kind, area.width);
+    let reserved_width = UnicodeWidthStr::width(prefix)
+        + UnicodeWidthStr::width(status_mark.as_str())
+        + UnicodeWidthStr::width(kind.as_str())
+        + UnicodeWidthStr::width(meta.as_str())
+        + 7;
+    let label_width = area.width as usize;
+    let label_width = label_width.saturating_sub(reserved_width).max(6);
+    let label = truncate_end(&row.title, label_width);
+    let gap_width = area.width.saturating_sub(
+        (UnicodeWidthStr::width(prefix)
+            + UnicodeWidthStr::width(status_mark.as_str())
+            + UnicodeWidthStr::width(kind.as_str())
+            + UnicodeWidthStr::width(label.as_str())
+            + UnicodeWidthStr::width(meta.as_str())
+            + 4) as u16,
+    ) as usize;
+
+    let line = Line::from(vec![
+        Span::styled(prefix.to_string(), base_style.fg(CLAURST_ACCENT)),
+        Span::raw(" "),
+        Span::styled(status_mark, status_style),
+        Span::raw(" "),
+        Span::styled(kind, Style::default().fg(CLAURST_MUTED)),
+        Span::raw(" "),
+        Span::styled(label, base_style),
+        Span::raw(" ".repeat(gap_width)),
+        Span::styled(meta, Style::default().fg(CLAURST_MUTED)),
+    ]);
+    frame.render_widget(Paragraph::new(line).style(base_style), area);
+}
+
+fn render_timeline_details(frame: &mut Frame, area: Rect, row: &TimelineRow, now_ms: u64) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let title = format!(
+        " {} | {} | {} ",
+        row.title,
+        timeline_status_text(row.status),
+        format_timeline_duration(row, now_ms)
+    );
+    let detail_block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(CLAURST_ACCENT))
+        .style(Style::default().bg(CLAURST_PANEL_BG).fg(CLAURST_TEXT));
+    let inner = detail_block.inner(area);
+    frame.render_widget(detail_block, area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let preview = if row.detail_preview.is_empty() {
+        "No preview available."
+    } else {
+        row.detail_preview.as_str()
+    };
+    let details = if row.expandable_details.trim().is_empty() {
+        "No extra details."
+    } else {
+        row.expandable_details.trim()
+    };
+    let body = vec![
+        Line::from(vec![
+            Span::styled("Preview: ", Style::default().fg(CLAURST_MUTED)),
+            Span::styled(preview.to_string(), Style::default().fg(CLAURST_TEXT)),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            details.to_string(),
+            Style::default().fg(CLAURST_TEXT),
+        )]),
+    ];
+    frame.render_widget(
+        Paragraph::new(body)
+            .wrap(Wrap { trim: false })
+            .style(Style::default().bg(CLAURST_PANEL_BG)),
+        inner,
+    );
+}
+
+fn render_timeline_details_compact(frame: &mut Frame, area: Rect, row: &TimelineRow, now_ms: u64) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let preview = if row.detail_preview.is_empty() {
+        "No preview available."
+    } else {
+        row.detail_preview.as_str()
+    };
+    let details = if row.expandable_details.trim().is_empty() {
+        "No extra details."
+    } else {
+        row.expandable_details.trim()
+    };
+    let mut lines = Vec::with_capacity(area.height as usize);
+    lines.push(Line::from(vec![Span::styled(
+        format!(
+            "{} | {} | {}",
+            row.title,
+            timeline_status_text(row.status),
+            format_timeline_duration(row, now_ms)
+        ),
+        Style::default()
+            .fg(CLAURST_ACCENT)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    if area.height > 1 {
+        lines.push(Line::from(vec![
+            Span::styled("Preview: ", Style::default().fg(CLAURST_MUTED)),
+            Span::styled(
+                truncate_end(preview, area.width.saturating_sub(10) as usize),
+                Style::default().fg(CLAURST_TEXT),
+            ),
+        ]));
+    }
+
+    if area.height > 2 {
+        let details_width = area.width.saturating_sub(10) as usize;
+        let mut detail_lines = details.lines();
+        if let Some(first_line) = detail_lines.next() {
+            lines.push(Line::from(vec![
+                Span::styled("Details: ", Style::default().fg(CLAURST_MUTED)),
+                Span::styled(
+                    truncate_end(first_line, details_width),
+                    Style::default().fg(CLAURST_TEXT),
+                ),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled("Details: ", Style::default().fg(CLAURST_MUTED)),
+                Span::styled("No extra details.", Style::default().fg(CLAURST_TEXT)),
+            ]));
+        }
+
+        while lines.len() < area.height as usize {
+            let Some(next_line) = detail_lines.next() else {
+                break;
+            };
+            lines.push(Line::from(vec![
+                Span::styled("         ", Style::default().fg(CLAURST_MUTED)),
+                Span::styled(
+                    truncate_end(next_line, details_width),
+                    Style::default().fg(CLAURST_TEXT),
+                ),
+            ]));
+        }
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(Style::default().bg(CLAURST_PANEL_BG))
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn timeline_kind_tag(kind: TimelineKind, width: u16) -> String {
+    if width < 28 {
+        match kind {
+            TimelineKind::ToolCall => "[T]".to_string(),
+            TimelineKind::TurnSummary => "[R]".to_string(),
+            TimelineKind::Status => "[S]".to_string(),
+        }
+    } else {
+        match kind {
+            TimelineKind::ToolCall => "[tool]".to_string(),
+            TimelineKind::TurnSummary => "[turn]".to_string(),
+            TimelineKind::Status => "[note]".to_string(),
+        }
+    }
+}
+
+fn timeline_status_style(status: TimelineStatus) -> Style {
+    match status {
+        TimelineStatus::Running => Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+        TimelineStatus::Done => Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD),
+        TimelineStatus::Error => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        TimelineStatus::Cancelled => Style::default()
+            .fg(Color::Gray)
+            .add_modifier(Modifier::BOLD),
+    }
+}
+
+fn timeline_status_mark(status: TimelineStatus, frame_count: u64) -> String {
+    match status {
+        TimelineStatus::Running => spinner_char(frame_count).to_string(),
+        TimelineStatus::Done => "\u{2713}".to_string(),
+        TimelineStatus::Error => "!".to_string(),
+        TimelineStatus::Cancelled => "\u{00d7}".to_string(),
+    }
+}
+
+fn timeline_status_text(status: TimelineStatus) -> &'static str {
+    match status {
+        TimelineStatus::Running => "Running",
+        TimelineStatus::Done => "Done",
+        TimelineStatus::Error => "Error",
+        TimelineStatus::Cancelled => "Cancelled",
+    }
+}
+
+fn format_timeline_duration(row: &TimelineRow, now_ms: u64) -> String {
+    let elapsed_ms = row
+        .duration_ms()
+        .unwrap_or_else(|| now_ms.saturating_sub(row.started_at_ms));
+    if elapsed_ms < 1_000 {
+        format!("{elapsed_ms}ms")
+    } else if elapsed_ms < 60_000 {
+        format!("{:.1}s", elapsed_ms as f64 / 1_000.0)
+    } else {
+        let secs = elapsed_ms / 1_000;
+        format!("{}m {:02}s", secs / 60, secs % 60)
+    }
+}
+
+fn format_token_delta(row: &TimelineRow, width: u16) -> String {
+    match (row.token_delta_input, row.token_delta_output) {
+        (None, None) => String::new(),
+        (Some(input), Some(output)) if width >= 44 => format!("tok +{input}/+{output}"),
+        (Some(input), Some(output)) => format!("tok +{}", input.saturating_add(output)),
+        (Some(input), None) => format!("tok +{input}"),
+        (None, Some(output)) => format!("tok +{output}"),
+    }
+}
+
+fn format_cost_delta(row: &TimelineRow, width: u16) -> String {
+    let Some(cost_usd) = row.cost_delta_usd else {
+        return String::new();
+    };
+
+    if width < 34 {
+        format!("${cost_usd:.2}")
+    } else if cost_usd >= 0.01 {
+        format!("${cost_usd:.3}")
+    } else {
+        format!("${cost_usd:.4}")
+    }
+}
+
 // -----------------------------------------------------------------------
 // Top-level layout
 // -----------------------------------------------------------------------
@@ -387,8 +904,9 @@ pub fn render_app(frame: &mut Frame, app: &App) {
         size,
     );
 
-    let prompt_focused =
-        !app.is_streaming && app.permission_request.is_none() && !app.history_search_overlay.visible;
+    let prompt_focused = !app.is_streaming
+        && app.permission_request.is_none()
+        && !app.history_search_overlay.visible;
     let status_visible = should_render_status_row(app);
     // One blank separator row above the status/input area when status is active,
     // matching the visual breathing room in the TS layout.
@@ -399,11 +917,13 @@ pub fn render_app(frame: &mut Frame, app: &App) {
             1
         } else if let Some(text) = app.status_message.as_deref() {
             // Measure how many terminal rows the message needs so that long
-            // error strings (e.g. "Error: overloaded_error (529): …") wrap
+            // error strings (e.g. "Error: overloaded_error (529): â€¦") wrap
             // instead of overflowing the input area.  Cap at 3 lines.
             let usable_width = size.width.max(1) as usize;
             let char_count = text.chars().count();
-            ((char_count + usable_width - 1) / usable_width).max(1).min(3) as u16
+            ((char_count + usable_width - 1) / usable_width)
+                .max(1)
+                .min(3) as u16
         } else {
             1
         }
@@ -429,8 +949,32 @@ pub fn render_app(frame: &mut Frame, app: &App) {
         ])
         .split(size);
 
-    render_messages(frame, app, chunks[0]);
-    // chunks[1] is the blank separator — intentionally left empty
+    let timeline_layout = split_area_for_timeline(chunks[0], app.timeline_visible);
+    app.last_selectable_area
+        .set(timeline_layout.transcript_area);
+    render_messages(frame, app, timeline_layout.transcript_area);
+    if let Some(panel_area) = timeline_layout.panel_area {
+        let selected_expanded = app
+            .timeline
+            .selected_row()
+            .map(|row| app.timeline_expanded_rows.contains(&row.id))
+            .unwrap_or(false);
+        let focused = matches!(app.focus, crate::app::FocusTarget::Timeline);
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        render_live_execution_timeline(
+            frame,
+            panel_area,
+            &app.timeline,
+            selected_expanded,
+            focused,
+            app.frame_count,
+            now_ms,
+        );
+    }
+    // chunks[1] is the blank separator â€” intentionally left empty
     if status_height > 0 {
         render_status_row(frame, app, chunks[2]);
     }
@@ -462,7 +1006,7 @@ pub fn render_app(frame: &mut Frame, app: &App) {
     if app.help_overlay.visible {
         render_help_overlay(frame, &app.help_overlay, size);
     } else if app.show_help {
-        // Legacy fallback â€” render the simple help overlay
+        // Legacy fallback Ã¢â‚¬â€ render the simple help overlay
         render_simple_help_overlay(frame, size);
     }
 
@@ -531,7 +1075,12 @@ pub fn render_app(frame: &mut Frame, app: &App) {
     if app.overage_upsell.visible {
         let banner_h = app.overage_upsell.height();
         if size.height > banner_h + 4 {
-            let banner_area = Rect { x: size.x, y: size.y, width: size.width, height: banner_h };
+            let banner_area = Rect {
+                x: size.x,
+                y: size.y,
+                width: size.width,
+                height: banner_h,
+            };
             render_overage_upsell(&app.overage_upsell, banner_area, frame.buffer_mut());
         }
     }
@@ -540,7 +1089,12 @@ pub fn render_app(frame: &mut Frame, app: &App) {
     if app.voice_mode_notice.visible {
         let notice_h = app.voice_mode_notice.height();
         if size.height > notice_h + 4 {
-            let notice_area = Rect { x: size.x, y: size.y, width: size.width, height: notice_h };
+            let notice_area = Rect {
+                x: size.x,
+                y: size.y,
+                width: size.width,
+                height: notice_h,
+            };
             render_voice_mode_notice(&app.voice_mode_notice, notice_area, frame.buffer_mut());
         }
     }
@@ -551,7 +1105,12 @@ pub fn render_app(frame: &mut Frame, app: &App) {
         if size.height > notif_h + 4 {
             // Place at the bottom of the screen, just above the prompt bar area
             let notif_y = size.y + size.height.saturating_sub(notif_h + 4);
-            let notif_area = Rect { x: size.x, y: notif_y, width: size.width, height: notif_h };
+            let notif_area = Rect {
+                x: size.x,
+                y: notif_y,
+                width: size.width,
+                height: notif_h,
+            };
             render_memory_update_notification(
                 &app.memory_update_notification,
                 notif_area,
@@ -570,7 +1129,7 @@ pub fn render_app(frame: &mut Frame, app: &App) {
         render_invalid_config_dialog(frame, &app.invalid_config_dialog, size);
     }
 
-    // Bypass-permissions confirmation dialog (topmost — rendered last so it sits above all)
+    // Bypass-permissions confirmation dialog (topmost â€” rendered last so it sits above all)
     if app.bypass_permissions_dialog.visible {
         render_bypass_permissions_dialog(frame, &app.bypass_permissions_dialog, size);
     }
@@ -600,7 +1159,7 @@ pub fn render_app(frame: &mut Frame, app: &App) {
         render_dialog_select(frame, &app.command_palette, size);
     }
 
-    // MCP elicitation dialog (highest priority modal — rendered last to sit on top)
+    // MCP elicitation dialog (highest priority modal â€” rendered last to sit on top)
     if app.elicitation.visible {
         render_elicitation_dialog(&app.elicitation, size, frame.buffer_mut());
     }
@@ -700,7 +1259,7 @@ fn apply_selection_highlight(frame: &mut Frame, app: &App) {
         focus.1.clamp(selectable_area.y, max_row),
     );
 
-    // Normalise so start ≤ end (row-major order).
+    // Normalise so start â‰¤ end (row-major order).
     let (start, end) = if (anchor.1, anchor.0) <= (focus.1, focus.0) {
         (anchor, focus)
     } else {
@@ -711,12 +1270,20 @@ fn apply_selection_highlight(frame: &mut Frame, app: &App) {
     let mut text = String::new();
     let last_row = end.1.min(max_row);
     for row in start.1..=last_row {
-        let col_from = if row == start.1 { start.0 } else { selectable_area.x };
+        let col_from = if row == start.1 {
+            start.0
+        } else {
+            selectable_area.x
+        };
         let col_to = if row == end.1 { end.0 } else { max_col };
         for col in col_from..=col_to {
             if let Some(cell) = buf.cell_mut((col, row)) {
                 let sym = cell.symbol().to_owned();
-                text.push_str(if sym.is_empty() || sym == "\0" { " " } else { &sym });
+                text.push_str(if sym.is_empty() || sym == "\0" {
+                    " "
+                } else {
+                    &sym
+                });
                 // Highlight: white background, black foreground
                 let new_style = Style::default()
                     .fg(Color::Black)
@@ -726,11 +1293,15 @@ fn apply_selection_highlight(frame: &mut Frame, app: &App) {
         }
         if row < last_row {
             // Trim trailing spaces from line before newline
-            while text.ends_with(' ') { text.pop(); }
+            while text.ends_with(' ') {
+                text.pop();
+            }
             text.push('\n');
         }
     }
-    while text.ends_with(|c: char| c.is_whitespace()) { text.pop(); }
+    while text.ends_with(|c: char| c.is_whitespace()) {
+        text.pop();
+    }
     *app.selection_text.borrow_mut() = text;
 }
 
@@ -791,20 +1362,31 @@ fn render_context_menu(frame: &mut Frame, app: &App) {
             let is_selected = idx == menu.selected_index;
 
             let fg_color = if *enabled {
-                if is_selected { Color::Black } else { Color::White }
+                if is_selected {
+                    Color::Black
+                } else {
+                    Color::White
+                }
             } else {
                 Color::DarkGray
             };
 
             let bg_color = if is_selected {
-                if *enabled { CLAURST_ACCENT } else { Color::Rgb(24, 24, 30) }
+                if *enabled {
+                    CLAURST_ACCENT
+                } else {
+                    Color::Rgb(24, 24, 30)
+                }
             } else {
                 Color::Rgb(24, 24, 30)
             };
 
             let style = Style::default().fg(fg_color).bg(bg_color);
-            let padded_label =
-                format!(" {:<width$} ", label, width = menu_width.saturating_sub(2) as usize);
+            let padded_label = format!(
+                " {:<width$} ",
+                label,
+                width = menu_width.saturating_sub(2) as usize
+            );
 
             if let Some(cell) = frame.buffer_mut().cell_mut((inner.x, y)) {
                 cell.set_symbol(&padded_label[0..1.min(padded_label.len())]);
@@ -815,7 +1397,10 @@ fn render_context_menu(frame: &mut Frame, app: &App) {
                 if col_offset >= inner.width as usize {
                     break;
                 }
-                if let Some(cell) = frame.buffer_mut().cell_mut((inner.x + col_offset as u16, y)) {
+                if let Some(cell) = frame
+                    .buffer_mut()
+                    .cell_mut((inner.x + col_offset as u16, y))
+                {
                     cell.set_symbol(&ch.to_string());
                     cell.set_style(style);
                 }
@@ -899,23 +1484,31 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
     // Highlight search matches in transcript when global search is active
     let lines = if app.global_search.open && !app.global_search.query.is_empty() {
         let query_lc = app.global_search.query.to_lowercase();
-        lines.into_iter().map(|mut item| {
-            if item.search_text.to_lowercase().contains(query_lc.as_str()) {
-                // Re-render the line with yellow highlight on matching spans
-                let highlighted_spans: Vec<Span<'static>> = item.line.spans.into_iter().map(|span| {
-                    if span.content.to_lowercase().contains(query_lc.as_str()) {
-                        Span::styled(
-                            span.content,
-                            span.style.bg(Color::Rgb(60, 50, 0)).fg(Color::Yellow),
-                        )
-                    } else {
-                        span
-                    }
-                }).collect();
-                item.line = ratatui::text::Line::from(highlighted_spans);
-            }
-            item
-        }).collect()
+        lines
+            .into_iter()
+            .map(|mut item| {
+                if item.search_text.to_lowercase().contains(query_lc.as_str()) {
+                    // Re-render the line with yellow highlight on matching spans
+                    let highlighted_spans: Vec<Span<'static>> = item
+                        .line
+                        .spans
+                        .into_iter()
+                        .map(|span| {
+                            if span.content.to_lowercase().contains(query_lc.as_str()) {
+                                Span::styled(
+                                    span.content,
+                                    span.style.bg(Color::Rgb(60, 50, 0)).fg(Color::Yellow),
+                                )
+                            } else {
+                                span
+                            }
+                        })
+                        .collect();
+                    item.line = ratatui::text::Line::from(highlighted_spans);
+                }
+                item
+            })
+            .collect()
     } else {
         lines
     };
@@ -924,7 +1517,7 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
     // When auto_scroll is on we always show the tail; otherwise we respect
     // the user's scroll_offset.
     let content_height = lines.len() as u16;
-    let visible_height = msg_area.height;  // no borders, full height available
+    let visible_height = msg_area.height; // no borders, full height available
     let max_scroll = content_height.saturating_sub(visible_height) as usize;
     // scroll_offset counts lines above the bottom (0 = at bottom).
     // ratatui scroll() takes an absolute top-row index, so convert:
@@ -942,13 +1535,18 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
         .take(msg_area.height as usize)
         .filter_map(|(idx, item)| {
             item.message_index.map(|message_index| {
-                (msg_area.y.saturating_add((idx.saturating_sub(scroll)) as u16), message_index)
+                (
+                    msg_area
+                        .y
+                        .saturating_add((idx.saturating_sub(scroll)) as u16),
+                    message_index,
+                )
             })
         })
         .collect();
     *app.message_row_map.borrow_mut() = visible_rows;
 
-    // No border — messages render directly into the area.
+    // No border â€” messages render directly into the area.
     let mut list = VirtualList::new();
     list.viewport_height = msg_area.height;
     list.sticky_bottom = app.auto_scroll;
@@ -969,18 +1567,22 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
             .viewport_content_length(visible_height as usize);
 
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .thumb_style(Style::default().fg(app.accent_color))  // accent thumb
-            .track_style(Style::default().fg(Color::Rgb(40, 40, 50)));  // dark track
+            .thumb_style(Style::default().fg(app.accent_color)) // accent thumb
+            .track_style(Style::default().fg(Color::Rgb(40, 40, 50))); // dark track
 
         frame.render_stateful_widget(scrollbar, msg_area, &mut scrollbar_state);
     }
 
-    // “â†” N new messages” indicator when scrolled up and new messages arrived.
+    // â€œÃ¢â€ â€ N new messagesâ€ indicator when scrolled up and new messages arrived.
     if app.new_messages_while_scrolled > 0 && msg_area.height > 4 && msg_area.width > 20 {
         let indicator = format!(
             " \u{2193} {} new message{} ",
             app.new_messages_while_scrolled,
-            if app.new_messages_while_scrolled == 1 { "" } else { "s" }
+            if app.new_messages_while_scrolled == 1 {
+                ""
+            } else {
+                "s"
+            }
         );
         let ind_len = indicator.len() as u16;
         let ind_x = msg_area
@@ -1087,19 +1689,19 @@ fn append_turn_items(
     }
 
     // Show a "Thinking" shimmer when the turn is active but no text or
-    // thinking content has arrived yet — gives visual feedback that the
+    // thinking content has arrived yet â€” gives visual feedback that the
     // model is working (especially for providers without thinking support).
     if turn.active
         && turn.live_text.is_none()
         && turn.live_thinking.is_none()
-        && turn.tool_blocks.iter().all(|b| b.status != ToolStatus::Running)
+        && turn
+            .tool_blocks
+            .iter()
+            .all(|b| b.status != ToolStatus::Running)
     {
         let mut spans = vec![Span::raw("  ")];
         spans.extend(shimmer_spans("Thinking", frame_count));
-        sections.push((
-            vec![Line::from(spans)],
-            Some(turn.primary_message_index()),
-        ));
+        sections.push((vec![Line::from(spans)], Some(turn.primary_message_index())));
     }
 
     if let Some(text) = turn.live_text {
@@ -1132,16 +1734,15 @@ fn append_turn_items(
 }
 
 fn render_message_items(app: &App, width: u16) -> Vec<RenderedLineItem> {
-    let streaming = app.is_streaming
-        || !app.streaming_text.is_empty()
-        || !app.streaming_thinking.is_empty();
+    let streaming =
+        app.is_streaming || !app.streaming_text.is_empty() || !app.streaming_thinking.is_empty();
     let has_running_tool_blocks = app
         .tool_use_blocks
         .iter()
         .any(|block| block.status == ToolStatus::Running);
     let cacheable = !streaming && !has_running_tool_blocks;
 
-    // Fast path: nothing live — use the full-result cache (ptr-stable check).
+    // Fast path: nothing live â€” use the full-result cache (ptr-stable check).
     let full_key = MessageLinesCacheKey {
         width,
         transcript_version: app.transcript_version.get(),
@@ -1182,7 +1783,11 @@ fn render_message_items(app: &App, width: u16) -> Vec<RenderedLineItem> {
         let total = app.messages.len();
         let mut index = 0usize;
         while index <= total {
-            for ann in app.system_annotations.iter().filter(|ann| ann.after_index == index) {
+            for ann in app
+                .system_annotations
+                .iter()
+                .filter(|ann| ann.after_index == index)
+            {
                 let mut lines = Vec::new();
                 render_system_annotation_lines(&mut lines, ann, width as usize);
                 push_rendered_items(&mut items, lines, None, false);
@@ -1272,7 +1877,7 @@ fn render_message_items(app: &App, width: u16) -> Vec<RenderedLineItem> {
     completed_lines
 }
 
-// â”€â”€ Welcome / startup screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ Welcome / startup screen Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 /// Render the two-column orange round-bordered welcome box (matches TS LogoV2).
 fn render_welcome_box(frame: &mut Frame, app: &App, area: Rect) {
@@ -1300,13 +1905,26 @@ fn render_welcome_box(frame: &mut Frame, app: &App, area: Rect) {
     if area.height < box_height || box_width < 30 {
         // Too small: fall back to a single line
         let line = Line::from(vec![
-            Span::styled("Claurst ", Style::default().fg(CLAUDE_ORANGE).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("v{}", APP_VERSION), Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "Claurst ",
+                Style::default()
+                    .fg(CLAUDE_ORANGE)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("v{}", APP_VERSION),
+                Style::default().fg(Color::DarkGray),
+            ),
         ]);
         frame.render_widget(Paragraph::new(vec![line]), area);
         return;
     }
-    let box_area = Rect { x: area.x, y: area.y, width: box_width, height: box_height };
+    let box_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: box_width,
+        height: box_height,
+    };
 
     // Outer border with title "Claurst vX.Y"
     let accent = app.accent_color;
@@ -1315,8 +1933,14 @@ fn render_welcome_box(frame: &mut Frame, app: &App, area: Rect) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(accent))
         .title(Line::from(vec![
-            Span::styled(" Claurst ", Style::default().fg(accent).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("v{} ", APP_VERSION), Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                " Claurst ",
+                Style::default().fg(accent).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("v{} ", APP_VERSION),
+                Style::default().fg(Color::DarkGray),
+            ),
         ]));
     frame.render_widget(outer_block, box_area);
 
@@ -1330,7 +1954,10 @@ fn render_welcome_box(frame: &mut Frame, app: &App, area: Rect) {
 
     // Split inner into left | divider(1) | right
     // Left width: ~28 chars or half the inner width, whichever is smaller
-    let left_w = (inner.width / 2).max(22).min(32).min(inner.width.saturating_sub(3));
+    let left_w = (inner.width / 2)
+        .max(22)
+        .min(32)
+        .min(inner.width.saturating_sub(3));
     let right_w = inner.width.saturating_sub(left_w + 1);
     let h_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -1361,7 +1988,9 @@ fn render_welcome_box(frame: &mut Frame, app: &App, area: Rect) {
     let mut left_lines: Vec<Line> = Vec::new();
     left_lines.push(Line::from(Span::styled(
         welcome_msg,
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
     )));
     left_lines.push(Line::from(""));
     // Center mascot in left column
@@ -1394,7 +2023,10 @@ fn render_welcome_box(frame: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(Color::DarkGray),
     )));
 
-    frame.render_widget(Paragraph::new(left_lines).wrap(Wrap { trim: false }), h_chunks[0]);
+    frame.render_widget(
+        Paragraph::new(left_lines).wrap(Wrap { trim: false }),
+        h_chunks[0],
+    );
 
     // --- Right column ---
     let tip_text = claurst_core::tips::select_tip(0)
@@ -1408,7 +2040,11 @@ fn render_welcome_box(frame: &mut Frame, app: &App, area: Rect) {
     )));
     // Word-wrap the tip text into the right column width
     let right_w_usize = right_w.saturating_sub(1) as usize;
-    for chunk in tip_text.chars().collect::<Vec<_>>().chunks(right_w_usize.max(1)) {
+    for chunk in tip_text
+        .chars()
+        .collect::<Vec<_>>()
+        .chunks(right_w_usize.max(1))
+    {
         right_lines.push(Line::from(chunk.iter().collect::<String>()));
     }
     right_lines.push(Line::from(""));
@@ -1421,14 +2057,19 @@ fn render_welcome_box(frame: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(Color::DarkGray),
     )));
 
-    frame.render_widget(Paragraph::new(right_lines).wrap(Wrap { trim: false }), h_chunks[2]);
+    frame.render_widget(
+        Paragraph::new(right_lines).wrap(Wrap { trim: false }),
+        h_chunks[2],
+    );
 }
 
-// â”€â”€ Per-message rendering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ Per-message rendering Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
-/// Build a tool_use_id → tool_name lookup from all messages in the transcript.
+/// Build a tool_use_id â†’ tool_name lookup from all messages in the transcript.
 /// This allows ToolResult blocks to dispatch to tool-specific renderers.
-fn build_tool_names(messages: &[claurst_core::types::Message]) -> std::collections::HashMap<String, String> {
+fn build_tool_names(
+    messages: &[claurst_core::types::Message],
+) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     for msg in messages {
         for block in msg.content_blocks() {
@@ -1440,14 +2081,14 @@ fn build_tool_names(messages: &[claurst_core::types::Message]) -> std::collectio
     map
 }
 
-// â”€â”€ System annotation (compact boundary, info notices) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ System annotation (compact boundary, info notices) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 fn render_system_annotation_lines(
     lines: &mut Vec<Line<'static>>,
     ann: &SystemAnnotation,
     width: usize,
 ) {
-    // Compact boundary: show âœ» prefix with dimmed text
+    // Compact boundary: show Ã¢Å“Â» prefix with dimmed text
     if ann.style == SystemMessageStyle::Compact {
         lines.push(Line::from(vec![
             Span::styled(
@@ -1471,7 +2112,7 @@ fn render_system_annotation_lines(
         SystemMessageStyle::Compact => unreachable!(),
     };
 
-    // Centred, padded rule: "â”€â”€â”€ text â”€â”€â”€"
+    // Centred, padded rule: "Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ text Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬"
     let text = ann.text.as_str();
     let inner_width = width.saturating_sub(4);
     let text_len = text.len();
@@ -1488,24 +2129,28 @@ fn render_system_annotation_lines(
             format!("\u{2500} {} \u{2500}", text),
             Style::default().fg(text_color).add_modifier(Modifier::DIM),
         ),
-        Span::styled(
-            "\u{2500}".repeat(right),
-            Style::default().fg(border_color),
-        ),
+        Span::styled("\u{2500}".repeat(right), Style::default().fg(border_color)),
     ]));
     lines.push(Line::from(""));
 }
 
-// â”€â”€ Tool use block â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ Tool use block Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
-fn render_tool_block_lines(lines: &mut Vec<Line<'static>>, block: &crate::app::ToolUseBlock, frame_count: u64) {
+fn render_tool_block_lines(
+    lines: &mut Vec<Line<'static>>,
+    block: &crate::app::ToolUseBlock,
+    frame_count: u64,
+) {
     let input_val: serde_json::Value =
         serde_json::from_str(&block.input_json).unwrap_or(serde_json::Value::Null);
     let normalized = block.name.to_ascii_lowercase();
     let running = block.status == ToolStatus::Running;
     let mut summary = crate::messages::extract_tool_summary(&block.name, &input_val);
     let title = if normalized == "task" || normalized == "agent" {
-        if let Some(description) = input_val.get("description").and_then(|value| value.as_str()) {
+        if let Some(description) = input_val
+            .get("description")
+            .and_then(|value| value.as_str())
+        {
             summary = description.to_string();
         }
         crate::messages::subagent_title(&input_val)
@@ -1536,14 +2181,21 @@ fn render_tool_block_lines(lines: &mut Vec<Line<'static>>, block: &crate::app::T
     } else {
         CLAUDE_ORANGE
     };
-    let mut header_spans = vec![Span::styled("   ~ ".to_string(), Style::default().fg(accent))];
+    let mut header_spans = vec![Span::styled(
+        "   ~ ".to_string(),
+        Style::default().fg(accent),
+    )];
     if running {
         header_spans.extend(shimmer_spans(&title, frame_count));
     } else {
         header_spans.push(Span::styled(
             title,
             Style::default()
-                .fg(if block.status == ToolStatus::Error { accent } else { Color::White })
+                .fg(if block.status == ToolStatus::Error {
+                    accent
+                } else {
+                    Color::White
+                })
                 .add_modifier(Modifier::BOLD),
         ));
     }
@@ -1573,10 +2225,7 @@ fn render_tool_block_lines(lines: &mut Vec<Line<'static>>, block: &crate::app::T
             };
             lines.push(Line::from(vec![
                 Span::styled("     $ ".to_string(), Style::default().fg(Color::Green)),
-                Span::styled(
-                    display,
-                    Style::default().fg(Color::White),
-                ),
+                Span::styled(display, Style::default().fg(Color::White)),
             ]));
         }
     }
@@ -1621,7 +2270,7 @@ fn render_input(frame: &mut Frame, app: &App, area: Rect, focused: bool) {
             .split(area);
         (Some(splits[0]), splits[1])
     } else {
-        // Not enough room for the extra line — skip the status row.
+        // Not enough room for the extra line â€” skip the status row.
         (None, area)
     };
 
@@ -1637,15 +2286,19 @@ fn render_input(frame: &mut Frame, app: &App, area: Rect, focused: bool) {
         let dim = Color::Rgb(110, 110, 124);
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(1), Constraint::Length(status_area.width.min(36))])
+            .constraints([
+                Constraint::Min(1),
+                Constraint::Length(status_area.width.min(36)),
+            ])
             .split(status_area);
 
         let left_line = if app.has_credentials {
-            let (provider, model_short) = if let Some((provider, model)) = app.model_name.split_once('/') {
-                (provider.to_string(), model.to_string())
-            } else {
-                ("local".to_string(), app.model_name.clone())
-            };
+            let (provider, model_short) =
+                if let Some((provider, model)) = app.model_name.split_once('/') {
+                    (provider.to_string(), model.to_string())
+                } else {
+                    ("local".to_string(), app.model_name.clone())
+                };
             let mut spans = vec![
                 Span::styled(
                     format!(" {} ", agent_mode.to_uppercase()),
@@ -1657,16 +2310,18 @@ fn render_input(frame: &mut Frame, app: &App, area: Rect, focused: bool) {
                 Span::raw(" "),
                 Span::styled(
                     model_short,
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
                 ),
             ];
             spans.push(Span::styled(
-                format!(" · {}", provider),
+                format!(" Â· {}", provider),
                 Style::default().fg(dim),
             ));
             if let Some(ref badge) = app.agent_type_badge {
                 spans.push(Span::styled(
-                    format!(" · {}", badge),
+                    format!(" Â· {}", badge),
                     Style::default().fg(dim),
                 ));
             }
@@ -1686,15 +2341,18 @@ fn render_input(frame: &mut Frame, app: &App, area: Rect, focused: bool) {
 
         let right_hint = if app.has_credentials {
             let mut hint = vec![Span::styled("Ctrl+A model", Style::default().fg(dim))];
-            hint.push(Span::styled(" · ", Style::default().fg(dim)));
+            hint.push(Span::styled(" Â· ", Style::default().fg(dim)));
             hint.push(Span::styled("Ctrl+K commands", Style::default().fg(dim)));
             if !app.is_streaming && app.prompt_input.text.is_empty() {
-                hint.push(Span::styled(" · ", Style::default().fg(dim)));
+                hint.push(Span::styled(" Â· ", Style::default().fg(dim)));
                 hint.push(Span::styled("? shortcuts", Style::default().fg(dim)));
             }
             Line::from(hint)
         } else {
-            Line::from(vec![Span::styled("Ctrl+K commands", Style::default().fg(dim))])
+            Line::from(vec![Span::styled(
+                "Ctrl+K commands",
+                Style::default().fg(dim),
+            )])
         };
 
         frame.render_widget(Paragraph::new(vec![left_line]), chunks[0]);
@@ -1728,7 +2386,7 @@ fn should_render_status_row(app: &App) -> bool {
             let trimmed = status.trim();
             !trimmed.is_empty()
                 && !trimmed.eq_ignore_ascii_case("thinking")
-                && !trimmed.eq_ignore_ascii_case("thinking…")
+                && !trimmed.eq_ignore_ascii_case("thinkingâ€¦")
         })
         .unwrap_or(false);
 
@@ -1745,40 +2403,55 @@ fn render_status_row(frame: &mut Frame, app: &App, area: Rect) {
 
     let spans = if app.voice_recording {
         vec![Span::styled(
-            format!("{} Recording... press Alt+V to transcribe", figures::black_circle()),
+            format!(
+                "{} Recording... press Alt+V to transcribe",
+                figures::black_circle()
+            ),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )]
     } else if app.is_streaming {
         // Pick a label: use the status message if it has real content,
         // otherwise show a default "Thinking" shimmer so the user always
         // sees that the model is working.
-        let raw_label = app.status_message.as_deref()
+        let raw_label = app
+            .status_message
+            .as_deref()
             .filter(|s| {
                 let t = s.trim();
                 !t.is_empty()
                     && !t.eq_ignore_ascii_case("thinking")
-                    && !t.eq_ignore_ascii_case("thinking…")
+                    && !t.eq_ignore_ascii_case("thinkingâ€¦")
             })
             .or_else(|| app.spinner_verb.as_deref())
             .unwrap_or("Thinking");
 
         let mut s = vec![Span::styled(
             spinner_char(app.frame_count).to_string(),
-            Style::default().fg(spinner_color(app)).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(spinner_color(app))
+                .add_modifier(Modifier::BOLD),
         )];
-        let label = format!("{}…", raw_label.trim_end_matches('…'));
+        let label_base = raw_label.trim_end_matches('.').trim_end_matches('…');
+        let label = format!("{label_base}...");
 
         s.push(Span::raw(" "));
         s.extend(shimmer_spans(&label, app.frame_count));
         s
-    } else if let (Some(verb), Some(elapsed)) = (app.last_turn_verb, app.last_turn_elapsed.as_deref()) {
-        // "✽ Worked for 2m 5s" — mirrors TS TeammateSpinnerLine idle state
+    } else if let (Some(verb), Some(elapsed)) =
+        (app.last_turn_verb, app.last_turn_elapsed.as_deref())
+    {
+        // "âœ½ Worked for 2m 5s" â€” mirrors TS TeammateSpinnerLine idle state
         vec![Span::styled(
             format!("{} {} for {}", figures::TEARDROP_ASTERISK, verb, elapsed),
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::DIM),
         )]
     } else if let Some(status) = app.status_message.as_deref() {
-        vec![Span::styled(status.to_string(), Style::default().fg(Color::DarkGray))]
+        vec![Span::styled(
+            status.to_string(),
+            Style::default().fg(Color::DarkGray),
+        )]
     } else {
         Vec::new()
     };
@@ -1788,8 +2461,7 @@ fn render_status_row(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     frame.render_widget(
-        Paragraph::new(Line::from(spans))
-            .wrap(ratatui::widgets::Wrap { trim: false }),
+        Paragraph::new(Line::from(spans)).wrap(ratatui::widgets::Wrap { trim: false }),
         area,
     );
 }
@@ -1797,7 +2469,7 @@ fn render_status_row(frame: &mut Frame, app: &App, area: Rect) {
 /// Build spans for a text string with a right-to-left glimmer sweep, matching
 /// the TS `GlimmerMessage` behaviour (glimmerSpeed=200ms, 3-char shimmer window).
 ///
-/// At ~50ms per frame a 4-frame step ≈ 200ms, giving the same cadence as TS.
+/// At ~50ms per frame a 4-frame step â‰ˆ 200ms, giving the same cadence as TS.
 fn shimmer_spans(text: &str, frame_count: u64) -> Vec<Span<'static>> {
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
@@ -1809,7 +2481,7 @@ fn shimmer_spans(text: &str, frame_count: u64) -> Vec<Span<'static>> {
     let cycle_len = len + 20;
     // One step every 4 frames (~200ms at 50ms/frame)
     let cycle_pos = (frame_count as usize / 4) % cycle_len;
-    // Glimmer sweeps right→left: starts at len+10 (off right), ends at -10 (off left)
+    // Glimmer sweeps rightâ†’left: starts at len+10 (off right), ends at -10 (off left)
     let glimmer_center = (len + 10).saturating_sub(cycle_pos) as isize;
 
     let base = Style::default().fg(Color::DarkGray);
@@ -1826,7 +2498,10 @@ fn shimmer_spans(text: &str, frame_count: u64) -> Vec<Span<'static>> {
             && glimmer_center < len as isize;
 
         if is_bright != run_bright && !run.is_empty() {
-            spans.push(Span::styled(run.clone(), if run_bright { bright } else { base }));
+            spans.push(Span::styled(
+                run.clone(),
+                if run_bright { bright } else { base },
+            ));
             run.clear();
         }
         run_bright = is_bright;
@@ -1848,10 +2523,10 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    // Left side: ordered pills — voice > PR badge > background task > vim > hint
+    // Left side: ordered pills â€” voice > PR badge > background task > vim > hint
     let left_spans: Vec<Span> = if app.voice_recording {
         vec![Span::styled(
-            format!(" {} REC — speak now", figures::black_circle()),
+            format!(" {} REC â€” speak now", figures::black_circle()),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )]
     } else {
@@ -1861,11 +2536,13 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         if let Some(ref badge) = app.agent_type_badge {
             spans.push(Span::styled(
                 format!("\u{2699} {}", badge),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ));
         }
 
-        // PR badge — shows "PR #<n>" in cyan, with optional state in brackets.
+        // PR badge â€” shows "PR #<n>" in cyan, with optional state in brackets.
         // State color: approved=green, changes_requested=red,
         //              review_required=yellow, else=gray.
         if let Some(pr_num) = app.pr_number {
@@ -1877,8 +2554,8 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
                 None => format!("PR #{}", pr_num),
             };
             // Colors mirror TS PrBadge getPrStatusColor + TS ink color names:
-            //   approved → Green, changes_requested → Red (error),
-            //   pending / review_required → Yellow (warning), merged → Magenta.
+            //   approved â†’ Green, changes_requested â†’ Red (error),
+            //   pending / review_required â†’ Yellow (warning), merged â†’ Magenta.
             let pr_color = match app.pr_state.as_deref() {
                 Some("approved") => Color::Green,
                 Some("changes_requested") => Color::Red,
@@ -1893,7 +2570,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             ));
         }
 
-        // Background task status pill — shows "⟳ N tasks" when count > 0.
+        // Background task status pill â€” shows "âŸ³ N tasks" when count > 0.
         // Falls back to background_task_status pre-formatted string if set.
         if app.background_task_count > 0 {
             if !spans.is_empty() {
@@ -1904,10 +2581,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 format!("\u{27f3} {} tasks", app.background_task_count)
             };
-            spans.push(Span::styled(
-                label,
-                Style::default().fg(Color::Yellow),
-            ));
+            spans.push(Span::styled(label, Style::default().fg(Color::Yellow)));
         } else if let Some(ref task_status) = app.background_task_status {
             if !spans.is_empty() {
                 spans.push(Span::raw("  "));
@@ -1918,32 +2592,64 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             ));
         }
 
-        // Vim mode indicator — shown for all modes using neovim "-- MODE --" convention.
+        // Vim mode indicator â€” shown for all modes using neovim "-- MODE --" convention.
         // INSERT is dim (common, low-noise); other modes use bright colour.
         if app.prompt_input.vim_enabled {
             if !spans.is_empty() {
                 spans.push(Span::raw("  "));
             }
             let (label, style) = match app.prompt_input.vim_mode {
-                VimMode::Insert      => ("-- INSERT --",       Style::default().fg(Color::DarkGray)),
-                VimMode::Normal      => ("-- NORMAL --",       Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                VimMode::Visual      => ("-- VISUAL --",       Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-                VimMode::VisualLine  => ("-- VISUAL LINE --",  Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-                VimMode::VisualBlock => ("-- VISUAL BLOCK --", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-                VimMode::Command     => ("-- COMMAND --",      Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                VimMode::Search      => ("-- SEARCH --",       Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                VimMode::Insert => ("-- INSERT --", Style::default().fg(Color::DarkGray)),
+                VimMode::Normal => (
+                    "-- NORMAL --",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                VimMode::Visual => (
+                    "-- VISUAL --",
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                VimMode::VisualLine => (
+                    "-- VISUAL LINE --",
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                VimMode::VisualBlock => (
+                    "-- VISUAL BLOCK --",
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                VimMode::Command => (
+                    "-- COMMAND --",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                VimMode::Search => (
+                    "-- SEARCH --",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
             };
             spans.push(Span::styled(label, style));
         }
 
-        // Bash prefix indicator — shown when prompt starts with '!'
+        // Bash prefix indicator â€” shown when prompt starts with '!'
         if app.prompt_input.text.starts_with('!') {
             if !spans.is_empty() {
                 spans.push(Span::raw("  "));
             }
             spans.push(Span::styled(
                 "[BASH]",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ));
         }
 
@@ -1953,25 +2659,28 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             use claurst_core::config::PermissionMode;
             match &app.config.permission_mode {
                 PermissionMode::BypassPermissions => {
-                    if !spans.is_empty() { spans.push(Span::raw("  ")); }
+                    if !spans.is_empty() {
+                        spans.push(Span::raw("  "));
+                    }
                     spans.push(Span::styled(
                         "\u{23f5}\u{23f5} bypass",
                         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                     ));
                 }
                 PermissionMode::AcceptEdits => {
-                    if !spans.is_empty() { spans.push(Span::raw("  ")); }
+                    if !spans.is_empty() {
+                        spans.push(Span::raw("  "));
+                    }
                     spans.push(Span::styled(
                         "accept-edits",
                         Style::default().fg(Color::Yellow),
                     ));
                 }
                 PermissionMode::Plan => {
-                    if !spans.is_empty() { spans.push(Span::raw("  ")); }
-                    spans.push(Span::styled(
-                        "plan",
-                        Style::default().fg(Color::Blue),
-                    ));
+                    if !spans.is_empty() {
+                        spans.push(Span::raw("  "));
+                    }
+                    spans.push(Span::styled("plan", Style::default().fg(Color::Blue)));
                 }
                 PermissionMode::Default => {}
             }
@@ -1999,11 +2708,12 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     let right_spans: Vec<Span> = {
         let mut parts: Vec<Span> = Vec::new();
 
-        // 1. Context window usage — show "N% until auto-compact" mirroring TS TokenWarning.
+        // 1. Context window usage â€” show "N% until auto-compact" mirroring TS TokenWarning.
         //    When an update is available and context is below 85%, show the update notification
         //    instead to keep the status bar uncluttered.
         if app.context_window_size > 0 {
-            let used_pct = (app.context_used_tokens as f64 / app.context_window_size as f64 * 100.0) as u64;
+            let used_pct =
+                (app.context_used_tokens as f64 / app.context_window_size as f64 * 100.0) as u64;
             let left_pct = 100u64.saturating_sub(used_pct);
 
             if !parts.is_empty() {
@@ -2011,10 +2721,10 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             }
 
             if used_pct >= 85 {
-                // High usage — always show context window info regardless of update status.
+                // High usage â€” always show context window info regardless of update status.
                 if used_pct >= 95 {
                     parts.push(Span::styled(
-                        format!("{}% context used — /compact now", used_pct),
+                        format!("{}% context used â€” /compact now", used_pct),
                         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                     ));
                 } else {
@@ -2024,13 +2734,15 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
                     ));
                 }
             } else if let Some(ref version) = app.update_available {
-                // Update available and context is fine — show update nudge in bottom-right.
+                // Update available and context is fine â€” show update nudge in bottom-right.
                 parts.push(Span::styled(
-                    format!("⬆ v{} available  Run: /update", version),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    format!("â¬† v{} available  Run: /update", version),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 ));
             } else if used_pct >= 70 {
-                // 70–84%: mild warning.
+                // 70â€“84%: mild warning.
                 parts.push(Span::styled(
                     format!("{}% until auto-compact", left_pct),
                     Style::default().fg(Color::Yellow),
@@ -2046,7 +2758,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             }
         }
 
-        // 3. Cost — mirrors TS formatCost: 4 decimal places for costs < $0.50, else 2.
+        // 3. Cost â€” mirrors TS formatCost: 4 decimal places for costs < $0.50, else 2.
         if app.cost_usd > 0.0 {
             if !parts.is_empty() {
                 parts.push(Span::raw("  "));
@@ -2056,10 +2768,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 format!("${:.2}", app.cost_usd)
             };
-            parts.push(Span::styled(
-                cost_str,
-                Style::default().fg(Color::DarkGray),
-            ));
+            parts.push(Span::styled(cost_str, Style::default().fg(Color::DarkGray)));
         }
 
         // 3b. Token budget (feature-gated)
@@ -2094,7 +2803,11 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
                 if !parts.is_empty() {
                     parts.push(Span::raw("  "));
                 }
-                let color = if pct >= 90.0 { Color::Red } else { Color::Yellow };
+                let color = if pct >= 90.0 {
+                    Color::Red
+                } else {
+                    Color::Yellow
+                };
                 parts.push(Span::styled(
                     format!("5h:{:.0}%", pct),
                     Style::default().fg(color),
@@ -2106,7 +2819,11 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
                 if !parts.is_empty() {
                     parts.push(Span::raw("  "));
                 }
-                let color = if pct >= 90.0 { Color::Red } else { Color::Yellow };
+                let color = if pct >= 90.0 {
+                    Color::Red
+                } else {
+                    Color::Yellow
+                };
                 parts.push(Span::styled(
                     format!("7d:{:.0}%", pct),
                     Style::default().fg(color),
@@ -2114,7 +2831,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             }
         }
 
-        // 5. Vim mode — displayed on the left side as "-- MODE --"; nothing extra on right.
+        // 5. Vim mode â€” displayed on the left side as "-- MODE --"; nothing extra on right.
 
         // 6. Agent type badge
         if let Some(ref badge) = app.agent_type_badge {
@@ -2137,7 +2854,6 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::Green),
             ));
         }
-
 
         // Output style indicator (only when non-default)
         if app.output_style != "auto" {
@@ -2163,14 +2879,16 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             parts.push(Span::styled(clean, Style::default().fg(Color::DarkGray)));
         }
 
-        // 8b. Update available indicator — shown when a newer version was found.
+        // 8b. Update available indicator â€” shown when a newer version was found.
         if let Some(ref version) = app.update_available {
             if !parts.is_empty() {
                 parts.push(Span::raw("  "));
             }
             parts.push(Span::styled(
-                format!("⬆ v{} available — /update", version),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                format!("â¬† v{} available â€” /update", version),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ));
         }
 
@@ -2228,12 +2946,16 @@ fn render_prompt_suggestions(frame: &mut Frame, app: &App, area: Rect) {
     for (row, suggestion) in suggestions[start..end].iter().enumerate() {
         let is_selected = start + row == selected;
         let accent_style = if is_selected {
-            Style::default().fg(CLAUDE_ORANGE).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(CLAUDE_ORANGE)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::DarkGray)
         };
         let label_style = if is_selected {
-            Style::default().fg(CLAUDE_ORANGE).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(CLAUDE_ORANGE)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
         };
@@ -2242,7 +2964,10 @@ fn render_prompt_suggestions(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             Style::default().fg(Color::DarkGray)
         };
-        let mut spans = vec![Span::styled(if is_selected { "\u{203a} " } else { "  " }, accent_style)];
+        let mut spans = vec![Span::styled(
+            if is_selected { "\u{203a} " } else { "  " },
+            accent_style,
+        )];
         match suggestion.source {
             TypeaheadSource::SlashCommand => {
                 let display_name = truncate_text(&suggestion.text, label_width);
@@ -2250,7 +2975,10 @@ fn render_prompt_suggestions(frame: &mut Frame, app: &App, area: Rect) {
                     format!("{display_name:<width$}", width = label_width),
                     label_style,
                 ));
-                spans.push(Span::styled(" [cmd] ", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(
+                    " [cmd] ",
+                    Style::default().fg(Color::DarkGray),
+                ));
                 if !suggestion.description.is_empty() {
                     spans.push(Span::styled(
                         truncate_text(
@@ -2268,7 +2996,10 @@ fn render_prompt_suggestions(frame: &mut Frame, app: &App, area: Rect) {
                     label_style,
                 ));
                 if !suggestion.description.is_empty() {
-                    spans.push(Span::styled(" \u{2014} ", Style::default().fg(Color::DarkGray)));
+                    spans.push(Span::styled(
+                        " \u{2014} ",
+                        Style::default().fg(Color::DarkGray),
+                    ));
                     spans.push(Span::styled(
                         truncate_text(&suggestion.description, area.width as usize / 2),
                         detail_style,
@@ -2281,7 +3012,10 @@ fn render_prompt_suggestions(frame: &mut Frame, app: &App, area: Rect) {
                     format!("{display_name:<width$}", width = label_width),
                     label_style,
                 ));
-                spans.push(Span::styled(" [history] ", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(
+                    " [history] ",
+                    Style::default().fg(Color::DarkGray),
+                ));
                 if !suggestion.description.is_empty() {
                     spans.push(Span::styled(
                         truncate_text(&suggestion.description, area.width as usize / 2),
@@ -2386,8 +3120,8 @@ fn render_legacy_history_search(
 ) {
     let dialog_width = 60u16.min(area.width.saturating_sub(4));
     let visible_matches = 8usize;
-    let dialog_height =
-        (4 + visible_matches.min(hs.matches.len().max(1)) as u16).min(area.height.saturating_sub(4));
+    let dialog_height = (4 + visible_matches.min(hs.matches.len().max(1)) as u16)
+        .min(area.height.saturating_sub(4));
     let dialog_area = crate::overlays::centered_rect(dialog_width, dialog_height, area);
 
     frame.render_widget(Clear, dialog_area);
@@ -2397,7 +3131,9 @@ fn render_legacy_history_search(
         Span::raw("  Search: "),
         Span::styled(
             hs.query.clone(),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled("\u{2588}", Style::default().fg(Color::White)),
     ]));
@@ -2468,8 +3204,8 @@ pub struct StatusLineData {
     pub tokens_used: u64,
     pub tokens_total: u64,
     pub cost_cents: f64,
-    pub compact_warning_pct: Option<f64>,  // None = no warning; Some(pct) = show warning
-    pub vim_mode: Option<String>,           // None = no vim mode; Some("NORMAL") etc.
+    pub compact_warning_pct: Option<f64>, // None = no warning; Some(pct) = show warning
+    pub vim_mode: Option<String>,         // None = no vim mode; Some("NORMAL") etc.
     pub bridge_connected: bool,
     pub session_id: Option<String>,
     pub worktree: Option<String>,
@@ -2478,7 +3214,11 @@ pub struct StatusLineData {
     pub rate_limit_pct_7d: Option<f64>,
 }
 
-pub fn render_full_status_line(data: &StatusLineData, area: Rect, buf: &mut ratatui::buffer::Buffer) {
+pub fn render_full_status_line(
+    data: &StatusLineData,
+    area: Rect,
+    buf: &mut ratatui::buffer::Buffer,
+) {
     use ratatui::{
         style::{Color, Modifier, Style},
         text::{Line, Span},
@@ -2493,20 +3233,32 @@ pub fn render_full_status_line(data: &StatusLineData, area: Rect, buf: &mut rata
             format!(" {} ", data.model),
             Style::default().fg(Color::Cyan),
         ));
-        spans.push(Span::styled(" â”‚ ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            " Ã¢â€â€š ",
+            Style::default().fg(Color::DarkGray),
+        ));
     }
 
     // Context window
     if data.tokens_total > 0 {
         let pct = data.tokens_used as f64 / data.tokens_total as f64;
-        let ctx_color = if pct >= 0.95 { Color::Red } else if pct >= 0.80 { Color::Yellow } else { Color::Green };
+        let ctx_color = if pct >= 0.95 {
+            Color::Red
+        } else if pct >= 0.80 {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
         let used_k = data.tokens_used / 1000;
         let total_k = data.tokens_total / 1000;
         spans.push(Span::styled(
             format!("{}k/{}k ({:.0}%)", used_k, total_k, pct * 100.0),
             Style::default().fg(ctx_color),
         ));
-        spans.push(Span::styled(" â”‚ ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            " Ã¢â€â€š ",
+            Style::default().fg(Color::DarkGray),
+        ));
     }
 
     // Cost
@@ -2515,15 +3267,22 @@ pub fn render_full_status_line(data: &StatusLineData, area: Rect, buf: &mut rata
             format!("${:.2}", data.cost_cents / 100.0),
             Style::default().fg(Color::White),
         ));
-        spans.push(Span::styled(" â”‚ ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            " Ã¢â€â€š ",
+            Style::default().fg(Color::DarkGray),
+        ));
     }
 
     // Compact warning
     if let Some(pct) = data.compact_warning_pct {
         if pct >= 0.80 {
-            let color = if pct >= 0.95 { Color::Red } else { Color::Yellow };
+            let color = if pct >= 0.95 {
+                Color::Red
+            } else {
+                Color::Yellow
+            };
             spans.push(Span::styled(
-                format!("âš  ctx {:.0}% ", pct * 100.0),
+                format!("Ã¢Å¡Â  ctx {:.0}% ", pct * 100.0),
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
             ));
         }
@@ -2556,7 +3315,7 @@ pub fn render_full_status_line(data: &StatusLineData, area: Rect, buf: &mut rata
     // Bridge connected
     if data.bridge_connected {
         spans.push(Span::styled(
-            "ðŸ”— ",
+            "Ã°Å¸â€â€” ",
             Style::default().fg(Color::Green),
         ));
     }
@@ -2584,19 +3343,18 @@ pub fn render_full_status_line(data: &StatusLineData, area: Rect, buf: &mut rata
         .render(area, buf);
 }
 
-
 // ---------------------------------------------------------------------------
 // Multi-agent UI components
 // ---------------------------------------------------------------------------
 
 /// Render a single progress-indicator row for a sub-agent.
 ///
-/// Format: `[agent-<id>]` in cyan dim · space · status in colour · ` · ` · tool in dim gray
+/// Format: `[agent-<id>]` in cyan dim Â· space Â· status in colour Â· ` Â· ` Â· tool in dim gray
 ///
 /// # Arguments
-/// * `agent_id`    — short agent identifier (e.g. `"abc123"`)
-/// * `status`      — current status string: `"working"`, `"done"`, `"error"`, or other
-/// * `current_tool` — tool the agent is currently executing, if any
+/// * `agent_id`    â€” short agent identifier (e.g. `"abc123"`)
+/// * `status`      â€” current status string: `"working"`, `"done"`, `"error"`, or other
+/// * `current_tool` â€” tool the agent is currently executing, if any
 pub fn render_agent_progress_line(
     agent_id: &str,
     status: &str,
@@ -2612,20 +3370,15 @@ pub fn render_agent_progress_line(
     let mut spans = vec![
         Span::styled(
             format!("[agent-{}]", agent_id),
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::DIM),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM),
         ),
         Span::raw(" "),
-        Span::styled(
-            status.to_string(),
-            Style::default().fg(status_color),
-        ),
+        Span::styled(status.to_string(), Style::default().fg(status_color)),
     ];
 
     if let Some(tool) = current_tool {
         spans.push(Span::styled(
-            " · ".to_string(),
+            " Â· ".to_string(),
             Style::default().fg(Color::DarkGray),
         ));
         spans.push(Span::styled(
@@ -2642,13 +3395,13 @@ pub fn render_agent_progress_line(
 /// Render a multi-line coordinator status block for a multi-agent session.
 ///
 /// Returns a `Vec<Line>` containing:
-/// 1. A header: `Coordinator · N agents (M active)` in cyan bold
+/// 1. A header: `Coordinator Â· N agents (M active)` in cyan bold
 /// 2. One compact row per entry in `active_agents` using [`render_agent_progress_line`]
 ///
 /// # Arguments
-/// * `agent_count`   — total number of sub-agents spawned
-/// * `completed`     — number of agents that have finished
-/// * `active_agents` — slice of agent ID strings currently running
+/// * `agent_count`   â€” total number of sub-agents spawned
+/// * `completed`     â€” number of agents that have finished
+/// * `active_agents` â€” slice of agent ID strings currently running
 pub fn render_coordinator_status_lines(
     agent_count: usize,
     completed: usize,
@@ -2663,12 +3416,13 @@ pub fn render_coordinator_status_lines(
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
+        Span::styled(" Â· ".to_string(), Style::default().fg(Color::DarkGray)),
         Span::styled(
-            " · ".to_string(),
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::styled(
-            format!("{} agent{}", agent_count, if agent_count == 1 { "" } else { "s" }),
+            format!(
+                "{} agent{}",
+                agent_count,
+                if agent_count == 1 { "" } else { "s" }
+            ),
             Style::default().fg(Color::White),
         ),
         Span::styled(
@@ -2677,7 +3431,7 @@ pub fn render_coordinator_status_lines(
         ),
         Span::styled(
             if completed > 0 {
-                format!("  ✔ {} done", completed)
+                format!("  âœ” {} done", completed)
             } else {
                 String::new()
             },
@@ -2700,18 +3454,15 @@ pub fn render_coordinator_status_lines(
 
 /// Render a single header line for a teammate's message block.
 ///
-/// Format: `┤ teammate: <id> ├` in magenta, optional `· <session_info>` in dim
+/// Format: `â”¤ teammate: <id> â”œ` in magenta, optional `Â· <session_info>` in dim
 ///
 /// # Arguments
-/// * `teammate_id`  — teammate identifier string
-/// * `session_info` — optional session info snippet to append
-pub fn render_teammate_header(
-    teammate_id: &str,
-    session_info: Option<&str>,
-) -> Line<'static> {
+/// * `teammate_id`  â€” teammate identifier string
+/// * `session_info` â€” optional session info snippet to append
+pub fn render_teammate_header(teammate_id: &str, session_info: Option<&str>) -> Line<'static> {
     let mut spans = vec![
         Span::styled(
-            "┤ teammate: ".to_string(),
+            "â”¤ teammate: ".to_string(),
             Style::default().fg(Color::Magenta),
         ),
         Span::styled(
@@ -2720,15 +3471,12 @@ pub fn render_teammate_header(
                 .fg(Color::Magenta)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            " ├".to_string(),
-            Style::default().fg(Color::Magenta),
-        ),
+        Span::styled(" â”œ".to_string(), Style::default().fg(Color::Magenta)),
     ];
 
     if let Some(info) = session_info {
         spans.push(Span::styled(
-            "  · ".to_string(),
+            "  Â· ".to_string(),
             Style::default().fg(Color::DarkGray),
         ));
         spans.push(Span::styled(
@@ -2740,4 +3488,91 @@ pub fn render_teammate_header(
     }
 
     Line::from(spans)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_row(status: TimelineStatus) -> TimelineRow {
+        TimelineRow {
+            id: "tool-1".to_string(),
+            title: "Read README".to_string(),
+            kind: TimelineKind::ToolCall,
+            status,
+            started_at_ms: 1_000,
+            finished_at_ms: Some(2_250),
+            token_delta_input: Some(12),
+            token_delta_output: Some(8),
+            cost_delta_usd: Some(0.0123),
+            detail_preview: "Opened README.md".to_string(),
+            expandable_details: "line one\nline two".to_string(),
+        }
+    }
+
+    #[test]
+    fn timeline_layout_prefers_side_panel_on_wide_frames() {
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 140,
+            height: 40,
+        };
+
+        let layout = split_area_for_timeline(area, true);
+
+        assert!(layout.panel_area.is_some());
+        let panel = layout.panel_area.unwrap();
+        assert!(panel.width >= 34);
+        assert_eq!(panel.height, area.height);
+        assert!(layout.transcript_area.width < area.width);
+    }
+
+    #[test]
+    fn timeline_layout_falls_back_to_bottom_panel_on_medium_frames() {
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 96,
+            height: 24,
+        };
+
+        let layout = split_area_for_timeline(area, true);
+
+        assert!(layout.panel_area.is_some());
+        let panel = layout.panel_area.unwrap();
+        assert_eq!(panel.width, area.width);
+        assert!(panel.height >= 8);
+        assert!(layout.transcript_area.height < area.height);
+    }
+
+    #[test]
+    fn compact_token_and_cost_formats_shrink_on_narrow_widths() {
+        let row = sample_row(TimelineStatus::Done);
+
+        assert_eq!(format_token_delta(&row, 50), "tok +12/+8");
+        assert_eq!(format_token_delta(&row, 24), "tok +20");
+        assert_eq!(format_cost_delta(&row, 30), "$0.01");
+        assert_eq!(format_cost_delta(&row, 50), "$0.012");
+    }
+
+    #[test]
+    fn duration_format_handles_ms_seconds_and_minutes() {
+        let short = TimelineRow {
+            finished_at_ms: Some(1_450),
+            ..sample_row(TimelineStatus::Done)
+        };
+        let medium = TimelineRow {
+            finished_at_ms: Some(4_200),
+            ..sample_row(TimelineStatus::Done)
+        };
+        let long = TimelineRow {
+            finished_at_ms: Some(71_000),
+            ..sample_row(TimelineStatus::Done)
+        };
+
+        assert_eq!(format_timeline_duration(&short, 0), "450ms");
+        assert_eq!(format_timeline_duration(&medium, 0), "3.2s");
+        assert_eq!(format_timeline_duration(&long, 0), "1m 10s");
+    }
 }

@@ -2,14 +2,13 @@
 //! Renders each message type and verifies key content in returned Lines.
 
 use claurst_tui::messages::{
-    render_assistant_text, render_user_text, render_tool_use,
-    render_tool_result_success, render_tool_result_error,
-    render_compact_boundary, render_summary_message,
-    render_unseen_divider, render_system_message, render_thinking_block,
-    render_rate_limit_banner, render_hook_progress, render_code_block,
-    render_user_command, render_user_memory_input, render_user_local_command_output,
-    RenderContext,
+    render_assistant_text, render_code_block, render_compact_boundary, render_hook_progress,
+    render_rate_limit_banner, render_summary_message, render_system_message, render_thinking_block,
+    render_tool_result_error, render_tool_result_success, render_tool_use, render_unseen_divider,
+    render_user_command, render_user_local_command_output, render_user_memory_input,
+    render_user_text, RenderContext,
 };
+use claurst_tui::timeline::{Timeline, TimelineStatus};
 
 // ---------------------------------------------------------------------------
 // Helper: flatten all span content from a vec of Lines into one String.
@@ -28,7 +27,12 @@ fn flatten(lines: &[ratatui::text::Line<'_>]) -> String {
 
 #[test]
 fn assistant_text_renders_lines() {
-    let ctx = RenderContext { width: 80, highlight: true, show_thinking: false, ..Default::default() };
+    let ctx = RenderContext {
+        width: 80,
+        highlight: true,
+        show_thinking: false,
+        ..Default::default()
+    };
     let lines = render_assistant_text("Hello, world!\n\nSecond paragraph.", &ctx);
     assert!(!lines.is_empty());
     let combined = flatten(&lines);
@@ -234,7 +238,10 @@ fn user_local_command_output_shows_output_lines() {
 
 #[test]
 fn user_local_command_output_truncates_at_max_lines() {
-    let output = (0..50).map(|i| format!("line{}", i)).collect::<Vec<_>>().join("\n");
+    let output = (0..50)
+        .map(|i| format!("line{}", i))
+        .collect::<Vec<_>>()
+        .join("\n");
     let lines = render_user_local_command_output("cmd", &output, 10);
     let combined = flatten(&lines);
     assert!(combined.contains("more lines"));
@@ -286,4 +293,160 @@ fn user_memory_input_hash_prefix() {
     let lines = render_user_memory_input("key", "val");
     let first_line = flatten(&lines[..1]);
     assert!(first_line.contains('#'));
+}
+
+// ---------------------------------------------------------------------------
+// Timeline rendering contracts
+// ---------------------------------------------------------------------------
+
+fn timeline_status_label(status: TimelineStatus) -> &'static str {
+    match status {
+        TimelineStatus::Running => "running",
+        TimelineStatus::Done => "done",
+        TimelineStatus::Error => "error",
+        TimelineStatus::Cancelled => "cancelled",
+    }
+}
+
+fn timeline_metric(value: Option<u64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn timeline_cost(value: Option<f64>) -> String {
+    value
+        .map(|value| format!("{value:.4}"))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn render_timeline_contract_snapshot(timeline: &Timeline, visible: bool, expanded: bool) -> String {
+    if !visible {
+        return "timeline hidden".to_string();
+    }
+
+    let mut lines = vec!["Timeline".to_string()];
+    for (idx, row) in timeline.rows.iter().enumerate() {
+        let marker = if idx == timeline.selected_idx {
+            '>'
+        } else {
+            ' '
+        };
+        let duration = row
+            .duration_ms()
+            .map(|value| format!("{value}ms"))
+            .unwrap_or_else(|| "--".to_string());
+        lines.push(format!(
+            "{marker} {status:<9} {title:<18} {duration:<5} in:{input:<2} out:{output:<2} cost:{cost}",
+            status = timeline_status_label(row.status),
+            title = row.title,
+            input = timeline_metric(row.token_delta_input),
+            output = timeline_metric(row.token_delta_output),
+            cost = timeline_cost(row.cost_delta_usd),
+        ));
+    }
+
+    if expanded {
+        if let Some(row) = timeline.selected_row() {
+            lines.push(String::new());
+            lines.push(format!("Selected: {}", row.title));
+            lines.push(format!("Preview: {}", row.detail_preview));
+            lines.push("Details:".to_string());
+            for detail_line in row.expandable_details.lines() {
+                lines.push(format!("  {detail_line}"));
+            }
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn make_timeline_fixture() -> Timeline {
+    let mut timeline = Timeline::new(8);
+    timeline.add_turn_summary(
+        "turn-1",
+        "Bootstrap",
+        100,
+        118,
+        "config loaded",
+        "Loaded settings.json\nSelected provider: anthropic",
+        Some(24),
+        Some(9),
+        Some(0.0125),
+    );
+    timeline.add_status_note(
+        "status-1",
+        "Summarize diff",
+        140,
+        TimelineStatus::Cancelled,
+        "stopped by user",
+        "User pressed Ctrl+C before model response.",
+    );
+    timeline.add_running_tool(
+        "tool-1",
+        "Write patch",
+        170,
+        "editing render.rs",
+        "Applying patch to render.rs",
+    );
+    timeline.add_running_tool(
+        "tool-2",
+        "Run cargo test",
+        220,
+        "cargo test failed in tui crate",
+        "error[E0599]: no method named `timeline`\nhelp: add App state and renderer wiring",
+    );
+    timeline.finish_tool(
+        "tool-2",
+        350,
+        TimelineStatus::Error,
+        "cargo test failed in tui crate",
+        "error[E0599]: no method named `timeline`\nhelp: add App state and renderer wiring",
+        Some(31),
+        Some(0),
+        Some(0.0410),
+    );
+    timeline.set_selected_idx(3);
+    timeline
+}
+
+#[test]
+fn timeline_hidden_snapshot() {
+    let timeline = make_timeline_fixture();
+    let snapshot = render_timeline_contract_snapshot(&timeline, false, false);
+    assert_eq!(snapshot, "timeline hidden");
+}
+
+#[test]
+fn timeline_visible_snapshot_with_mixed_statuses_and_selected_row() {
+    let timeline = make_timeline_fixture();
+    let snapshot = render_timeline_contract_snapshot(&timeline, true, false);
+    assert_eq!(
+        snapshot,
+        "Timeline\n\
+          done      Bootstrap          18ms  in:24 out:9  cost:0.0125\n\
+          cancelled Summarize diff     0ms   in:-  out:-  cost:-\n\
+          running   Write patch        --    in:-  out:-  cost:-\n\
+        > error     Run cargo test     130ms in:31 out:0  cost:0.0410"
+    );
+}
+
+#[test]
+fn timeline_expanded_detail_snapshot() {
+    let timeline = make_timeline_fixture();
+    let snapshot = render_timeline_contract_snapshot(&timeline, true, true);
+    assert_eq!(
+        snapshot,
+        "Timeline\n\
+          done      Bootstrap          18ms  in:24 out:9  cost:0.0125\n\
+          cancelled Summarize diff     0ms   in:-  out:-  cost:-\n\
+          running   Write patch        --    in:-  out:-  cost:-\n\
+        > error     Run cargo test     130ms in:31 out:0  cost:0.0410\n\
+        \n\
+        Selected: Run cargo test\n\
+        Preview: cargo test failed in tui crate\n\
+        Details:\n\
+          error[E0599]: no method named `timeline`\n\
+          help: add App state and renderer wiring"
+    );
 }

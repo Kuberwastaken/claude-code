@@ -82,7 +82,10 @@ pub fn parse_hooks_value(value: &serde_json::Value) -> Option<PluginHooksConfig>
             .and_then(|d| d.as_str())
             .map(String::from);
         let events = parse_hooks_events_map(inner)?;
-        return Some(PluginHooksConfig { description, events });
+        return Some(PluginHooksConfig {
+            description,
+            events,
+        });
     }
 
     // Fall back: the whole value is the events map.
@@ -273,9 +276,8 @@ pub async fn dispatch_post_tool_hooks(
         let tn = tool_name.clone();
         let ti = tool_input.clone();
         let tr = tool_result.clone();
-        let task = tokio::task::spawn_blocking(move || {
-            run_post_tool_hook(&hook.command, &tn, &ti, &tr)
-        });
+        let task =
+            tokio::task::spawn_blocking(move || run_post_tool_hook(&hook.command, &tn, &ti, &tr));
         tasks.push(task);
     }
 

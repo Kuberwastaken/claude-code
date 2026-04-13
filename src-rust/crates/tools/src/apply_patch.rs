@@ -68,11 +68,11 @@ fn parse_unified_diff(patch: &str) -> Result<Vec<FilePatch>, String> {
         } else if line.starts_with("+++ ") {
             // Extract target path, stripping the "b/" prefix if present.
             let raw = &line[4..];
-            let path = raw
-                .trim_start_matches("b/")
-                .trim()
-                .to_string();
-            current_file = Some(FilePatch { path, hunks: Vec::new() });
+            let path = raw.trim_start_matches("b/").trim().to_string();
+            current_file = Some(FilePatch {
+                path,
+                hunks: Vec::new(),
+            });
         } else if line.starts_with("@@ ") {
             // Finalise the previous hunk.
             if let Some(h) = current_hunk.take() {
@@ -166,14 +166,13 @@ fn apply_hunk(lines: Vec<String>, hunk: &Hunk) -> Result<Vec<String>, String> {
     // We start searching from `orig_start` (the hint) but fall back to a
     // full scan if the hint is off (e.g. after earlier hunks shifted lines).
     let search_start = hunk.orig_start.min(lines.len());
-    let pos = find_context_position(&lines, &expected, search_start)
-        .ok_or_else(|| {
-            format!(
-                "Context not found near line {} (looking for {} lines of context/removes)",
-                hunk.orig_start + 1,
-                expected.len()
-            )
-        })?;
+    let pos = find_context_position(&lines, &expected, search_start).ok_or_else(|| {
+        format!(
+            "Context not found near line {} (looking for {} lines of context/removes)",
+            hunk.orig_start + 1,
+            expected.len()
+        )
+    })?;
 
     // Build the replacement: remove '-' and ' ' lines at `pos`, insert '+' and ' '.
     let mut output_prefix = lines[..pos].to_vec();
@@ -205,11 +204,7 @@ fn apply_hunk(lines: Vec<String>, hunk: &Hunk) -> Result<Vec<String>, String> {
 }
 
 /// Search for `expected` lines starting at `hint` and falling back to a full scan.
-fn find_context_position(
-    lines: &[String],
-    expected: &[&str],
-    hint: usize,
-) -> Option<usize> {
+fn find_context_position(lines: &[String], expected: &[&str], hint: usize) -> Option<usize> {
     if expected.is_empty() {
         // A pure-insertion hunk always applies at the hint position.
         return Some(hint.min(lines.len()));
@@ -223,9 +218,7 @@ fn find_context_position(
     };
 
     // Try hint first, then scan forward and backward.
-    let candidates: Vec<usize> = std::iter::once(hint)
-        .chain(0..=max_start)
-        .collect();
+    let candidates: Vec<usize> = std::iter::once(hint).chain(0..=max_start).collect();
 
     for &start in &candidates {
         if start > max_start {
@@ -331,11 +324,7 @@ impl Tool for ApplyPatchTool {
                 match tokio::fs::read_to_string(&path).await {
                     Ok(c) => c,
                     Err(e) => {
-                        return ToolResult::error(format!(
-                            "Cannot read {}: {}",
-                            path.display(),
-                            e
-                        ))
+                        return ToolResult::error(format!("Cannot read {}: {}", path.display(), e))
                     }
                 }
             } else {
@@ -343,10 +332,7 @@ impl Tool for ApplyPatchTool {
             };
 
             // Split into lines (keep newlines for join later).
-            let mut lines: Vec<String> = original_content
-                .lines()
-                .map(|l| l.to_string())
-                .collect();
+            let mut lines: Vec<String> = original_content.lines().map(|l| l.to_string()).collect();
 
             let mut file_added: i64 = 0;
             let mut file_removed: i64 = 0;
@@ -421,11 +407,7 @@ impl Tool for ApplyPatchTool {
 
         for (path, original_bytes, new_content) in &to_write {
             if let Err(e) = tokio::fs::write(path, new_content).await {
-                return ToolResult::error(format!(
-                    "Failed to write {}: {}",
-                    path.display(),
-                    e
-                ));
+                return ToolResult::error(format!("Failed to write {}: {}", path.display(), e));
             }
             ctx.record_file_change(
                 path.clone(),

@@ -40,7 +40,9 @@ pub enum VoiceAvailability {
     /// Feature flag not enabled in this build
     NotEnabled,
     /// No microphone / audio device available on this system
-    NoMicrophone { reason: String },
+    NoMicrophone {
+        reason: String,
+    },
     /// Voice input is enabled but the user has toggled it off
     ToggledOff,
 }
@@ -57,8 +59,7 @@ impl VoiceAvailability {
         match self {
             VoiceAvailability::Available => None,
             VoiceAvailability::RequiresOAuth => Some(
-                "Voice mode requires OAuth authentication. Run /login to authenticate."
-                    .to_string(),
+                "Voice mode requires OAuth authentication. Run /login to authenticate.".to_string(),
             ),
             VoiceAvailability::MissingScopes { required, have } => Some(format!(
                 "Voice mode requires scopes: {}. Your token has: {}",
@@ -69,16 +70,14 @@ impl VoiceAvailability {
                     have.join(", ")
                 }
             )),
-            VoiceAvailability::Disabled => {
-                Some("Voice mode is currently disabled.".to_string())
-            }
+            VoiceAvailability::Disabled => Some("Voice mode is currently disabled.".to_string()),
             VoiceAvailability::NotEnabled => {
                 Some("Voice mode is not enabled in this build.".to_string())
             }
             VoiceAvailability::NoMicrophone { reason } => Some(reason.clone()),
-            VoiceAvailability::ToggledOff => Some(
-                "Voice input is disabled. Run /voice to enable.".to_string(),
-            ),
+            VoiceAvailability::ToggledOff => {
+                Some("Voice input is disabled. Run /voice to enable.".to_string())
+            }
         }
     }
 }
@@ -316,8 +315,7 @@ async fn record_and_transcribe(
 ) -> anyhow::Result<()> {
     #[cfg(feature = "voice")]
     {
-        let (samples, sample_rate) =
-            record_audio(is_recording, event_tx.clone()).await?;
+        let (samples, sample_rate) = record_audio(is_recording, event_tx.clone()).await?;
 
         let _ = event_tx.send(VoiceEvent::RecordingStopped).await;
 
@@ -361,7 +359,8 @@ async fn record_and_transcribe(
     {
         let _ = is_recording;
         let _ = config;
-        let msg = "Voice recording is not available in this build (compile with --features voice).".to_string();
+        let msg = "Voice recording is not available in this build (compile with --features voice)."
+            .to_string();
         let _ = event_tx.send(VoiceEvent::Error(msg.clone())).await;
         Err(anyhow::anyhow!(msg))
     }
@@ -402,8 +401,7 @@ async fn record_audio(
                     s.extend_from_slice(data);
                 } else {
                     for chunk in data.chunks(channels) {
-                        let mono =
-                            chunk.iter().copied().sum::<f32>() / channels as f32;
+                        let mono = chunk.iter().copied().sum::<f32>() / channels as f32;
                         s.push(mono);
                     }
                 }
@@ -485,8 +483,7 @@ async fn transcribe_audio(
 ) -> anyhow::Result<String> {
     let wav_data = encode_wav(audio_samples, sample_rate)?;
 
-    let url = endpoint_url
-        .unwrap_or("https://api.openai.com/v1/audio/transcriptions");
+    let url = endpoint_url.unwrap_or("https://api.openai.com/v1/audio/transcriptions");
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
@@ -522,11 +519,7 @@ async fn transcribe_audio(
     }
 
     let json: serde_json::Value = response.json().await?;
-    let text = json["text"]
-        .as_str()
-        .unwrap_or("")
-        .trim()
-        .to_string();
+    let text = json["text"].as_str().unwrap_or("").trim().to_string();
     Ok(text)
 }
 

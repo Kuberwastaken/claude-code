@@ -870,7 +870,6 @@ dependencies = [
  "enigo",
  "futures",
  "glob",
- "image",
  "nix 0.29.0",
  "once_cell",
  "open",

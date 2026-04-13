@@ -87,7 +87,8 @@ pub async fn run_oauth_login_flow(login_with_claude_ai: bool) -> anyhow::Result<
         oauth::CONSOLE_AUTHORIZE_URL
     };
     let manual_url = oauth::build_auth_url(&authorize_base, &code_challenge, &state, port, true);
-    let automatic_url = oauth::build_auth_url(&authorize_base, &code_challenge, &state, port, false);
+    let automatic_url =
+        oauth::build_auth_url(&authorize_base, &code_challenge, &state, port, false);
 
     // 4. Print URL and try to open browser
     println!("\nOpening browser for authentication...");
@@ -95,8 +96,9 @@ pub async fn run_oauth_login_flow(login_with_claude_ai: bool) -> anyhow::Result<
     try_open_browser(&automatic_url);
 
     // 5. Wait for auth code (automatic callback OR manual paste)
-    let auth_code =
-        wait_for_auth_code_impl(listener, &state).await.context("OAuth callback failed")?;
+    let auth_code = wait_for_auth_code_impl(listener, &state)
+        .await
+        .context("OAuth callback failed")?;
     debug!("OAuth auth code received");
 
     // 6. Exchange code for tokens
@@ -104,8 +106,8 @@ pub async fn run_oauth_login_flow(login_with_claude_ai: bool) -> anyhow::Result<
         .await
         .context("Token exchange failed")?;
 
-    let expires_at_ms = chrono::Utc::now().timestamp_millis()
-        + (token_resp.expires_in as i64 * 1000);
+    let expires_at_ms =
+        chrono::Utc::now().timestamp_millis() + (token_resp.expires_in as i64 * 1000);
 
     let scopes: Vec<String> = token_resp
         .scope
@@ -116,13 +118,17 @@ pub async fn run_oauth_login_flow(login_with_claude_ai: bool) -> anyhow::Result<
         .collect();
 
     let account_uuid = token_resp
-        .account.as_ref()
+        .account
+        .as_ref()
         .and_then(|a| a.get("uuid").and_then(|v| v.as_str()).map(String::from));
-    let email = token_resp
-        .account.as_ref()
-        .and_then(|a| a.get("email_address").and_then(|v| v.as_str()).map(String::from));
+    let email = token_resp.account.as_ref().and_then(|a| {
+        a.get("email_address")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+    });
     let organization_uuid = token_resp
-        .organization.as_ref()
+        .organization
+        .as_ref()
         .and_then(|o| o.get("uuid").and_then(|v| v.as_str()).map(String::from));
 
     let uses_bearer = scopes.iter().any(|s| s == oauth::CLAUDE_AI_INFERENCE_SCOPE);
@@ -165,7 +171,11 @@ pub async fn run_oauth_login_flow(login_with_claude_ai: bool) -> anyhow::Result<
         bail!("Login succeeded but could not obtain a usable credential")
     };
 
-    Ok(LoginResult { credential, use_bearer_auth, tokens })
+    Ok(LoginResult {
+        credential,
+        use_bearer_auth,
+        tokens,
+    })
 }
 
 // ---- Helpers ----------------------------------------------------------------
@@ -204,17 +214,20 @@ fn try_open_browser(url: &str) {
 }
 
 /// Tiny async HTTP server that captures /callback?code=AUTH_CODE&state=STATE.
-async fn run_callback_server(listener: TcpListener, expected_state: &str) -> anyhow::Result<String> {
-    debug!("OAuth callback server listening on port {}", listener.local_addr()?.port());
+async fn run_callback_server(
+    listener: TcpListener,
+    expected_state: &str,
+) -> anyhow::Result<String> {
+    debug!(
+        "OAuth callback server listening on port {}",
+        listener.local_addr()?.port()
+    );
 
     // Accept exactly one connection (the browser redirect)
-    let (mut socket, _) = tokio::time::timeout(
-        Duration::from_secs(120),
-        listener.accept(),
-    )
-    .await
-    .context("Timeout waiting for browser redirect")?
-    .context("Accept failed")?;
+    let (mut socket, _) = tokio::time::timeout(Duration::from_secs(120), listener.accept())
+        .await
+        .context("Timeout waiting for browser redirect")?
+        .context("Accept failed")?;
 
     // Read the HTTP request line-by-line until the blank line
     let (reader, mut writer) = socket.split();
@@ -351,7 +364,10 @@ async fn create_api_key(access_token: &str) -> anyhow::Result<String> {
         bail!("API key creation failed ({}): {}", status, text);
     }
 
-    let data: CreateApiKeyResponse = resp.json().await.context("Failed to parse API key response")?;
+    let data: CreateApiKeyResponse = resp
+        .json()
+        .await
+        .context("Failed to parse API key response")?;
     data.raw_key.context("Server returned no API key")
 }
 
@@ -392,8 +408,8 @@ pub async fn refresh_oauth_token(tokens: &OAuthTokens) -> anyhow::Result<OAuthTo
     }
 
     let token_resp: TokenExchangeResponse = resp.json().await?;
-    let expires_at_ms = chrono::Utc::now().timestamp_millis()
-        + (token_resp.expires_in as i64 * 1000);
+    let expires_at_ms =
+        chrono::Utc::now().timestamp_millis() + (token_resp.expires_in as i64 * 1000);
 
     let scopes: Vec<String> = token_resp
         .scope

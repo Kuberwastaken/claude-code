@@ -13,13 +13,15 @@
 //   - `isolation: "worktree"` — run the agent in a dedicated git worktree so
 //     file edits don't conflict with the parent checkout or sibling agents.
 //   - `run_in_background: true` — fire-and-forget; returns agent_id immediately.
-//     Use the `monitor` tool to check completion status/output.
+//     Use poll_background_agent() to check completion status.
 
 use async_trait::async_trait;
 use claurst_api::client::ClientConfig;
-use claurst_api::{AnthropicClient, ModelRegistry, ProviderRegistry};
+use claurst_api::AnthropicClient;
 use claurst_core::types::Message;
 use claurst_tools::{PermissionLevel, Tool, ToolContext, ToolResult};
+use dashmap::DashMap;
+use once_cell::sync::Lazy;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -29,6 +31,40 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::{run_query_loop, QueryConfig, QueryOutcome};
+
+// ---------------------------------------------------------------------------
+// Background agent registry
+// ---------------------------------------------------------------------------
+
+/// Registry of in-flight background agents.
+/// Maps agent_id -> oneshot receiver that resolves to the agent's final output.
+static BACKGROUND_AGENTS: Lazy<DashMap<String, tokio::sync::oneshot::Receiver<String>>> =
+    Lazy::new(DashMap::new);
+
+/// Poll a background agent's result.
+///
+/// Returns `None` if still running, `Some(result_text)` when done (or errored).
+/// After returning `Some`, the entry is removed from the registry.
+pub fn poll_background_agent(agent_id: &str) -> Option<String> {
+    if let Some(mut entry) = BACKGROUND_AGENTS.get_mut(agent_id) {
+        match entry.try_recv() {
+            Ok(result) => {
+                drop(entry);
+                BACKGROUND_AGENTS.remove(agent_id);
+                Some(result)
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => None,
+            Err(_) => {
+                // Sender dropped - treat as agent error/cancellation.
+                drop(entry);
+                BACKGROUND_AGENTS.remove(agent_id);
+                Some("[Agent error or cancelled]".to_string())
+            }
+        }
+    } else {
+        None
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Worktree isolation helpers
@@ -89,39 +125,6 @@ async fn remove_worktree(git_root: &Path, worktree_dir: &Path) {
 // ---------------------------------------------------------------------------
 
 pub struct AgentTool;
-
-fn build_model_registry() -> ModelRegistry {
-    let mut registry = ModelRegistry::new();
-    if let Some(cache_dir) = dirs::cache_dir() {
-        let cache_path = cache_dir.join("claurst").join("models_dev.json");
-        registry.load_cache(&cache_path);
-    }
-    registry
-}
-
-fn resolve_subagent_model(params: &AgentInput, ctx: &ToolContext) -> String {
-    let base_model = params
-        .model
-        .clone()
-        .filter(|m| !m.is_empty())
-        .or_else(|| {
-            ctx.managed_agent_config.as_ref()
-                .map(|c| c.executor_model.clone())
-                .filter(|m| !m.is_empty())
-        })
-        .unwrap_or_else(|| ctx.config.effective_model().to_string());
-
-    if base_model.contains('/') {
-        base_model
-    } else {
-        let provider_id = ctx.config.selected_provider_id();
-        if provider_id != "anthropic" {
-            format!("{}/{}", provider_id, base_model)
-        } else {
-            base_model
-        }
-    }
-}
 
 #[derive(Debug, Deserialize)]
 struct AgentInput {
@@ -207,8 +210,8 @@ impl Tool for AgentTool {
                 "run_in_background": {
                     "type": "boolean",
                     "description": "If true, the agent starts immediately and this call returns an \
-                                    agent_id without waiting for completion. Use the monitor tool \
-                                    with action=status/output and task_id=agent_id. Default: false."
+                                    agent_id without waiting for completion. Poll with poll_background_agent \
+                                    to retrieve the result. Default: false."
                 }
             },
             "required": ["description", "prompt"]
@@ -223,26 +226,27 @@ impl Tool for AgentTool {
 
         info!(description = %params.description, "Spawning sub-agent");
 
-        let anthropic_key = ctx.config.resolve_anthropic_api_key().unwrap_or_default();
-        let anthropic_base = ctx.config.resolve_anthropic_api_base();
+        // Resolve API key from environment.
+        let api_key = match std::env::var("ANTHROPIC_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty())
+        {
+            Some(k) => k,
+            None => {
+                return ToolResult::error(
+                    "ANTHROPIC_API_KEY not set - cannot spawn sub-agent".to_string(),
+                )
+            }
+        };
+
+        // Dedicated Anthropic client for the sub-agent.
         let client = match AnthropicClient::new(ClientConfig {
-            api_key: anthropic_key.clone(),
-            api_base: anthropic_base,
+            api_key,
             ..Default::default()
         }) {
             Ok(c) => Arc::new(c),
             Err(e) => return ToolResult::error(format!("Failed to create client: {}", e)),
         };
-
-        let provider_registry = ProviderRegistry::from_config(
-            &ctx.config,
-            ClientConfig {
-                api_key: anthropic_key,
-                api_base: ctx.config.resolve_anthropic_api_base(),
-                ..Default::default()
-            },
-        );
-        let model_registry = Arc::new(build_model_registry());
 
         // Build the tool list for the sub-agent.
         // Always exclude AgentTool itself to prevent unbounded recursion.
@@ -257,8 +261,17 @@ impl Tool for AgentTool {
                 .collect()
         };
 
-        // Resolve model: explicit override > managed config executor model > provider default.
-        let model = resolve_subagent_model(&params, ctx);
+        // Resolve model: explicit override > managed config executor model > default.
+        let model = params
+            .model
+            .filter(|m| !m.is_empty())
+            .or_else(|| {
+                ctx.managed_agent_config
+                    .as_ref()
+                    .map(|c| c.executor_model.clone())
+                    .filter(|m| !m.is_empty())
+            })
+            .unwrap_or_else(|| claurst_core::constants::DEFAULT_MODEL.to_string());
 
         let system_prompt = params.system_prompt.unwrap_or_else(|| {
             let mut prompt = "You are a specialized AI agent helping with a specific sub-task. \
@@ -275,10 +288,8 @@ impl Tool for AgentTool {
                             let p = entry.path();
                             if p.extension().map_or(false, |e| e == "md") {
                                 if let Ok(content) = std::fs::read_to_string(&p) {
-                                    let name = p
-                                        .file_stem()
-                                        .and_then(|s| s.to_str())
-                                        .unwrap_or("agent");
+                                    let name =
+                                        p.file_stem().and_then(|s| s.to_str()).unwrap_or("agent");
                                     agent_defs.push_str(&format!(
                                         "\n\n## Agent: {}\n{}",
                                         name,
@@ -300,14 +311,20 @@ impl Tool for AgentTool {
 
         // Resolve max_turns: explicit > managed config executor_max_turns > default.
         let resolved_max_turns = params.max_turns.unwrap_or_else(|| {
-            ctx.managed_agent_config.as_ref()
+            ctx.managed_agent_config
+                .as_ref()
                 .map(|c| c.executor_max_turns)
                 .unwrap_or(10)
         });
 
         // Resolve isolation: explicit param > managed config executor_isolation.
         let resolved_isolation = params.isolation.clone().or_else(|| {
-            if ctx.managed_agent_config.as_ref().map(|c| c.executor_isolation).unwrap_or(false) {
+            if ctx
+                .managed_agent_config
+                .as_ref()
+                .map(|c| c.executor_isolation)
+                .unwrap_or(false)
+            {
                 Some("worktree".to_string())
             } else {
                 None
@@ -362,22 +379,18 @@ impl Tool for AgentTool {
             skill_index: None,
             max_budget_usd: None,
             fallback_model: None,
-            provider_registry: Some(Arc::new(provider_registry)),
+            provider_registry: None,
             agent_name: None,
             agent_definition: None,
-            model_registry: Some(model_registry),
+            model_registry: None,
             managed_agents: None,
         };
         // -----------------------------------------------------------------------
         // Background mode: spawn and return agent_id immediately.
         // -----------------------------------------------------------------------
         if params.run_in_background {
-            let mut task = claurst_core::tasks::BackgroundTask::new(format!(
-                "subagent: {}",
-                params.description
-            ));
-            task.id = agent_id.clone();
-            let _ = claurst_core::tasks::global_registry().register(task);
+            let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+            BACKGROUND_AGENTS.insert(agent_id.clone(), rx);
 
             // Re-create the tool list inside the closure so it is owned and Send.
             let agent_tools_bg: Vec<Box<dyn Tool>> = claurst_tools::all_tools()
@@ -414,33 +427,13 @@ impl Tool for AgentTool {
                     remove_worktree(&root, &wt).await;
                 }
 
-                // Respect a prior external cancellation mark from monitor cancel.
-                let cancelled = matches!(
-                    claurst_core::tasks::global_registry()
-                        .get(&agent_id_bg)
-                        .map(|t| t.status),
-                    Some(claurst_core::tasks::TaskStatus::Cancelled)
-                );
-
                 let result_text = format_outcome(outcome);
-                claurst_core::tasks::global_registry().append_output(&agent_id_bg, &result_text);
-
-                if !cancelled {
-                    let status = if result_text.starts_with("[Agent error:")
-                        || result_text.starts_with("[Agent stopped:")
-                    {
-                        claurst_core::tasks::TaskStatus::Failed(result_text.clone())
-                    } else {
-                        claurst_core::tasks::TaskStatus::Completed
-                    };
-                    claurst_core::tasks::global_registry().update_status(&agent_id_bg, status);
-                }
-
                 debug!(
                     agent_id = %agent_id_bg,
                     description = %description_bg,
                     "Background agent completed"
                 );
+                let _ = tx.send(result_text);
             });
 
             return ToolResult::success(
@@ -448,7 +441,7 @@ impl Tool for AgentTool {
                     "agent_id": agent_id,
                     "status": "running",
                     "message": format!(
-                        "Agent '{}' started in background. Use monitor with action=status/output and task_id='{}'.",
+                        "Agent '{}' started in background. Use poll_background_agent with agent_id '{}' to check status.",
                         params.description, agent_id
                     )
                 })
@@ -490,25 +483,21 @@ impl Tool for AgentTool {
                 );
                 ToolResult::success(text)
             }
-            QueryOutcome::MaxTokens { partial_message, .. } => {
+            QueryOutcome::MaxTokens {
+                partial_message, ..
+            } => {
                 let text = partial_message.get_all_text();
-                ToolResult::success(format!(
-                    "{}\n\n[Note: Agent hit max_tokens limit]",
-                    text
-                ))
+                ToolResult::success(format!("{}\n\n[Note: Agent hit max_tokens limit]", text))
             }
-            QueryOutcome::Cancelled => {
-                ToolResult::error("Sub-agent was cancelled".to_string())
-            }
-            QueryOutcome::Error(e) => {
-                ToolResult::error(format!("Sub-agent error: {}", e))
-            }
-            QueryOutcome::BudgetExceeded { cost_usd, limit_usd } => {
-                ToolResult::error(format!(
-                    "Sub-agent stopped: budget ${:.4} exceeded (limit ${:.4})",
-                    cost_usd, limit_usd
-                ))
-            }
+            QueryOutcome::Cancelled => ToolResult::error("Sub-agent was cancelled".to_string()),
+            QueryOutcome::Error(e) => ToolResult::error(format!("Sub-agent error: {}", e)),
+            QueryOutcome::BudgetExceeded {
+                cost_usd,
+                limit_usd,
+            } => ToolResult::error(format!(
+                "Sub-agent stopped: budget ${:.4} exceeded (limit ${:.4})",
+                cost_usd, limit_usd
+            )),
         }
     }
 }
@@ -520,13 +509,18 @@ impl Tool for AgentTool {
 fn format_outcome(outcome: QueryOutcome) -> String {
     match outcome {
         QueryOutcome::EndTurn { message, .. } => message.get_all_text(),
-        QueryOutcome::MaxTokens { partial_message, .. } => format!(
+        QueryOutcome::MaxTokens {
+            partial_message, ..
+        } => format!(
             "{}\n\n[Note: Agent hit max_tokens limit]",
             partial_message.get_all_text()
         ),
         QueryOutcome::Cancelled => "[Agent was cancelled]".to_string(),
         QueryOutcome::Error(e) => format!("[Agent error: {}]", e),
-        QueryOutcome::BudgetExceeded { cost_usd, limit_usd } => format!(
+        QueryOutcome::BudgetExceeded {
+            cost_usd,
+            limit_usd,
+        } => format!(
             "[Agent stopped: budget ${:.4} exceeded (limit ${:.4})]",
             cost_usd, limit_usd
         ),
@@ -558,31 +552,33 @@ pub fn init_team_swarm_runner() {
          ctx: Arc<claurst_tools::ToolContext>| {
             // We must return a Pin<Box<dyn Future<...> + Send>>.
             Box::pin(async move {
-                let anthropic_key = ctx.config.resolve_anthropic_api_key().unwrap_or_default();
-                let anthropic_base = ctx.config.resolve_anthropic_api_base();
-                let client = match claurst_api::AnthropicClient::new(claurst_api::client::ClientConfig {
-                    api_key: anthropic_key.clone(),
-                    api_base: anthropic_base,
-                    ..Default::default()
-                }) {
-                    Ok(c) => Arc::new(c),
-                    Err(e) => {
+                // Resolve API key.
+                let api_key = match std::env::var("ANTHROPIC_API_KEY")
+                    .ok()
+                    .filter(|k| !k.is_empty())
+                {
+                    Some(k) => k,
+                    None => {
                         return format!(
-                            "[Agent '{}' failed to create client: {}]",
-                            description, e
+                            "[Agent '{}' failed: ANTHROPIC_API_KEY not set]",
+                            description
                         )
                     }
                 };
 
-                let provider_registry = ProviderRegistry::from_config(
-                    &ctx.config,
-                    claurst_api::client::ClientConfig {
-                        api_key: anthropic_key,
-                        api_base: ctx.config.resolve_anthropic_api_base(),
+                let client =
+                    match claurst_api::AnthropicClient::new(claurst_api::client::ClientConfig {
+                        api_key,
                         ..Default::default()
-                    },
-                );
-                let model_registry = Arc::new(build_model_registry());
+                    }) {
+                        Ok(c) => Arc::new(c),
+                        Err(e) => {
+                            return format!(
+                                "[Agent '{}' failed to create client: {}]",
+                                description, e
+                            )
+                        }
+                    };
 
                 // Build the tool list, filtering to the allowlist if provided.
                 let all = claurst_tools::all_tools();
@@ -597,19 +593,7 @@ pub fn init_team_swarm_runner() {
                             .collect()
                     };
 
-                let model = resolve_subagent_model(
-                    &AgentInput {
-                        description: description.clone(),
-                        prompt: prompt.clone(),
-                        tools: tools.clone(),
-                        system_prompt: system.clone(),
-                        max_turns,
-                        model: None,
-                        isolation: None,
-                        run_in_background: false,
-                    },
-                    &ctx,
-                );
+                let model = claurst_core::constants::DEFAULT_MODEL.to_string();
 
                 let system_prompt = system.unwrap_or_else(|| {
                     "You are a specialized AI agent helping with a specific sub-task. \
@@ -625,8 +609,6 @@ pub fn init_team_swarm_runner() {
                     working_directory: Some(ctx.working_dir.display().to_string()),
                     output_style: ctx.config.effective_output_style(),
                     output_style_prompt: ctx.config.resolve_output_style_prompt(),
-                    provider_registry: Some(Arc::new(provider_registry)),
-                    model_registry: Some(model_registry),
                     ..Default::default()
                 };
 

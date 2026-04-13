@@ -20,8 +20,8 @@ use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 
 use crate::overlays::{
-    begin_modal_buf, modal_header_line_area, render_modal_title_buf, CLAURST_ACCENT,
-    CLAURST_MUTED, CLAURST_PANEL_BG, CLAURST_TEXT,
+    begin_modal_buf, modal_header_line_area, render_modal_title_buf, CLAURST_ACCENT, CLAURST_MUTED,
+    CLAURST_PANEL_BG, CLAURST_TEXT,
 };
 
 static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
@@ -237,7 +237,9 @@ impl DiffViewerState {
 }
 
 impl Default for DiffViewerState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -522,7 +524,7 @@ fn parse_hunk_header(line: &str) -> (u32, u32, u32, u32) {
         let s = s.trim_start_matches(['-', '+']);
         if let Some(comma) = s.find(',') {
             let start = s[..comma].parse().unwrap_or(1);
-            let count = s[comma+1..].parse().unwrap_or(0);
+            let count = s[comma + 1..].parse().unwrap_or(0);
             (start, count)
         } else {
             (s.parse().unwrap_or(1), 1)
@@ -577,7 +579,9 @@ pub fn render_diff_dialog(state: &mut DiffViewerState, area: Rect, buf: &mut Buf
             Line::from(""),
             Line::from(vec![Span::styled(
                 empty,
-                Style::default().fg(CLAURST_TEXT).add_modifier(Modifier::ITALIC),
+                Style::default()
+                    .fg(CLAURST_TEXT)
+                    .add_modifier(Modifier::ITALIC),
             )]),
             Line::from(""),
             Line::from(vec![Span::styled(
@@ -591,7 +595,11 @@ pub fn render_diff_dialog(state: &mut DiffViewerState, area: Rect, buf: &mut Buf
 
     let panes = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(31), Constraint::Length(1), Constraint::Min(1)])
+        .constraints([
+            Constraint::Percentage(31),
+            Constraint::Length(1),
+            Constraint::Min(1),
+        ])
         .split(layout.body_area);
 
     let divider: Vec<Line<'static>> = (0..layout.body_area.height)
@@ -603,7 +611,9 @@ pub fn render_diff_dialog(state: &mut DiffViewerState, area: Rect, buf: &mut Buf
     render_diff_detail(state, panes[2], buf);
     Paragraph::new(Line::from(vec![Span::styled(
         " tab switch pane  ·  ↑↓ navigate  ·  space collapse  ·  d toggle scope",
-        Style::default().fg(CLAURST_MUTED).add_modifier(Modifier::ITALIC),
+        Style::default()
+            .fg(CLAURST_MUTED)
+            .add_modifier(Modifier::ITALIC),
     )]))
     .render(layout.footer_area, buf);
 }
@@ -617,7 +627,11 @@ fn render_file_list(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
         Span::styled(
             " Files",
             Style::default()
-                .fg(if focused { CLAURST_ACCENT } else { CLAURST_TEXT })
+                .fg(if focused {
+                    CLAURST_ACCENT
+                } else {
+                    CLAURST_TEXT
+                })
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
@@ -627,7 +641,15 @@ fn render_file_list(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
     ]);
     Paragraph::new(header)
         .style(Style::default().bg(CLAURST_PANEL_BG))
-        .render(Rect { x: area.x, y: area.y, width: area.width, height: 1 }, buf);
+        .render(
+            Rect {
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: 1,
+            },
+            buf,
+        );
 
     let inner = Rect {
         x: area.x,
@@ -662,7 +684,11 @@ fn render_file_list(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
             (format!("+{} -{}", file.added, file.removed), CLAURST_MUTED)
         };
 
-        let bg = if selected { CLAURST_ACCENT } else { CLAURST_PANEL_BG };
+        let bg = if selected {
+            CLAURST_ACCENT
+        } else {
+            CLAURST_PANEL_BG
+        };
         let base_style = if selected {
             Style::default()
                 .add_modifier(Modifier::BOLD)
@@ -673,7 +699,9 @@ fn render_file_list(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
         };
 
         let y = inner.y + i as u16;
-        if y >= area.y + area.height { break; }
+        if y >= area.y + area.height {
+            break;
+        }
 
         let stats_text = format!(" {}", stats);
         let prefix = format!(" {} {}", collapse_char, path);
@@ -685,11 +713,20 @@ fn render_file_list(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
             Span::styled(
                 stats_text,
                 Style::default()
-                    .fg(if selected { Color::Rgb(248, 220, 236) } else { stats_color })
+                    .fg(if selected {
+                        Color::Rgb(248, 220, 236)
+                    } else {
+                        stats_color
+                    })
                     .bg(bg),
             ),
         ]);
-        let row_area = Rect { x: inner.x, y, width: inner.width, height: 1 };
+        let row_area = Rect {
+            x: inner.x,
+            y,
+            width: inner.width,
+            height: 1,
+        };
         Paragraph::new(line).render(row_area, buf);
     }
 }
@@ -706,7 +743,11 @@ fn render_diff_detail(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
         Span::styled(
             format!(" {}", file.path),
             Style::default()
-                .fg(if focused { CLAURST_ACCENT } else { CLAURST_TEXT })
+                .fg(if focused {
+                    CLAURST_ACCENT
+                } else {
+                    CLAURST_TEXT
+                })
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
@@ -716,7 +757,15 @@ fn render_diff_detail(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
     ]);
     Paragraph::new(header)
         .style(Style::default().bg(CLAURST_PANEL_BG))
-        .render(Rect { x: area.x, y: area.y, width: area.width, height: 1 }, buf);
+        .render(
+            Rect {
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: 1,
+            },
+            buf,
+        );
 
     let inner = Rect {
         x: area.x,
@@ -730,7 +779,9 @@ fn render_diff_detail(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
             Line::from(""),
             Line::from(vec![Span::styled(
                 " [collapsed]  press Space to expand",
-                Style::default().fg(CLAURST_MUTED).add_modifier(Modifier::ITALIC),
+                Style::default()
+                    .fg(CLAURST_MUTED)
+                    .add_modifier(Modifier::ITALIC),
             )]),
         ])
         .render(inner, buf);
@@ -747,7 +798,8 @@ fn render_diff_detail(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
     // Build lines for rendering
     let lines = build_diff_lines(file, inner.width);
     let total_lines = lines.len();
-    let scroll = (state.detail_scroll as usize).min(total_lines.saturating_sub(inner.height as usize));
+    let scroll =
+        (state.detail_scroll as usize).min(total_lines.saturating_sub(inner.height as usize));
     let visible = &lines[scroll..];
 
     // Shrink inner width by 1 to leave room for scrollbar
@@ -758,9 +810,16 @@ fn render_diff_detail(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
     };
 
     for (i, line) in visible.iter().enumerate() {
-        if i as u16 >= inner.height { break; }
+        if i as u16 >= inner.height {
+            break;
+        }
         let y = inner.y + i as u16;
-        let row_area = Rect { x: inner.x, y, width: text_width, height: 1 };
+        let row_area = Rect {
+            x: inner.x,
+            y,
+            width: text_width,
+            height: 1,
+        };
         Paragraph::new(line.clone()).render(row_area, buf);
     }
 
@@ -781,19 +840,25 @@ fn render_diff_detail(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
         for row in 0..bar_h {
             let y = inner.y + row as u16;
             let ch = if row == 0 {
-                '\u{25b2}'  // ▲
+                '\u{25b2}' // ▲
             } else if row == bar_h - 1 {
-                '\u{25bc}'  // ▼
+                '\u{25bc}' // ▼
             } else if row >= thumb_top + 1 && row < thumb_top + thumb_size + 1 {
-                '\u{2588}'  // █ (thumb)
+                '\u{2588}' // █ (thumb)
             } else {
-                '\u{2502}'  // │ (track)
+                '\u{2502}' // │ (track)
             };
-            let cell_area = Rect { x: bar_x, y, width: 1, height: 1 };
+            let cell_area = Rect {
+                x: bar_x,
+                y,
+                width: 1,
+                height: 1,
+            };
             Paragraph::new(Line::from(Span::styled(
                 ch.to_string(),
                 Style::default().fg(CLAURST_MUTED),
-            ))).render(cell_area, buf);
+            )))
+            .render(cell_area, buf);
         }
     }
 }
@@ -806,9 +871,9 @@ fn render_diff_detail(state: &DiffViewerState, area: Rect, buf: &mut Buffer) {
 fn format_gutter(old_no: Option<u32>, new_no: Option<u32>) -> String {
     match (old_no, new_no) {
         (Some(o), Some(n)) => format!("{:>4} {:>4} ", o, n),
-        (Some(o), None)    => format!("{:>4}      ", o),
-        (None,    Some(n)) => format!("     {:>4} ", n),
-        (None,    None)    => "          ".to_string(),
+        (Some(o), None) => format!("{:>4}      ", o),
+        (None, Some(n)) => format!("     {:>4} ", n),
+        (None, None) => "          ".to_string(),
     }
 }
 
@@ -817,7 +882,9 @@ fn truncate_spans_to_width(spans: Vec<Span<'static>>, max_chars: usize) -> Vec<S
     let mut remaining = max_chars;
     let mut result = Vec::new();
     for span in spans {
-        if remaining == 0 { break; }
+        if remaining == 0 {
+            break;
+        }
         let char_count: usize = span.content.chars().count();
         if char_count <= remaining {
             remaining -= char_count;
@@ -844,22 +911,23 @@ fn build_inline_diff_spans(old: &str, new: &str) -> (Vec<Span<'static>>, Vec<Spa
         let s: String = change.to_string();
         match change.tag() {
             ChangeTag::Equal => {
-                old_spans.push(Span::styled(
-                    s.clone(),
-                    Style::default().fg(CLAURST_TEXT),
-                ));
+                old_spans.push(Span::styled(s.clone(), Style::default().fg(CLAURST_TEXT)));
                 new_spans.push(Span::styled(s, Style::default().fg(CLAURST_TEXT)));
             }
             ChangeTag::Delete => {
                 old_spans.push(Span::styled(
                     s,
-                    Style::default().fg(Color::White).bg(Color::Rgb(150, 30, 30)),
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Rgb(150, 30, 30)),
                 ));
             }
             ChangeTag::Insert => {
                 new_spans.push(Span::styled(
                     s,
-                    Style::default().fg(Color::White).bg(Color::Rgb(30, 130, 30)),
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Rgb(30, 130, 30)),
                 ));
             }
         }
@@ -913,10 +981,7 @@ fn highlight_code_line(line: &str, path: &str, base_style: Style) -> Vec<Span<'s
                 } else {
                     Color::Rgb(fg.r, fg.g, fg.b)
                 };
-                result.push(Span::styled(
-                    text.to_string(),
-                    Style::default().fg(color),
-                ));
+                result.push(Span::styled(text.to_string(), Style::default().fg(color)));
             }
             if result.is_empty() {
                 vec![Span::styled(line.to_string(), base_style)]
@@ -1050,7 +1115,10 @@ mod tests {
                     +fn bar() {}\n";
         let files = parse_unified_diff(text);
         assert_eq!(files.len(), 1);
-        assert!(files[0].is_new_file, "new file mode header should set is_new_file");
+        assert!(
+            files[0].is_new_file,
+            "new file mode header should set is_new_file"
+        );
         assert_eq!(files[0].added, 2);
     }
 
@@ -1070,12 +1138,11 @@ mod tests {
 
     #[test]
     fn build_file_diff_from_snapshots_new_file_when_before_empty() {
-        let file = build_file_diff_from_snapshots(
-            "src/new.rs".to_string(),
-            "",
-            "fn hello() {}\n",
+        let file = build_file_diff_from_snapshots("src/new.rs".to_string(), "", "fn hello() {}\n");
+        assert!(
+            file.is_new_file,
+            "empty before_text should mark file as new"
         );
-        assert!(file.is_new_file, "empty before_text should mark file as new");
         assert_eq!(file.added, 1);
         assert_eq!(file.removed, 0);
     }
@@ -1095,30 +1162,45 @@ mod tests {
         let (old, new) = build_inline_diff_spans("hello world", "hello world");
         // All spans should have no background (equal, not highlighted)
         for span in &old {
-            assert!(span.style.bg.is_none(), "equal spans should have no bg highlight");
+            assert!(
+                span.style.bg.is_none(),
+                "equal spans should have no bg highlight"
+            );
         }
         for span in &new {
-            assert!(span.style.bg.is_none(), "equal spans should have no bg highlight");
+            assert!(
+                span.style.bg.is_none(),
+                "equal spans should have no bg highlight"
+            );
         }
         // Combined text should contain the key words
         let old_text: String = old.iter().map(|s| s.content.as_ref()).collect::<String>();
         let new_text: String = new.iter().map(|s| s.content.as_ref()).collect::<String>();
-        assert!(old_text.contains("hello"), "old text should contain 'hello'");
-        assert!(new_text.contains("world"), "new text should contain 'world'");
+        assert!(
+            old_text.contains("hello"),
+            "old text should contain 'hello'"
+        );
+        assert!(
+            new_text.contains("world"),
+            "new text should contain 'world'"
+        );
     }
 
     #[test]
     fn build_inline_diff_spans_highlights_changed_word() {
         let (old_spans, new_spans) = build_inline_diff_spans("hello world", "hello earth");
         // "world" should be highlighted (deleted), "earth" should be highlighted (inserted)
-        let has_highlighted_old = old_spans.iter().any(|s| {
-            s.content.contains("world") && s.style.bg.is_some()
-        });
-        let has_highlighted_new = new_spans.iter().any(|s| {
-            s.content.contains("earth") && s.style.bg.is_some()
-        });
+        let has_highlighted_old = old_spans
+            .iter()
+            .any(|s| s.content.contains("world") && s.style.bg.is_some());
+        let has_highlighted_new = new_spans
+            .iter()
+            .any(|s| s.content.contains("earth") && s.style.bg.is_some());
         assert!(has_highlighted_old, "deleted word should have bg highlight");
-        assert!(has_highlighted_new, "inserted word should have bg highlight");
+        assert!(
+            has_highlighted_new,
+            "inserted word should have bg highlight"
+        );
     }
 
     #[test]
@@ -1150,7 +1232,11 @@ mod tests {
         };
         let lines = build_diff_lines(&file, 80);
         // Should produce 2 lines (one removed, one added)
-        assert_eq!(lines.len(), 2, "adjacent removed+added should produce 2 lines");
+        assert_eq!(
+            lines.len(),
+            2,
+            "adjacent removed+added should produce 2 lines"
+        );
         // Each line should have multiple spans (gutter + marker + content spans)
         assert!(lines[0].spans.len() >= 3);
         assert!(lines[1].spans.len() >= 3);
@@ -1180,10 +1266,7 @@ mod tests {
 
     #[test]
     fn truncate_spans_to_width_exact() {
-        let spans = vec![
-            Span::raw("hello"),
-            Span::raw(" world"),
-        ];
+        let spans = vec![Span::raw("hello"), Span::raw(" world")];
         let result = truncate_spans_to_width(spans, 11);
         let text: String = result.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(text, "hello world");
@@ -1211,9 +1294,15 @@ mod tests {
         let (stats, _color) = if file.binary {
             ("[binary]".to_string(), ratatui::style::Color::DarkGray)
         } else if file.is_new_file {
-            (format!("[new] +{}", file.added), ratatui::style::Color::Yellow)
+            (
+                format!("[new] +{}", file.added),
+                ratatui::style::Color::Yellow,
+            )
         } else {
-            (format!("+{} -{}", file.added, file.removed), ratatui::style::Color::DarkGray)
+            (
+                format!("+{} -{}", file.added, file.removed),
+                ratatui::style::Color::DarkGray,
+            )
         };
         assert_eq!(stats, "[binary]");
     }
@@ -1224,9 +1313,15 @@ mod tests {
         let (stats, color) = if file.binary {
             ("[binary]".to_string(), ratatui::style::Color::DarkGray)
         } else if file.is_new_file {
-            (format!("[new] +{}", file.added), ratatui::style::Color::Yellow)
+            (
+                format!("[new] +{}", file.added),
+                ratatui::style::Color::Yellow,
+            )
         } else {
-            (format!("+{} -{}", file.added, file.removed), ratatui::style::Color::DarkGray)
+            (
+                format!("+{} -{}", file.added, file.removed),
+                ratatui::style::Color::DarkGray,
+            )
         };
         assert_eq!(stats, "[new] +42");
         assert_eq!(color, ratatui::style::Color::Yellow);
@@ -1248,7 +1343,10 @@ mod tests {
     #[test]
     fn diff_viewer_toggle_collapse_selected() {
         let mut state = DiffViewerState::new();
-        state.files = vec![make_file("a.rs", 1, 0, false), make_file("b.rs", 2, 1, false)];
+        state.files = vec![
+            make_file("a.rs", 1, 0, false),
+            make_file("b.rs", 2, 1, false),
+        ];
         state.collapsed = vec![false; 2];
         state.selected_file = 1;
         state.toggle_file_collapse();
@@ -1281,10 +1379,20 @@ mod tests {
         state.diff_type = DiffType::TurnDiff;
         state.files = vec![make_file("x.rs", 1, 0, false)];
         state.collapsed = vec![true]; // manually set collapsed
-        let new_files = vec![make_file("y.rs", 2, 0, false), make_file("z.rs", 3, 0, false)];
+        let new_files = vec![
+            make_file("y.rs", 2, 0, false),
+            make_file("z.rs", 3, 0, false),
+        ];
         state.set_turn_diff(new_files);
-        assert_eq!(state.collapsed.len(), 2, "collapsed should match new file count");
-        assert!(state.collapsed.iter().all(|&c| !c), "new files start uncollapsed");
+        assert_eq!(
+            state.collapsed.len(),
+            2,
+            "collapsed should match new file count"
+        );
+        assert!(
+            state.collapsed.iter().all(|&c| !c),
+            "new files start uncollapsed"
+        );
     }
 
     #[test]
@@ -1296,12 +1404,18 @@ mod tests {
         state.open = true;
         state.files = vec![make_file("src/lib.rs", 5, 2, false)];
         state.collapsed = vec![true]; // collapsed
-        terminal.draw(|frame| {
-            let area = frame.area();
-            render_diff_dialog(&mut state, area, frame.buffer_mut());
-        }).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_diff_dialog(&mut state, area, frame.buffer_mut());
+            })
+            .unwrap();
         let buf = terminal.backend().buffer().clone();
-        let content: String = buf.content().iter().map(|c| c.symbol().chars().next().unwrap_or(' ')).collect();
+        let content: String = buf
+            .content()
+            .iter()
+            .map(|c| c.symbol().chars().next().unwrap_or(' '))
+            .collect();
         assert!(content.contains("collapsed") || content.contains("Space"));
     }
 }

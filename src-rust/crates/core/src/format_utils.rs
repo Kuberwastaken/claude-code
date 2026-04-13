@@ -45,7 +45,11 @@ pub fn format_tokens(count: u64) -> String {
 /// Format a token/cost summary line for the status bar.
 /// Example: "3.2K tokens · $0.04"
 pub fn format_usage_summary(tokens: u64, cost_cents: f64) -> String {
-    format!("{} tokens · {}", format_tokens(tokens), format_cost_usd(cost_cents))
+    format!(
+        "{} tokens · {}",
+        format_tokens(tokens),
+        format_cost_usd(cost_cents)
+    )
 }
 
 /// Format a relative time string (for session listings).

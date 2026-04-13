@@ -130,14 +130,21 @@ impl ProviderError {
 impl fmt::Display for ProviderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ProviderError::ContextOverflow { provider, message, max_tokens } => {
+            ProviderError::ContextOverflow {
+                provider,
+                message,
+                max_tokens,
+            } => {
                 write!(f, "[{}] Context overflow: {}", provider, message)?;
                 if let Some(max) = max_tokens {
                     write!(f, " (max {} tokens)", max)?;
                 }
                 Ok(())
             }
-            ProviderError::RateLimited { provider, retry_after } => {
+            ProviderError::RateLimited {
+                provider,
+                retry_after,
+            } => {
                 write!(f, "[{}] Rate limited", provider)?;
                 if let Some(secs) = retry_after {
                     write!(f, "; retry after {}s", secs)?;
@@ -150,34 +157,46 @@ impl fmt::Display for ProviderError {
             ProviderError::QuotaExceeded { provider, message } => {
                 write!(f, "[{}] Quota exceeded: {}", provider, message)
             }
-            ProviderError::ModelNotFound { provider, model, suggestions } => {
+            ProviderError::ModelNotFound {
+                provider,
+                model,
+                suggestions,
+            } => {
                 write!(f, "[{}] Model not found: {}", provider, model)?;
                 if !suggestions.is_empty() {
                     write!(f, " (suggestions: {})", suggestions.join(", "))?;
                 }
                 Ok(())
             }
-            ProviderError::ServerError { provider, status, message, .. } => {
-                match status {
-                    Some(s) => write!(f, "[{}] Server error {}: {}", provider, s, message),
-                    None => write!(f, "[{}] Server error: {}", provider, message),
-                }
-            }
+            ProviderError::ServerError {
+                provider,
+                status,
+                message,
+                ..
+            } => match status {
+                Some(s) => write!(f, "[{}] Server error {}: {}", provider, s, message),
+                None => write!(f, "[{}] Server error: {}", provider, message),
+            },
             ProviderError::InvalidRequest { provider, message } => {
                 write!(f, "[{}] Invalid request: {}", provider, message)
             }
             ProviderError::ContentFiltered { provider, message } => {
                 write!(f, "[{}] Content filtered: {}", provider, message)
             }
-            ProviderError::StreamError { provider, message, .. } => {
+            ProviderError::StreamError {
+                provider, message, ..
+            } => {
                 write!(f, "[{}] Stream error: {}", provider, message)
             }
-            ProviderError::Other { provider, message, status, .. } => {
-                match status {
-                    Some(s) => write!(f, "[{}] Error {}: {}", provider, s, message),
-                    None => write!(f, "[{}] Error: {}", provider, message),
-                }
-            }
+            ProviderError::Other {
+                provider,
+                message,
+                status,
+                ..
+            } => match status {
+                Some(s) => write!(f, "[{}] Error {}: {}", provider, s, message),
+                None => write!(f, "[{}] Error: {}", provider, message),
+            },
         }
     }
 }
@@ -198,12 +217,14 @@ impl From<ProviderError> for ClaudeError {
             ProviderError::ContextOverflow { .. } => ClaudeError::ContextWindowExceeded,
             ProviderError::RateLimited { .. } => ClaudeError::RateLimit,
             ProviderError::AuthFailed { message, .. } => ClaudeError::Auth(message.clone()),
-            ProviderError::ServerError { status: Some(s), message, .. } => {
-                ClaudeError::ApiStatus {
-                    status: *s,
-                    message: message.clone(),
-                }
-            }
+            ProviderError::ServerError {
+                status: Some(s),
+                message,
+                ..
+            } => ClaudeError::ApiStatus {
+                status: *s,
+                message: message.clone(),
+            },
             _ => ClaudeError::Api(err.to_string()),
         }
     }

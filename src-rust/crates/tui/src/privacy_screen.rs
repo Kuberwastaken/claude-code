@@ -187,15 +187,10 @@ pub fn render_privacy_screen(frame: &mut Frame, screen: &PrivacyScreen, area: Re
         // Label row with toggle
         lines.push(Line::from(vec![
             Span::raw(prefix),
-            Span::styled(
-                format!("{:<28}", toggle.label),
-                label_style,
-            ),
+            Span::styled(format!("{:<28}", toggle.label), label_style),
             Span::styled(
                 toggle_text.to_string(),
-                Style::default()
-                    .fg(toggle_fg)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(toggle_fg).add_modifier(Modifier::BOLD),
             ),
         ]));
 
@@ -263,10 +258,7 @@ fn word_wrap_str(text: &str, width: usize) -> Vec<String> {
 // ---------------------------------------------------------------------------
 
 /// Returns `true` if the key event was consumed by the privacy screen.
-pub fn handle_privacy_key(
-    screen: &mut PrivacyScreen,
-    key: crossterm::event::KeyEvent,
-) -> bool {
+pub fn handle_privacy_key(screen: &mut PrivacyScreen, key: crossterm::event::KeyEvent) -> bool {
     use crossterm::event::KeyCode;
 
     if !screen.visible {

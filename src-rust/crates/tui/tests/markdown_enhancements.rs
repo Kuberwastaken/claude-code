@@ -1,8 +1,6 @@
 //! Tests for markdown table rendering and inline formatting (bold, italic, strikethrough).
 
-use claurst_tui::messages::{
-    render_markdown, detect_table, render_table, parse_inline_formatting,
-};
+use claurst_tui::messages::{detect_table, parse_inline_formatting, render_markdown, render_table};
 
 fn flatten(lines: &[ratatui::text::Line<'_>]) -> String {
     lines
@@ -35,7 +33,8 @@ fn table_basic_detection() {
 
 #[test]
 fn table_multiple_rows() {
-    let markdown = "| Col1 | Col2 |\n|------|------|\n| A    | B    |\n| C    | D    |\n| E    | F    |";
+    let markdown =
+        "| Col1 | Col2 |\n|------|------|\n| A    | B    |\n| C    | D    |\n| E    | F    |";
     let lines: Vec<&str> = markdown.lines().collect();
 
     let (table, end_idx) = detect_table(&lines, 0).expect("Table should be detected");
@@ -45,17 +44,27 @@ fn table_multiple_rows() {
 
 #[test]
 fn table_alignment_detection() {
-    let markdown = "| Left | Center | Right |\n|:-----|:------:|------:|\n| L    | C      | R     |";
+    let markdown =
+        "| Left | Center | Right |\n|:-----|:------:|------:|\n| L    | C      | R     |";
     let lines: Vec<&str> = markdown.lines().collect();
 
     let (table, _) = detect_table(&lines, 0).expect("Table should be detected");
     assert_eq!(table.alignments.len(), 3);
     // First column should be left-aligned
-    assert!(matches!(table.alignments[0], claurst_tui::messages::TableAlignment::Left));
+    assert!(matches!(
+        table.alignments[0],
+        claurst_tui::messages::TableAlignment::Left
+    ));
     // Second column should be center-aligned
-    assert!(matches!(table.alignments[1], claurst_tui::messages::TableAlignment::Center));
+    assert!(matches!(
+        table.alignments[1],
+        claurst_tui::messages::TableAlignment::Center
+    ));
     // Third column should be right-aligned
-    assert!(matches!(table.alignments[2], claurst_tui::messages::TableAlignment::Right));
+    assert!(matches!(
+        table.alignments[2],
+        claurst_tui::messages::TableAlignment::Right
+    ));
 }
 
 #[test]

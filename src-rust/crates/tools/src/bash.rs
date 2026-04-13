@@ -1,10 +1,10 @@
 // Bash tool: execute shell commands with timeout, streaming output, and
 // persistent shell state (cwd + env) across invocations.
 
-use crate::{PermissionLevel, ShellState, Tool, ToolContext, ToolResult, session_shell_state};
+use crate::{session_shell_state, PermissionLevel, ShellState, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
-use claurst_core::bash_classifier::{BashRiskLevel, classify_bash_command};
-use claurst_core::tasks::{BackgroundTask, global_registry};
+use claurst_core::bash_classifier::{classify_bash_command, BashRiskLevel};
+use claurst_core::tasks::{global_registry, BackgroundTask};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -63,8 +63,17 @@ fn parse_shell_state_block(lines: &[String]) -> Option<(PathBuf, HashMap<String,
             let key = line[..eq].to_string();
             let val = line[eq + 1..].to_string();
             // Filter out internal bash / system variables we don't want to persist
-            if !key.starts_with('_') && !["SHLVL", "BASH_LINENO", "BASH_SOURCE",
-                "FUNCNAME", "PIPESTATUS", "OLDPWD"].contains(&key.as_str()) {
+            if !key.starts_with('_')
+                && ![
+                    "SHLVL",
+                    "BASH_LINENO",
+                    "BASH_SOURCE",
+                    "FUNCNAME",
+                    "PIPESTATUS",
+                    "OLDPWD",
+                ]
+                .contains(&key.as_str())
+            {
                 env_vars.insert(key, val);
             }
         }
@@ -78,8 +87,9 @@ fn parse_shell_state_block(lines: &[String]) -> Option<(PathBuf, HashMap<String,
 /// constructs are handled by the full env-dump approach instead.
 fn extract_exports_from_command(command: &str) -> HashMap<String, String> {
     // Match: export VAR=value  or  export VAR="value"  or  export VAR='value'
-    let re = Regex::new(r#"(?m)^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(?:"([^"]*)"|'([^']*)'|(\S*))"#)
-        .unwrap();
+    let re =
+        Regex::new(r#"(?m)^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(?:"([^"]*)"|'([^']*)'|(\S*))"#)
+            .unwrap();
     let mut map = HashMap::new();
     for cap in re.captures_iter(command) {
         let key = cap[1].to_string();
@@ -101,18 +111,11 @@ fn extract_exports_from_command(command: &str) -> HashMap<String, String> {
 /// 3. Prints the sentinel + final pwd + `env` dump so we can persist state.
 ///
 /// On Windows we skip the wrapping (cmd.exe is a different shell).
-fn build_wrapper_script(
-    command: &str,
-    state: &ShellState,
-    base_cwd: &PathBuf,
-) -> String {
-    let effective_cwd = state
-        .cwd
-        .as_ref()
-        .unwrap_or(base_cwd);
+fn build_wrapper_script(command: &str, state: &ShellState, base_cwd: &PathBuf) -> String {
+    let effective_cwd = state.cwd.as_ref().unwrap_or(base_cwd);
 
     // Escape the cwd for single-quote embedding
-    let cwd_escaped: String = effective_cwd.to_string_lossy().replace('\'', "'\\''" );
+    let cwd_escaped: String = effective_cwd.to_string_lossy().replace('\'', "'\\''");
 
     // Build export lines for persisted env vars
     let mut export_lines = String::new();
@@ -162,89 +165,90 @@ async fn run_in_background(
     let command_clone = command.clone();
 
     tokio::spawn(async move {
-        let result = tokio::time::timeout(
-            Duration::from_millis(timeout_ms),
-            async {
-                let child = if cfg!(windows) {
-                    Command::new("cmd")
-                        .arg("/C")
-                        .arg(&command_clone)
-                        .current_dir(&cwd)
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .stdin(Stdio::null())
-                        .spawn()
-                } else {
-                    Command::new("bash")
-                        .arg("-c")
-                        .arg(&command_clone)
-                        .current_dir(&cwd)
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .stdin(Stdio::null())
-                        .spawn()
-                };
+        let result = tokio::time::timeout(Duration::from_millis(timeout_ms), async {
+            let child = if cfg!(windows) {
+                Command::new("cmd")
+                    .arg("/C")
+                    .arg(&command_clone)
+                    .current_dir(&cwd)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .stdin(Stdio::null())
+                    .spawn()
+            } else {
+                Command::new("bash")
+                    .arg("-c")
+                    .arg(&command_clone)
+                    .current_dir(&cwd)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .stdin(Stdio::null())
+                    .spawn()
+            };
 
-                match child {
-                    Ok(mut c) => {
-                        // Record PID in the registry.
-                        if let Some(pid) = c.id() {
-                            global_registry().set_pid(&task_id_clone, pid);
-                        }
+            match child {
+                Ok(mut c) => {
+                    // Record PID in the registry.
+                    if let Some(pid) = c.id() {
+                        global_registry().set_pid(&task_id_clone, pid);
+                    }
 
-                        let stdout = c.stdout.take();
-                        let stderr = c.stderr.take();
+                    let stdout = c.stdout.take();
+                    let stderr = c.stderr.take();
 
-                        if let Some(out) = stdout {
-                            let mut lines = BufReader::new(out).lines();
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                global_registry().append_output(&task_id_clone, &line);
-                            }
-                        }
-                        if let Some(err) = stderr {
-                            let mut lines = BufReader::new(err).lines();
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                let err_line = format!("STDERR: {}", line);
-                                global_registry().append_output(&task_id_clone, &err_line);
-                            }
-                        }
-
-                        match c.wait().await {
-                            Ok(status) if status.success() => {
-                                global_registry().complete(&task_id_clone);
-                            }
-                            Ok(status) => {
-                                let code = status.code().unwrap_or(-1);
-                                global_registry().update_status(
-                                    &task_id_clone,
-                                    claurst_core::tasks::TaskStatus::Failed(
-                                        format!("exit code {}", code)
-                                    ),
-                                );
-                            }
-                            Err(e) => {
-                                global_registry().update_status(
-                                    &task_id_clone,
-                                    claurst_core::tasks::TaskStatus::Failed(e.to_string()),
-                                );
-                            }
+                    if let Some(out) = stdout {
+                        let mut lines = BufReader::new(out).lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            global_registry().append_output(&task_id_clone, &line);
                         }
                     }
-                    Err(e) => {
-                        global_registry().update_status(
-                            &task_id_clone,
-                            claurst_core::tasks::TaskStatus::Failed(e.to_string()),
-                        );
+                    if let Some(err) = stderr {
+                        let mut lines = BufReader::new(err).lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            let err_line = format!("STDERR: {}", line);
+                            global_registry().append_output(&task_id_clone, &err_line);
+                        }
+                    }
+
+                    match c.wait().await {
+                        Ok(status) if status.success() => {
+                            global_registry().complete(&task_id_clone);
+                        }
+                        Ok(status) => {
+                            let code = status.code().unwrap_or(-1);
+                            global_registry().update_status(
+                                &task_id_clone,
+                                claurst_core::tasks::TaskStatus::Failed(format!(
+                                    "exit code {}",
+                                    code
+                                )),
+                            );
+                        }
+                        Err(e) => {
+                            global_registry().update_status(
+                                &task_id_clone,
+                                claurst_core::tasks::TaskStatus::Failed(e.to_string()),
+                            );
+                        }
                     }
                 }
+                Err(e) => {
+                    global_registry().update_status(
+                        &task_id_clone,
+                        claurst_core::tasks::TaskStatus::Failed(e.to_string()),
+                    );
+                }
             }
-        )
+        })
         .await;
 
         if result.is_err() {
             global_registry().update_status(
                 &task_id_clone,
-                claurst_core::tasks::TaskStatus::Failed(format!("timed out after {}ms", timeout_ms)),
+                claurst_core::tasks::TaskStatus::Failed(format!(
+                    "timed out after {}ms",
+                    timeout_ms
+                )),
             );
         }
     });
@@ -261,12 +265,14 @@ async fn run_in_background(
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                     let task = global_registry().get(&watcher_task_id);
                     match task {
-                        Some(t) if matches!(
-                            t.status,
-                            claurst_core::tasks::TaskStatus::Completed
-                                | claurst_core::tasks::TaskStatus::Failed(_)
-                                | claurst_core::tasks::TaskStatus::Cancelled
-                        ) => {
+                        Some(t)
+                            if matches!(
+                                t.status,
+                                claurst_core::tasks::TaskStatus::Completed
+                                    | claurst_core::tasks::TaskStatus::Failed(_)
+                                    | claurst_core::tasks::TaskStatus::Cancelled
+                            ) =>
+                        {
                             let exit_info = match &t.status {
                                 claurst_core::tasks::TaskStatus::Completed => "exit 0".to_string(),
                                 claurst_core::tasks::TaskStatus::Failed(msg) => {
@@ -291,7 +297,7 @@ async fn run_in_background(
                             break;
                         }
                         None => break, // Task disappeared from registry
-                        _ => {} // Still running, keep polling
+                        _ => {}        // Still running, keep polling
                     }
                 }
             });
@@ -397,7 +403,8 @@ impl Tool for BashTool {
                 timeout_ms,
                 params.notify_on_complete,
                 ctx.completion_notifier.clone(),
-            ).await;
+            )
+            .await;
         }
 
         // ── Foreground path ──────────────────────────────────────────────────
@@ -407,7 +414,15 @@ impl Tool for BashTool {
 
         // On Windows fall back to a simpler cmd invocation without state wrapping.
         if cfg!(windows) {
-            return self.execute_windows(&params.command, ctx, &shell_state_arc, timeout_dur, timeout_ms).await;
+            return self
+                .execute_windows(
+                    &params.command,
+                    ctx,
+                    &shell_state_arc,
+                    timeout_dur,
+                    timeout_ms,
+                )
+                .await;
         }
 
         // Build a wrapper script that restores and then captures shell state.
@@ -459,9 +474,7 @@ impl Tool for BashTool {
 
         match result {
             Ok((stdout_lines, stderr_lines, status)) => {
-                let exit_code = status
-                    .map(|s| s.code().unwrap_or(-1))
-                    .unwrap_or(-1);
+                let exit_code = status.map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
 
                 // Split stdout into user-visible output and the state block.
                 let sentinel_pos = stdout_lines
@@ -630,7 +643,10 @@ impl BashTool {
                     );
                 }
                 if exit_code != 0 {
-                    ToolResult::error(format!("Command exited with code {}\n{}", exit_code, output))
+                    ToolResult::error(format!(
+                        "Command exited with code {}\n{}",
+                        exit_code, output
+                    ))
                 } else {
                     ToolResult::success(output)
                 }
@@ -668,8 +684,7 @@ mod tests {
 
     #[test]
     fn notify_on_complete_default_false() {
-        let input: BashInput =
-            serde_json::from_str(r#"{"command":"echo hi"}"#).unwrap();
+        let input: BashInput = serde_json::from_str(r#"{"command":"echo hi"}"#).unwrap();
         assert!(
             !input.notify_on_complete,
             "notify_on_complete should default to false"
@@ -685,8 +700,7 @@ mod tests {
 
     #[test]
     fn run_in_background_default_false() {
-        let input: BashInput =
-            serde_json::from_str(r#"{"command":"echo hi"}"#).unwrap();
+        let input: BashInput = serde_json::from_str(r#"{"command":"echo hi"}"#).unwrap();
         assert!(!input.run_in_background);
     }
 }

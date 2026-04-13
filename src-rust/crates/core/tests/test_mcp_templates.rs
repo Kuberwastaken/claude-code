@@ -21,10 +21,8 @@ fn test_nested_path() {
             "version": "1.0"
         }
     });
-    let result = TemplateRenderer::render(
-        "Created by {{meta.author}} (v{{meta.version}})",
-        &context,
-    );
+    let result =
+        TemplateRenderer::render("Created by {{meta.author}} (v{{meta.version}})", &context);
     assert_eq!(result, "Created by Alice (v1.0)");
 }
 

@@ -7,13 +7,16 @@
 
 use anyhow::{anyhow, bail};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use claurst_core::codex_oauth::{
+    CODEX_AUTHORIZE_URL, CODEX_CLIENT_ID, CODEX_OAUTH_PORT, CODEX_REDIRECT_URI, CODEX_SCOPES,
+    CODEX_TOKEN_URL,
+};
+use claurst_core::oauth_config::CodexTokens;
+use claurst_tui::DeviceAuthEvent;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
-use claurst_core::oauth_config::CodexTokens;
-use claurst_core::codex_oauth::{CODEX_CLIENT_ID, CODEX_AUTHORIZE_URL, CODEX_OAUTH_PORT, CODEX_REDIRECT_URI, CODEX_SCOPES, CODEX_TOKEN_URL};
-use claurst_tui::DeviceAuthEvent;
 
 /// Generate a PKCE code verifier (random 64-byte base64url string).
 pub fn generate_code_verifier() -> String {
@@ -39,7 +42,8 @@ pub fn compute_code_challenge(verifier: &str) -> String {
 /// Generate a random OAuth state parameter.
 pub fn generate_state() -> String {
     let bytes = uuid::Uuid::new_v4();
-    URL_SAFE_NO_PAD.encode(bytes.as_bytes())
+    URL_SAFE_NO_PAD
+        .encode(bytes.as_bytes())
         .chars()
         .take(32)
         .collect()
@@ -64,7 +68,9 @@ pub fn build_auth_url(code_challenge: &str, state: &str) -> String {
 /// `event_tx` is used to send the OAuth URL back to the TUI dialog so it can
 /// display it (and copy it to the clipboard) in case the automatic browser
 /// launch fails.
-pub async fn run_oauth_flow(event_tx: mpsc::Sender<DeviceAuthEvent>) -> anyhow::Result<CodexTokens> {
+pub async fn run_oauth_flow(
+    event_tx: mpsc::Sender<DeviceAuthEvent>,
+) -> anyhow::Result<CodexTokens> {
     let verifier = generate_code_verifier();
     let challenge = compute_code_challenge(&verifier);
     let state = generate_state();
@@ -77,7 +83,11 @@ pub async fn run_oauth_flow(event_tx: mpsc::Sender<DeviceAuthEvent>) -> anyhow::
     let auth_url = build_auth_url(&challenge, &state);
 
     // Send the URL to the TUI so it can display + clipboard-copy it.
-    let _ = event_tx.send(DeviceAuthEvent::GotBrowserUrl { url: auth_url.clone() }).await;
+    let _ = event_tx
+        .send(DeviceAuthEvent::GotBrowserUrl {
+            url: auth_url.clone(),
+        })
+        .await;
 
     // Also try to open the browser (best-effort; may silently fail in headless envs).
     let _ = open::that(&auth_url);
@@ -122,7 +132,9 @@ async fn wait_for_callback(listener: TcpListener) -> anyhow::Result<(String, Str
     }
 
     let path = parts[1];
-    let query_start = path.find('?').ok_or_else(|| anyhow!("No query string in callback"))?;
+    let query_start = path
+        .find('?')
+        .ok_or_else(|| anyhow!("No query string in callback"))?;
     let query = &path[query_start + 1..];
 
     let mut code = String::new();
@@ -201,10 +213,7 @@ async fn exchange_code_for_tokens(code: &str, verifier: &str) -> anyhow::Result<
         .await
         .map_err(|e| anyhow!("Failed to parse token response: {}", e))?;
 
-    let access_token = body["access_token"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let access_token = body["access_token"].as_str().unwrap_or("").to_string();
 
     if access_token.is_empty() {
         bail!("No access_token in response");
@@ -242,7 +251,9 @@ mod tests {
     fn test_generate_code_verifier_format() {
         let verifier = generate_code_verifier();
         // Base64url encoding: [A-Za-z0-9_-]
-        assert!(verifier.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
+        assert!(verifier
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
         assert!(!verifier.is_empty());
     }
 
@@ -253,14 +264,18 @@ mod tests {
         let challenge2 = compute_code_challenge(verifier);
         assert_eq!(challenge1, challenge2);
         // Base64url format
-        assert!(challenge1.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
+        assert!(challenge1
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
     }
 
     #[test]
     fn test_generate_state_format() {
         let state = generate_state();
         assert!(!state.is_empty());
-        assert!(state.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
+        assert!(state
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
     }
 
     #[test]

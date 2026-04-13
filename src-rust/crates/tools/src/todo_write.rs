@@ -234,8 +234,7 @@ impl Tool for TodoWriteTool {
                     if let Err(e) = validate_transition(&item.id, old_status, &item.status) {
                         return ToolResult::error(e);
                     }
-                    if old_status != &TodoStatus::Completed
-                        && item.status == TodoStatus::Completed
+                    if old_status != &TodoStatus::Completed && item.status == TodoStatus::Completed
                     {
                         newly_completed_ids.insert(&item.id);
                     }
@@ -391,9 +390,18 @@ mod tests {
 
     #[test]
     fn test_status_parsing_case_insensitive() {
-        assert_eq!(TodoStatus::from_str_ci("PENDING").unwrap(), TodoStatus::Pending);
-        assert_eq!(TodoStatus::from_str_ci("In_Progress").unwrap(), TodoStatus::InProgress);
-        assert_eq!(TodoStatus::from_str_ci("COMPLETED").unwrap(), TodoStatus::Completed);
+        assert_eq!(
+            TodoStatus::from_str_ci("PENDING").unwrap(),
+            TodoStatus::Pending
+        );
+        assert_eq!(
+            TodoStatus::from_str_ci("In_Progress").unwrap(),
+            TodoStatus::InProgress
+        );
+        assert_eq!(
+            TodoStatus::from_str_ci("COMPLETED").unwrap(),
+            TodoStatus::Completed
+        );
         assert!(TodoStatus::from_str_ci("done").is_err());
         assert!(TodoStatus::from_str_ci("").is_err());
     }
@@ -417,14 +425,18 @@ mod tests {
         assert!(validate_transition("t3", &TodoStatus::InProgress, &TodoStatus::Completed).is_ok());
         // no-op transitions are always fine
         assert!(validate_transition("t4", &TodoStatus::Pending, &TodoStatus::Pending).is_ok());
-        assert!(validate_transition("t5", &TodoStatus::InProgress, &TodoStatus::InProgress).is_ok());
+        assert!(
+            validate_transition("t5", &TodoStatus::InProgress, &TodoStatus::InProgress).is_ok()
+        );
         assert!(validate_transition("t6", &TodoStatus::Completed, &TodoStatus::Completed).is_ok());
     }
 
     #[test]
     fn test_invalid_transition_completed_to_anything() {
         assert!(validate_transition("t1", &TodoStatus::Completed, &TodoStatus::Pending).is_err());
-        assert!(validate_transition("t2", &TodoStatus::Completed, &TodoStatus::InProgress).is_err());
+        assert!(
+            validate_transition("t2", &TodoStatus::Completed, &TodoStatus::InProgress).is_err()
+        );
     }
 
     #[test]
@@ -437,7 +449,10 @@ mod tests {
     #[test]
     fn test_status_from_str_invalid() {
         let err = TodoStatus::from_str_ci("banana").unwrap_err();
-        assert!(err.contains("Invalid status"), "error should mention invalid status");
+        assert!(
+            err.contains("Invalid status"),
+            "error should mention invalid status"
+        );
         assert!(err.contains("banana"), "error should echo the bad value");
     }
 }

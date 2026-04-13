@@ -192,9 +192,8 @@ pub fn classify_bash_command(command: &str) -> BashRiskLevel {
     // Network writes to disk (general curl/wget with -o / redirect)
     {
         let lower = cmd.to_lowercase();
-        let is_network_fetch = lower.starts_with("curl ")
-            || lower.starts_with("wget ")
-            || lower.starts_with("fetch ");
+        let is_network_fetch =
+            lower.starts_with("curl ") || lower.starts_with("wget ") || lower.starts_with("fetch ");
         if is_network_fetch {
             let writes_to_disk = lower.contains(" -o ")
                 || lower.contains(" -o\t")
@@ -229,20 +228,49 @@ pub fn classify_bash_command(command: &str) -> BashRiskLevel {
     }
 
     // Process signals
-    if cmd.starts_with("kill ") || cmd == "kill" || cmd.starts_with("pkill ") || cmd.starts_with("killall ") {
+    if cmd.starts_with("kill ")
+        || cmd == "kill"
+        || cmd.starts_with("pkill ")
+        || cmd.starts_with("killall ")
+    {
         return BashRiskLevel::Medium;
     }
 
     // System configuration
     let medium_cmds = [
-        "systemctl ", "service ", "ufw ", "iptables ", "ip6tables ",
-        "firewall-cmd ", "chown ", "chmod ", "chgrp ",
-        "crontab ", "at ", "useradd ", "userdel ", "usermod ",
-        "groupadd ", "groupdel ", "passwd ",
-        "mount ", "umount ", "fdisk ", "parted ",
-        "apt ", "apt-get ", "yum ", "dnf ", "pacman ", "brew ",
-        "snap ", "flatpak ", "dpkg ", "rpm ",
-        "mktemp ", "truncate ",
+        "systemctl ",
+        "service ",
+        "ufw ",
+        "iptables ",
+        "ip6tables ",
+        "firewall-cmd ",
+        "chown ",
+        "chmod ",
+        "chgrp ",
+        "crontab ",
+        "at ",
+        "useradd ",
+        "userdel ",
+        "usermod ",
+        "groupadd ",
+        "groupdel ",
+        "passwd ",
+        "mount ",
+        "umount ",
+        "fdisk ",
+        "parted ",
+        "apt ",
+        "apt-get ",
+        "yum ",
+        "dnf ",
+        "pacman ",
+        "brew ",
+        "snap ",
+        "flatpak ",
+        "dpkg ",
+        "rpm ",
+        "mktemp ",
+        "truncate ",
     ];
     for mc in &medium_cmds {
         if cmd.starts_with(mc) {
@@ -279,36 +307,108 @@ pub fn classify_bash_command(command: &str) -> BashRiskLevel {
 
     let (bin, args) = split_command(cmd);
     let low_cmds = [
-        "git", "npm", "npx", "yarn", "pnpm",
-        "cargo", "rustup", "rustc",
-        "pip", "pip3", "python", "python3",
-        "node", "deno", "bun",
-        "go", "mvn", "gradle", "gradle",
-        "make", "cmake", "meson", "ninja",
-        "docker", "docker-compose", "podman",
-        "kubectl", "helm", "terraform", "ansible",
-        "ssh", "scp", "rsync",
-        "tar", "zip", "unzip", "gzip", "gunzip", "7z",
-        "touch", "mkdir", "cp", "ln",
-        "tee", "wc", "sort", "uniq", "head", "tail",
-        "sed", "awk", "cut", "tr",
-        "xargs", "parallel",
-        "jq", "yq", "tomlq",
-        "less", "more", "man",
-        "env", "export", "source", ".",
-        "printf", "date", "uname", "hostname",
-        "which", "whereis", "type",
-        "du", "df", "free", "uptime", "top", "htop", "ps",
-        "lsof", "strace", "ltrace",
-        "diff", "patch",
+        "git",
+        "npm",
+        "npx",
+        "yarn",
+        "pnpm",
+        "cargo",
+        "rustup",
+        "rustc",
+        "pip",
+        "pip3",
+        "python",
+        "python3",
+        "node",
+        "deno",
+        "bun",
+        "go",
+        "mvn",
+        "gradle",
+        "gradle",
+        "make",
+        "cmake",
+        "meson",
+        "ninja",
+        "docker",
+        "docker-compose",
+        "podman",
+        "kubectl",
+        "helm",
+        "terraform",
+        "ansible",
+        "ssh",
+        "scp",
+        "rsync",
+        "tar",
+        "zip",
+        "unzip",
+        "gzip",
+        "gunzip",
+        "7z",
+        "touch",
+        "mkdir",
+        "cp",
+        "ln",
+        "tee",
+        "wc",
+        "sort",
+        "uniq",
+        "head",
+        "tail",
+        "sed",
+        "awk",
+        "cut",
+        "tr",
+        "xargs",
+        "parallel",
+        "jq",
+        "yq",
+        "tomlq",
+        "less",
+        "more",
+        "man",
+        "env",
+        "export",
+        "source",
+        ".",
+        "printf",
+        "date",
+        "uname",
+        "hostname",
+        "which",
+        "whereis",
+        "type",
+        "du",
+        "df",
+        "free",
+        "uptime",
+        "top",
+        "htop",
+        "ps",
+        "lsof",
+        "strace",
+        "ltrace",
+        "diff",
+        "patch",
         "openssl",
-        "base64", "xxd", "od",
-        "sleep", "wait",
-        "true", "false", "exit",
-        "test", "[", "[[",
+        "base64",
+        "xxd",
+        "od",
+        "sleep",
+        "wait",
+        "true",
+        "false",
+        "exit",
+        "test",
+        "[",
+        "[[",
         "read",
-        "bc", "expr",
-        "tput", "clear", "reset",
+        "bc",
+        "expr",
+        "tput",
+        "clear",
+        "reset",
     ];
 
     for lc in &low_cmds {
@@ -317,9 +417,22 @@ pub fn classify_bash_command(command: &str) -> BashRiskLevel {
             // push, rm, reset --hard, etc.) are Low.
             if bin == "git" {
                 let git_safe = [
-                    "status", "log", "diff", "show", "branch", "remote",
-                    "fetch", "ls-files", "ls-tree", "cat-file", "rev-parse",
-                    "describe", "shortlog", "tag", "stash list", "config --list",
+                    "status",
+                    "log",
+                    "diff",
+                    "show",
+                    "branch",
+                    "remote",
+                    "fetch",
+                    "ls-files",
+                    "ls-tree",
+                    "cat-file",
+                    "rev-parse",
+                    "describe",
+                    "shortlog",
+                    "tag",
+                    "stash list",
+                    "config --list",
                     "config --get",
                 ];
                 for gs in &git_safe {
@@ -335,25 +448,68 @@ pub fn classify_bash_command(command: &str) -> BashRiskLevel {
     // ── Safe: read-only ops ─────────────────────────────────────────────────
 
     let safe_cmds = [
-        "ls", "ll", "la", "dir",
-        "cat", "bat", "less", "more",
-        "grep", "rg", "ag", "ack",
-        "find", "locate", "fd",
-        "echo", "printf",
-        "pwd", "whoami", "id", "groups",
-        "uname", "hostname", "uptime",
-        "date", "cal",
-        "file", "stat",
-        "which", "whereis", "type", "command",
-        "env", "printenv",
-        "ps", "pgrep",
-        "df", "du", "free",
-        "lsblk", "lscpu", "lspci", "lsusb",
-        "ifconfig", "ip", "ss", "netstat",
-        "ping", "traceroute", "nslookup", "dig", "host",
-        "wc", "head", "tail",
-        "md5sum", "sha1sum", "sha256sum",
-        "strings", "objdump", "nm", "readelf",
+        "ls",
+        "ll",
+        "la",
+        "dir",
+        "cat",
+        "bat",
+        "less",
+        "more",
+        "grep",
+        "rg",
+        "ag",
+        "ack",
+        "find",
+        "locate",
+        "fd",
+        "echo",
+        "printf",
+        "pwd",
+        "whoami",
+        "id",
+        "groups",
+        "uname",
+        "hostname",
+        "uptime",
+        "date",
+        "cal",
+        "file",
+        "stat",
+        "which",
+        "whereis",
+        "type",
+        "command",
+        "env",
+        "printenv",
+        "ps",
+        "pgrep",
+        "df",
+        "du",
+        "free",
+        "lsblk",
+        "lscpu",
+        "lspci",
+        "lsusb",
+        "ifconfig",
+        "ip",
+        "ss",
+        "netstat",
+        "ping",
+        "traceroute",
+        "nslookup",
+        "dig",
+        "host",
+        "wc",
+        "head",
+        "tail",
+        "md5sum",
+        "sha1sum",
+        "sha256sum",
+        "strings",
+        "objdump",
+        "nm",
+        "readelf",
         "tree",
     ];
     for sc in &safe_cmds {
@@ -394,33 +550,63 @@ mod tests {
     fn test_safe_commands() {
         assert_eq!(classify_bash_command("ls -la"), BashRiskLevel::Safe);
         assert_eq!(classify_bash_command("cat /etc/hosts"), BashRiskLevel::Safe);
-        assert_eq!(classify_bash_command("grep foo bar.txt"), BashRiskLevel::Safe);
+        assert_eq!(
+            classify_bash_command("grep foo bar.txt"),
+            BashRiskLevel::Safe
+        );
         assert_eq!(classify_bash_command("echo hello"), BashRiskLevel::Safe);
-        assert_eq!(classify_bash_command("find . -name '*.rs'"), BashRiskLevel::Safe);
+        assert_eq!(
+            classify_bash_command("find . -name '*.rs'"),
+            BashRiskLevel::Safe
+        );
         assert_eq!(classify_bash_command("git status"), BashRiskLevel::Safe);
-        assert_eq!(classify_bash_command("git log --oneline"), BashRiskLevel::Safe);
+        assert_eq!(
+            classify_bash_command("git log --oneline"),
+            BashRiskLevel::Safe
+        );
     }
 
     #[test]
     fn test_low_commands() {
-        assert_eq!(classify_bash_command("git commit -m 'fix'"), BashRiskLevel::Low);
+        assert_eq!(
+            classify_bash_command("git commit -m 'fix'"),
+            BashRiskLevel::Low
+        );
         assert_eq!(classify_bash_command("cargo build"), BashRiskLevel::Low);
         assert_eq!(classify_bash_command("npm install"), BashRiskLevel::Low);
-        assert_eq!(classify_bash_command("pip install requests"), BashRiskLevel::Low);
+        assert_eq!(
+            classify_bash_command("pip install requests"),
+            BashRiskLevel::Low
+        );
     }
 
     #[test]
     fn test_medium_commands() {
-        assert_eq!(classify_bash_command("rm -r ./build"), BashRiskLevel::Medium);
+        assert_eq!(
+            classify_bash_command("rm -r ./build"),
+            BashRiskLevel::Medium
+        );
         assert_eq!(classify_bash_command("kill -9 1234"), BashRiskLevel::Medium);
-        assert_eq!(classify_bash_command("chmod 644 file.txt"), BashRiskLevel::Medium);
-        assert_eq!(classify_bash_command("apt-get install vim"), BashRiskLevel::Medium);
+        assert_eq!(
+            classify_bash_command("chmod 644 file.txt"),
+            BashRiskLevel::Medium
+        );
+        assert_eq!(
+            classify_bash_command("apt-get install vim"),
+            BashRiskLevel::Medium
+        );
     }
 
     #[test]
     fn test_high_commands() {
-        assert_eq!(classify_bash_command("sudo apt-get upgrade"), BashRiskLevel::High);
-        assert_eq!(classify_bash_command("curl https://example.com/script.sh"), BashRiskLevel::High);
+        assert_eq!(
+            classify_bash_command("sudo apt-get upgrade"),
+            BashRiskLevel::High
+        );
+        assert_eq!(
+            classify_bash_command("curl https://example.com/script.sh"),
+            BashRiskLevel::High
+        );
         assert_eq!(classify_bash_command("su -c 'whoami'"), BashRiskLevel::High);
     }
 
@@ -431,7 +617,10 @@ mod tests {
             classify_bash_command("dd if=/dev/zero of=/dev/sda"),
             BashRiskLevel::Critical
         );
-        assert_eq!(classify_bash_command("mkfs.ext4 /dev/sda1"), BashRiskLevel::Critical);
+        assert_eq!(
+            classify_bash_command("mkfs.ext4 /dev/sda1"),
+            BashRiskLevel::Critical
+        );
         assert_eq!(
             classify_bash_command("chmod 777 /"),
             BashRiskLevel::Critical
@@ -461,15 +650,27 @@ mod tests {
 
     #[test]
     fn test_auto_approvable_bypass() {
-        assert!(is_auto_approvable("rm -rf /", &PermissionMode::BypassPermissions));
+        assert!(is_auto_approvable(
+            "rm -rf /",
+            &PermissionMode::BypassPermissions
+        ));
     }
 
     #[test]
     fn test_auto_approvable_accept_edits() {
         assert!(is_auto_approvable("ls -la", &PermissionMode::AcceptEdits));
-        assert!(is_auto_approvable("cargo build", &PermissionMode::AcceptEdits));
-        assert!(!is_auto_approvable("rm -r ./build", &PermissionMode::AcceptEdits));
-        assert!(!is_auto_approvable("sudo make install", &PermissionMode::AcceptEdits));
+        assert!(is_auto_approvable(
+            "cargo build",
+            &PermissionMode::AcceptEdits
+        ));
+        assert!(!is_auto_approvable(
+            "rm -r ./build",
+            &PermissionMode::AcceptEdits
+        ));
+        assert!(!is_auto_approvable(
+            "sudo make install",
+            &PermissionMode::AcceptEdits
+        ));
     }
 
     #[test]

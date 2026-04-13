@@ -73,7 +73,6 @@ impl Tool for AskUserQuestionTool {
             "type": "ask_user",
         });
 
-        ToolResult::success(format!("Question: {}", params.question))
-            .with_metadata(meta)
+        ToolResult::success(format!("Question: {}", params.question)).with_metadata(meta)
     }
 }

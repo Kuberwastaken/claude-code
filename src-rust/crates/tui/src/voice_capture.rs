@@ -20,8 +20,8 @@ use std::sync::{Arc, Mutex};
 // ---------------------------------------------------------------------------
 
 pub use claurst_core::voice::{
-    VoiceAvailability, VoiceConfig, VoiceEvent, VoiceRecorder as CoreVoiceRecorder,
-    check_voice_availability, global_voice_recorder,
+    check_voice_availability, global_voice_recorder, VoiceAvailability, VoiceConfig, VoiceEvent,
+    VoiceRecorder as CoreVoiceRecorder,
 };
 
 // ---------------------------------------------------------------------------
@@ -189,11 +189,11 @@ pub fn samples_to_wav_bytes(samples: &[f32], sample_rate: u32) -> Vec<u8> {
     // fmt chunk
     buf.extend_from_slice(b"fmt ");
     buf.extend_from_slice(&16u32.to_le_bytes()); // chunk size
-    buf.extend_from_slice(&1u16.to_le_bytes());  // PCM audio format
-    buf.extend_from_slice(&1u16.to_le_bytes());  // mono
+    buf.extend_from_slice(&1u16.to_le_bytes()); // PCM audio format
+    buf.extend_from_slice(&1u16.to_le_bytes()); // mono
     buf.extend_from_slice(&sample_rate.to_le_bytes());
     buf.extend_from_slice(&byte_rate.to_le_bytes());
-    buf.extend_from_slice(&2u16.to_le_bytes());  // block align (1 ch × 2 bytes)
+    buf.extend_from_slice(&2u16.to_le_bytes()); // block align (1 ch × 2 bytes)
     buf.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
 
     // data chunk
@@ -243,11 +243,7 @@ pub async fn transcribe(wav_bytes: Vec<u8>, api_key: &str) -> anyhow::Result<Str
     let status = response.status();
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
-        return Err(anyhow::anyhow!(
-            "Whisper API returned {}: {}",
-            status,
-            body
-        ));
+        return Err(anyhow::anyhow!("Whisper API returned {}: {}", status, body));
     }
 
     let json: serde_json::Value = response.json().await?;
@@ -266,7 +262,11 @@ pub fn resolve_api_key() -> Option<String> {
     std::env::var("OPENAI_API_KEY")
         .ok()
         .filter(|k| !k.is_empty())
-        .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok().filter(|k| !k.is_empty()))
+        .or_else(|| {
+            std::env::var("ANTHROPIC_API_KEY")
+                .ok()
+                .filter(|k| !k.is_empty())
+        })
 }
 
 // ---------------------------------------------------------------------------

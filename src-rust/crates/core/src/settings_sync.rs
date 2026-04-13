@@ -200,18 +200,13 @@ impl SettingsSyncManager {
     ///
     /// Writes settings and memory files to the appropriate local paths,
     /// enforcing the 500 KB per-file size limit.
-    pub async fn apply_to_local(
-        &self,
-        data: &SyncedData,
-        project_id: Option<&str>,
-    ) -> ApplyResult {
+    pub async fn apply_to_local(&self, data: &SyncedData, project_id: Option<&str>) -> ApplyResult {
         let mut result = ApplyResult::default();
 
         // Global user settings
         if let Some(ref settings_json) = data.settings {
             let path = claude_config_dir().join("settings.json");
-            let content = serde_json::to_string_pretty(settings_json)
-                .unwrap_or_default();
+            let content = serde_json::to_string_pretty(settings_json).unwrap_or_default();
             match write_file_for_sync(&path, &content).await {
                 Ok(()) => {
                     result.settings_written = true;
@@ -297,7 +292,10 @@ impl SettingsSyncManager {
             return Ok(());
         }
 
-        debug!(count = changed.len(), "Settings sync: uploading changed entries");
+        debug!(
+            count = changed.len(),
+            "Settings sync: uploading changed entries"
+        );
         self.put_entries(changed).await
     }
 
@@ -481,10 +479,7 @@ mod tests {
             SYNC_KEY_USER_SETTINGS.to_string(),
             r#"{"model":"claude-3"}"#.to_string(),
         );
-        entries.insert(
-            SYNC_KEY_USER_MEMORY.to_string(),
-            "# My notes".to_string(),
-        );
+        entries.insert(SYNC_KEY_USER_MEMORY.to_string(), "# My notes".to_string());
 
         let data = entries_to_synced_data(entries);
         assert!(data.settings.is_some());
@@ -498,10 +493,7 @@ mod tests {
     #[test]
     fn test_entries_to_synced_data_invalid_json_settings() {
         let mut entries = HashMap::new();
-        entries.insert(
-            SYNC_KEY_USER_SETTINGS.to_string(),
-            "not-json".to_string(),
-        );
+        entries.insert(SYNC_KEY_USER_SETTINGS.to_string(), "not-json".to_string());
         let data = entries_to_synced_data(entries);
         // Malformed settings JSON → field is None (graceful degradation)
         assert!(data.settings.is_none());

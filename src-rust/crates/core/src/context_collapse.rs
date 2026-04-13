@@ -5,7 +5,7 @@
 //!
 //! Gated behind `cached_microcompact` feature flag.
 
-use crate::types::{Message, Role};
+use crate::types::Message;
 use serde::{Deserialize, Serialize};
 
 /// Strategy for collapsing a conversation when it exceeds token limits.

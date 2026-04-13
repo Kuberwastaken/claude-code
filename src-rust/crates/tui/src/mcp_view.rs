@@ -131,7 +131,9 @@ impl McpViewState {
         self.error_expanded = !self.error_expanded;
     }
 
-    pub fn close(&mut self) { self.open = false; }
+    pub fn close(&mut self) {
+        self.open = false;
+    }
 
     pub fn switch_pane(&mut self) {
         self.active_pane = match self.active_pane {
@@ -212,7 +214,9 @@ impl McpViewState {
 }
 
 impl Default for McpViewState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +224,9 @@ impl Default for McpViewState {
 // ---------------------------------------------------------------------------
 
 pub fn render_mcp_view(state: &McpViewState, area: Rect, buf: &mut Buffer) {
-    if !state.open { return; }
+    if !state.open {
+        return;
+    }
 
     let w = (area.width * 9 / 10).max(50).min(area.width);
     let h = (area.height * 4 / 5).max(15).min(area.height);
@@ -241,17 +247,34 @@ pub fn render_mcp_view(state: &McpViewState, area: Rect, buf: &mut Buffer) {
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
         .split(inner);
 
     let title = Line::from(vec![
-        Span::styled(" MCP", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
         Span::styled(
-            format!(" — {} servers · {} tools", state.servers.len(), state.filtered_tools().len()),
+            " MCP",
+            Style::default()
+                .fg(CLAURST_ACCENT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(
+                " — {} servers · {} tools",
+                state.servers.len(),
+                state.filtered_tools().len()
+            ),
             Style::default().fg(CLAURST_MUTED),
         ),
         Span::styled(
-            format!("{:>width$}", "Esc close", width = inner.width.saturating_sub(26) as usize),
+            format!(
+                "{:>width$}",
+                "Esc close",
+                width = inner.width.saturating_sub(26) as usize
+            ),
             Style::default().fg(CLAURST_MUTED),
         ),
     ]);
@@ -277,13 +300,33 @@ pub fn render_mcp_view(state: &McpViewState, area: Rect, buf: &mut Buffer) {
     render_tool_detail(state, right_panes[1], buf);
 
     let footer = Line::from(vec![
-        Span::styled(" Tab ", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " Tab ",
+            Style::default()
+                .fg(CLAURST_ACCENT)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw("switch pane  "),
-        Span::styled(" / ", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " / ",
+            Style::default()
+                .fg(CLAURST_ACCENT)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw("filter tools  "),
-        Span::styled(" e ", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " e ",
+            Style::default()
+                .fg(CLAURST_ACCENT)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw("error detail  "),
-        Span::styled(" r ", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " r ",
+            Style::default()
+                .fg(CLAURST_ACCENT)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw("reconnect"),
     ]);
     Paragraph::new(footer)
@@ -302,7 +345,11 @@ fn render_server_list(state: &McpViewState, area: Rect, buf: &mut Buffer) {
         .title(Span::styled(
             " Servers ",
             Style::default()
-                .fg(if focused { CLAURST_ACCENT } else { CLAURST_MUTED })
+                .fg(if focused {
+                    CLAURST_ACCENT
+                } else {
+                    CLAURST_MUTED
+                })
                 .add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
@@ -310,23 +357,68 @@ fn render_server_list(state: &McpViewState, area: Rect, buf: &mut Buffer) {
         .style(Style::default().bg(CLAURST_PANEL_BG).fg(CLAURST_TEXT))
         .render(area, buf);
 
-    let inner = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: area.height.saturating_sub(2) };
+    let inner = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    };
 
     // Group by transport
-    let stdio: Vec<_> = state.servers.iter().enumerate().filter(|(_, s)| s.transport == "stdio").collect();
-    let sse: Vec<_> = state.servers.iter().enumerate().filter(|(_, s)| s.transport == "sse").collect();
-    let http: Vec<_> = state.servers.iter().enumerate().filter(|(_, s)| s.transport == "http").collect();
+    let stdio: Vec<_> = state
+        .servers
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.transport == "stdio")
+        .collect();
+    let sse: Vec<_> = state
+        .servers
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.transport == "sse")
+        .collect();
+    let http: Vec<_> = state
+        .servers
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.transport == "http")
+        .collect();
 
     let mut row = 0u16;
 
-    let render_group = |group: &Vec<(usize, &McpServerView)>, label: &str, row: &mut u16, area: Rect, buf: &mut Buffer, selected: usize, focused: bool| {
-        if group.is_empty() { return; }
-        if *row >= area.height { return; }
-        Paragraph::new(Line::from(vec![Span::styled(label.to_string(), Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC))]))
-            .render(Rect { x: area.x, y: area.y + *row, width: area.width, height: 1 }, buf);
+    let render_group = |group: &Vec<(usize, &McpServerView)>,
+                        label: &str,
+                        row: &mut u16,
+                        area: Rect,
+                        buf: &mut Buffer,
+                        selected: usize,
+                        focused: bool| {
+        if group.is_empty() {
+            return;
+        }
+        if *row >= area.height {
+            return;
+        }
+        Paragraph::new(Line::from(vec![Span::styled(
+            label.to_string(),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]))
+        .render(
+            Rect {
+                x: area.x,
+                y: area.y + *row,
+                width: area.width,
+                height: 1,
+            },
+            buf,
+        );
         *row += 1;
         for (idx, server) in group {
-            if *row >= area.height { break; }
+            if *row >= area.height {
+                break;
+            }
             let sel = *idx == selected && focused;
             let prefix = if sel { "› " } else { "  " };
             let row_text = pad_line(
@@ -344,31 +436,78 @@ fn render_server_list(state: &McpViewState, area: Rect, buf: &mut Buffer) {
             let line = Line::from(vec![Span::styled(
                 row_text,
                 if sel {
-                    Style::default().fg(Color::Black).bg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(CLAURST_ACCENT)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(CLAURST_TEXT)
                 },
             )]);
-            Paragraph::new(line).render(Rect { x: area.x, y: area.y + *row, width: area.width, height: 1 }, buf);
+            Paragraph::new(line).render(
+                Rect {
+                    x: area.x,
+                    y: area.y + *row,
+                    width: area.width,
+                    height: 1,
+                },
+                buf,
+            );
             if let Some(err) = &server.error_message {
                 *row += 1;
                 if *row < area.height {
                     let short: String = err.chars().take(area.width as usize - 4).collect();
-                    Paragraph::new(Line::from(vec![Span::styled(format!("    {}", short), Style::default().fg(Color::Red))]))
-                        .render(Rect { x: area.x, y: area.y + *row, width: area.width, height: 1 }, buf);
+                    Paragraph::new(Line::from(vec![Span::styled(
+                        format!("    {}", short),
+                        Style::default().fg(Color::Red),
+                    )]))
+                    .render(
+                        Rect {
+                            x: area.x,
+                            y: area.y + *row,
+                            width: area.width,
+                            height: 1,
+                        },
+                        buf,
+                    );
                 }
             }
             *row += 1;
         }
     };
 
-    render_group(&stdio, "stdio", &mut row, inner, buf, state.selected_server, focused);
-    render_group(&sse, "SSE", &mut row, inner, buf, state.selected_server, focused);
-    render_group(&http, "HTTP", &mut row, inner, buf, state.selected_server, focused);
+    render_group(
+        &stdio,
+        "stdio",
+        &mut row,
+        inner,
+        buf,
+        state.selected_server,
+        focused,
+    );
+    render_group(
+        &sse,
+        "SSE",
+        &mut row,
+        inner,
+        buf,
+        state.selected_server,
+        focused,
+    );
+    render_group(
+        &http,
+        "HTTP",
+        &mut row,
+        inner,
+        buf,
+        state.selected_server,
+        focused,
+    );
 }
 
 fn render_tool_list(state: &McpViewState, area: Rect, buf: &mut Buffer) {
-    let focused = state.active_pane == McpViewPane::ToolList || state.active_pane == McpViewPane::ToolDetail;
+    let focused =
+        state.active_pane == McpViewPane::ToolList || state.active_pane == McpViewPane::ToolDetail;
     let border_style = if focused {
         Style::default().fg(CLAURST_ACCENT)
     } else {
@@ -378,7 +517,11 @@ fn render_tool_list(state: &McpViewState, area: Rect, buf: &mut Buffer) {
         .title(Span::styled(
             " Tools ",
             Style::default()
-                .fg(if focused { CLAURST_ACCENT } else { CLAURST_MUTED })
+                .fg(if focused {
+                    CLAURST_ACCENT
+                } else {
+                    CLAURST_MUTED
+                })
                 .add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
@@ -386,25 +529,53 @@ fn render_tool_list(state: &McpViewState, area: Rect, buf: &mut Buffer) {
         .style(Style::default().bg(CLAURST_PANEL_BG).fg(CLAURST_TEXT))
         .render(area, buf);
 
-    let inner = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: area.height.saturating_sub(2) };
+    let inner = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    };
 
     // Search bar
     let search_line = Line::from(vec![
         Span::styled("/ ", Style::default().fg(CLAURST_ACCENT)),
         Span::styled(
-            if state.tool_search.is_empty() { "filter tools".to_string() } else { state.tool_search.clone() },
-            Style::default().fg(if state.tool_search.is_empty() { CLAURST_MUTED } else { CLAURST_TEXT }),
+            if state.tool_search.is_empty() {
+                "filter tools".to_string()
+            } else {
+                state.tool_search.clone()
+            },
+            Style::default().fg(if state.tool_search.is_empty() {
+                CLAURST_MUTED
+            } else {
+                CLAURST_TEXT
+            }),
         ),
     ]);
-    Paragraph::new(search_line).render(Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 }, buf);
+    Paragraph::new(search_line).render(
+        Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: 1,
+        },
+        buf,
+    );
 
-    let list_area = Rect { x: inner.x, y: inner.y + 1, width: inner.width, height: inner.height.saturating_sub(1) };
+    let list_area = Rect {
+        x: inner.x,
+        y: inner.y + 1,
+        width: inner.width,
+        height: inner.height.saturating_sub(1),
+    };
     let tools = state.filtered_tools();
     let max_visible = list_area.height as usize;
     let start = state.selected_tool.saturating_sub(max_visible / 2);
 
     for (i, tool) in tools[start..].iter().enumerate() {
-        if i >= max_visible { break; }
+        if i >= max_visible {
+            break;
+        }
         let sel = start + i == state.selected_tool;
         let avail = list_area.width.saturating_sub(20) as usize;
         let name = format!("{}:{}", tool.server, tool.name);
@@ -414,13 +585,21 @@ fn render_tool_list(state: &McpViewState, area: Rect, buf: &mut Buffer) {
         let line = Line::from(vec![Span::styled(
             row,
             if sel {
-                Style::default().fg(Color::Black).bg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(CLAURST_ACCENT)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(CLAURST_TEXT)
             },
         )]);
         Paragraph::new(line).render(
-            Rect { x: list_area.x, y: list_area.y + i as u16, width: list_area.width, height: 1 },
+            Rect {
+                x: list_area.x,
+                y: list_area.y + i as u16,
+                width: list_area.width,
+                height: 1,
+            },
             buf,
         );
     }
@@ -452,7 +631,12 @@ fn render_tool_detail(state: &McpViewState, area: Rect, buf: &mut Buffer) {
                 };
                 let lines: Vec<Line> = err_msg
                     .lines()
-                    .map(|l| Line::from(vec![Span::styled(l.to_string(), Style::default().fg(Color::White))]))
+                    .map(|l| {
+                        Line::from(vec![Span::styled(
+                            l.to_string(),
+                            Style::default().fg(Color::White),
+                        )])
+                    })
                     .collect();
                 Paragraph::new(lines)
                     .wrap(ratatui::widgets::Wrap { trim: false })
@@ -466,7 +650,11 @@ fn render_tool_detail(state: &McpViewState, area: Rect, buf: &mut Buffer) {
         .title(Span::styled(
             " Tool Detail ",
             Style::default()
-                .fg(if focused { CLAURST_ACCENT } else { CLAURST_MUTED })
+                .fg(if focused {
+                    CLAURST_ACCENT
+                } else {
+                    CLAURST_MUTED
+                })
                 .add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
@@ -474,7 +662,12 @@ fn render_tool_detail(state: &McpViewState, area: Rect, buf: &mut Buffer) {
         .style(Style::default().bg(CLAURST_PANEL_BG).fg(CLAURST_TEXT))
         .render(area, buf);
 
-    let inner = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: area.height.saturating_sub(2) };
+    let inner = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    };
 
     let tools = state.filtered_tools();
     let Some(tool) = tools.get(state.selected_tool) else {
@@ -485,25 +678,35 @@ fn render_tool_detail(state: &McpViewState, area: Rect, buf: &mut Buffer) {
     };
 
     let mut lines = Vec::new();
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("{}:{}", tool.server, tool.name),
-            Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD),
-        ),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        format!("{}:{}", tool.server, tool.name),
+        Style::default()
+            .fg(CLAURST_ACCENT)
+            .add_modifier(Modifier::BOLD),
+    )]));
     lines.push(Line::default());
     for line in tool.description.lines() {
         lines.push(Line::from(vec![Span::raw(line.to_string())]));
     }
     if let Some(schema) = &tool.input_schema {
         lines.push(Line::default());
-        lines.push(Line::from(vec![Span::styled("Input:", Style::default().fg(Color::DarkGray))]));
+        lines.push(Line::from(vec![Span::styled(
+            "Input:",
+            Style::default().fg(Color::DarkGray),
+        )]));
         for line in schema.lines().take(10) {
-            lines.push(Line::from(vec![Span::styled(format!("  {}", line), Style::default().fg(Color::DarkGray))]));
+            lines.push(Line::from(vec![Span::styled(
+                format!("  {}", line),
+                Style::default().fg(Color::DarkGray),
+            )]));
         }
     }
 
-    if let Some(server) = state.servers.iter().find(|server| server.name == tool.server) {
+    if let Some(server) = state
+        .servers
+        .iter()
+        .find(|server| server.name == tool.server)
+    {
         lines.push(Line::default());
         lines.push(Line::from(vec![Span::styled(
             format!(
@@ -579,14 +782,12 @@ mod tests {
             resources: Vec::new(),
             prompts: Vec::new(),
             error_message: error.map(|e| e.to_string()),
-            tools: vec![
-                McpToolView {
-                    name: "tool_a".to_string(),
-                    server: name.to_string(),
-                    description: "Does A".to_string(),
-                    input_schema: None,
-                },
-            ],
+            tools: vec![McpToolView {
+                name: "tool_a".to_string(),
+                server: name.to_string(),
+                description: "Does A".to_string(),
+                input_schema: None,
+            }],
         }
     }
 
@@ -623,13 +824,23 @@ mod tests {
         let mut state = McpViewState::new();
         state.open(vec![
             make_server("fs-server", McpViewStatus::Connected, None),
-            make_server("err-server", McpViewStatus::Error, Some("connection refused")),
+            make_server(
+                "err-server",
+                McpViewStatus::Error,
+                Some("connection refused"),
+            ),
         ]);
-        terminal.draw(|frame| {
-            render_mcp_view(&state, frame.area(), frame.buffer_mut());
-        }).unwrap();
+        terminal
+            .draw(|frame| {
+                render_mcp_view(&state, frame.area(), frame.buffer_mut());
+            })
+            .unwrap();
         let buf = terminal.backend().buffer().clone();
-        let content: String = buf.content().iter().map(|c| c.symbol().chars().next().unwrap_or(' ')).collect();
+        let content: String = buf
+            .content()
+            .iter()
+            .map(|c| c.symbol().chars().next().unwrap_or(' '))
+            .collect();
         assert!(content.contains("MCP") || content.contains("Servers"));
     }
 
@@ -637,13 +848,23 @@ mod tests {
     fn mcp_view_error_expanded_renders_error_detail() {
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
         let mut state = McpViewState::new();
-        state.open(vec![make_server("broken", McpViewStatus::Error, Some("timeout: no response"))]);
+        state.open(vec![make_server(
+            "broken",
+            McpViewStatus::Error,
+            Some("timeout: no response"),
+        )]);
         state.error_expanded = true;
-        terminal.draw(|frame| {
-            render_mcp_view(&state, frame.area(), frame.buffer_mut());
-        }).unwrap();
+        terminal
+            .draw(|frame| {
+                render_mcp_view(&state, frame.area(), frame.buffer_mut());
+            })
+            .unwrap();
         let buf = terminal.backend().buffer().clone();
-        let content: String = buf.content().iter().map(|c| c.symbol().chars().next().unwrap_or(' ')).collect();
+        let content: String = buf
+            .content()
+            .iter()
+            .map(|c| c.symbol().chars().next().unwrap_or(' '))
+            .collect();
         assert!(content.contains("timeout") || content.contains("Error Detail"));
     }
 
@@ -652,10 +873,11 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         let state = McpViewState::new(); // open = false
         let before = terminal.backend().buffer().clone();
-        terminal.draw(|frame| {
-            render_mcp_view(&state, frame.area(), frame.buffer_mut());
-        }).unwrap();
+        terminal
+            .draw(|frame| {
+                render_mcp_view(&state, frame.area(), frame.buffer_mut());
+            })
+            .unwrap();
         assert_eq!(terminal.backend().buffer().content(), before.content());
     }
 }
-

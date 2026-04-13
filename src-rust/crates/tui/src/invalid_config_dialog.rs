@@ -148,7 +148,9 @@ pub fn render_invalid_config_dialog(
     // Instructions
     lines.push(Line::from(vec![Span::styled(
         "To resolve:".to_string(),
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
     )]));
     let instructions = match state.kind {
         InvalidConfigKind::Settings => vec![
@@ -177,7 +179,9 @@ pub fn render_invalid_config_dialog(
     // Dismiss hint
     lines.push(Line::from(vec![Span::styled(
         "  Press Enter or Escape to dismiss and continue with defaults.",
-        Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::ITALIC),
     )]));
 
     let total_lines = lines.len() as u16;
@@ -230,13 +234,19 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
         let state = InvalidConfigDialogState::show_settings_error("JSON parse error: unexpected ,");
 
-        terminal.draw(|frame| {
-            let area = frame.area();
-            render_invalid_config_dialog(frame, &state, area);
-        }).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_invalid_config_dialog(frame, &state, area);
+            })
+            .unwrap();
 
         let buf = terminal.backend().buffer().clone();
-        let content: String = buf.content().iter().map(|c| c.symbol().chars().next().unwrap_or(' ')).collect();
+        let content: String = buf
+            .content()
+            .iter()
+            .map(|c| c.symbol().chars().next().unwrap_or(' '))
+            .collect();
         assert!(content.contains("Invalid Settings") || content.contains("Configuration"));
     }
 
@@ -245,13 +255,19 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
         let state = InvalidConfigDialogState::show_settings_error("missing field `model`");
 
-        terminal.draw(|frame| {
-            let area = frame.area();
-            render_invalid_config_dialog(frame, &state, area);
-        }).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_invalid_config_dialog(frame, &state, area);
+            })
+            .unwrap();
 
         let buf = terminal.backend().buffer().clone();
-        let content: String = buf.content().iter().map(|c| c.symbol().chars().next().unwrap_or(' ')).collect();
+        let content: String = buf
+            .content()
+            .iter()
+            .map(|c| c.symbol().chars().next().unwrap_or(' '))
+            .collect();
         assert!(content.contains("missing field") || content.contains("Error"));
     }
 
@@ -261,10 +277,12 @@ mod tests {
         let state = InvalidConfigDialogState::new(); // visible = false
         let snapshot_before = terminal.backend().buffer().clone();
 
-        terminal.draw(|frame| {
-            let area = frame.area();
-            render_invalid_config_dialog(frame, &state, area);
-        }).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_invalid_config_dialog(frame, &state, area);
+            })
+            .unwrap();
 
         // Buffer should be unchanged since dialog is hidden
         let buf = terminal.backend().buffer().clone();

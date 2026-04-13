@@ -13,3 +13,7 @@ refs/
 # Git
 .gitignore
 
+Agents.md
+plan.md
+/.tools
+/codex

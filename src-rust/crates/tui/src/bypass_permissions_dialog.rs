@@ -94,7 +94,9 @@ pub fn render_bypass_permissions_dialog(
     // Body text (matches TS dialog copy)
     lines.push(Line::from(vec![Span::styled(
         "Claurst running in Bypass Permissions mode",
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
     )]));
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
@@ -132,12 +134,16 @@ pub fn render_bypass_permissions_dialog(
 
     // Options
     let opt_no_style = if state.selected == 0 {
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD | Modifier::REVERSED)
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD | Modifier::REVERSED)
     } else {
         Style::default().fg(Color::White)
     };
     let opt_yes_style = if state.selected == 1 {
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD | Modifier::REVERSED)
+        Style::default()
+            .fg(Color::Red)
+            .add_modifier(Modifier::BOLD | Modifier::REVERSED)
     } else {
         Style::default().fg(Color::Red)
     };
@@ -152,7 +158,9 @@ pub fn render_bypass_permissions_dialog(
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
         "  ↑↓ or 1/2 to select  ·  Enter to confirm",
-        Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::ITALIC),
     )]));
 
     Paragraph::new(lines)
@@ -219,12 +227,16 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
         let mut state = BypassPermissionsDialogState::new();
         state.show();
-        terminal.draw(|frame| {
-            let area = frame.area();
-            render_bypass_permissions_dialog(frame, &state, area);
-        }).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_bypass_permissions_dialog(frame, &state, area);
+            })
+            .unwrap();
         let buf = terminal.backend().buffer().clone();
-        let content: String = buf.content().iter()
+        let content: String = buf
+            .content()
+            .iter()
             .map(|c| c.symbol().chars().next().unwrap_or(' '))
             .collect();
         assert!(content.contains("WARNING") || content.contains("Bypass"));
@@ -235,10 +247,17 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
         let mut state = BypassPermissionsDialogState::new();
         state.show();
-        terminal.draw(|frame| {
-            render_bypass_permissions_dialog(frame, &state, frame.area());
-        }).unwrap();
-        let content: String = terminal.backend().buffer().clone().content().iter()
+        terminal
+            .draw(|frame| {
+                render_bypass_permissions_dialog(frame, &state, frame.area());
+            })
+            .unwrap();
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .clone()
+            .content()
+            .iter()
             .map(|c| c.symbol().chars().next().unwrap_or(' '))
             .collect();
         assert!(content.contains("No") || content.contains("exit"));
@@ -250,9 +269,11 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         let state = BypassPermissionsDialogState::new(); // visible = false
         let before = terminal.backend().buffer().clone();
-        terminal.draw(|frame| {
-            render_bypass_permissions_dialog(frame, &state, frame.area());
-        }).unwrap();
+        terminal
+            .draw(|frame| {
+                render_bypass_permissions_dialog(frame, &state, frame.area());
+            })
+            .unwrap();
         assert_eq!(terminal.backend().buffer().content(), before.content());
     }
 }

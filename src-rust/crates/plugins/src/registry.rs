@@ -2,7 +2,7 @@
 ///
 /// Ported from the TS "enabled plugins" concept in `pluginLoader.ts` and the
 /// app-state plugin arrays.
-use crate::hooks::{HookRegistry, register_plugin_hooks};
+use crate::hooks::{register_plugin_hooks, HookRegistry};
 use crate::plugin::{LoadedPlugin, PluginCommandDef, PluginError, ReloadDiff};
 use std::collections::HashMap;
 
@@ -274,8 +274,8 @@ impl PluginRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::PluginSource;
     use crate::manifest::PluginManifest;
+    use crate::plugin::PluginSource;
     use std::path::PathBuf;
 
     fn make_plugin(name: &str) -> LoadedPlugin {

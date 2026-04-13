@@ -12,11 +12,15 @@ pub fn managed_agent_system_prompt(config: &ManagedAgentConfig) -> String {
     };
 
     let budget_note = match config.total_budget_usd {
-        Some(b) => format!("Total session budget: ${:.2}. Monitor your spend carefully.", b),
+        Some(b) => format!(
+            "Total session budget: ${:.2}. Monitor your spend carefully.",
+            b
+        ),
         None => "No hard budget cap set. Be cost-conscious.".to_string(),
     };
 
-    format!(r#"
+    format!(
+        r#"
 ## Managed Agent Mode
 
 You are the MANAGER in a manager-executor architecture.

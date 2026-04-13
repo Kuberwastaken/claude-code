@@ -179,10 +179,7 @@ pub fn coordinator_user_context(available_tools: &[String], mcp_servers: &[Strin
         format!("\nConnected MCP servers: {}", mcp_servers.join(", "))
     };
 
-    format!(
-        "Available worker tools: {}{}\n",
-        tool_list, mcp_section
-    )
+    format!("Available worker tools: {}{}\n", tool_list, mcp_section)
 }
 
 /// Check if the current runtime coordinator flag matches `stored_coordinator`.
@@ -329,11 +326,20 @@ mod tests {
     #[test]
     fn test_scratchpad_gate_blocks_write_until_unlocked() {
         let mut gate = ScratchpadGate::with_signal("SCRATCHPAD_READY");
-        assert!(!gate.check("Write"), "Write should be blocked before unlock");
-        assert!(!gate.check("FileWrite"), "FileWrite should be blocked before unlock");
+        assert!(
+            !gate.check("Write"),
+            "Write should be blocked before unlock"
+        );
+        assert!(
+            !gate.check("FileWrite"),
+            "FileWrite should be blocked before unlock"
+        );
         gate.try_unlock("Some content SCRATCHPAD_READY here");
         assert!(gate.check("Write"), "Write should be allowed after unlock");
-        assert!(gate.check("FileWrite"), "FileWrite should be allowed after unlock");
+        assert!(
+            gate.check("FileWrite"),
+            "FileWrite should be allowed after unlock"
+        );
     }
 
     #[test]

@@ -3,9 +3,9 @@
 //! Converts between internal Message types and the cloud API format.
 //! Provides CRUD operations for cloud-hosted sessions.
 
+use crate::types::{ContentBlock, Message, MessageContent, Role};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::types::{Message, Role, MessageContent, ContentBlock};
 
 // ---------------------------------------------------------------------------
 // Cloud session API types
@@ -37,7 +37,7 @@ pub struct CloudSessionDetail {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudMessage {
     pub id: String,
-    pub role: String,    // "user" | "assistant"
+    pub role: String,        // "user" | "assistant"
     pub content: Vec<Value>, // Array of Anthropic-schema content block objects
     pub created_at: u64,
     pub session_id: String,
@@ -70,10 +70,7 @@ pub fn message_to_cloud(msg: &Message, session_id: &str, msg_id: &str, ts: u64) 
 
     let content: Vec<Value> = content_to_blocks(&msg.content)
         .into_iter()
-        .map(|block| {
-            serde_json::to_value(&block)
-                .unwrap_or_else(|_| Value::Null)
-        })
+        .map(|block| serde_json::to_value(&block).unwrap_or_else(|_| Value::Null))
         .collect();
 
     CloudMessage {
@@ -91,7 +88,11 @@ pub fn message_to_cloud(msg: &Message, session_id: &str, msg_id: &str, ts: u64) 
 /// that cannot be parsed are silently skipped so that unknown future block
 /// types do not crash older clients.
 pub fn cloud_to_message(cloud: &CloudMessage) -> Message {
-    let role = if cloud.role == "assistant" { Role::Assistant } else { Role::User };
+    let role = if cloud.role == "assistant" {
+        Role::Assistant
+    } else {
+        Role::User
+    };
 
     let blocks: Vec<ContentBlock> = cloud
         .content
@@ -140,20 +141,24 @@ impl CloudSessionClient {
 
     /// List all cloud sessions.
     pub async fn list(&self) -> Result<Vec<crate::remote_session::CloudSession>, String> {
-        let resp = self.http
+        let resp = self
+            .http
             .get(format!("{}/api/sessions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.access_token))
-            .send().await
+            .send()
+            .await
             .map_err(|e| e.to_string())?;
         resp.json().await.map_err(|e| e.to_string())
     }
 
     /// Fetch full session details including messages.
     pub async fn fetch(&self, session_id: &str) -> Result<CloudSessionDetail, String> {
-        let resp = self.http
+        let resp = self
+            .http
             .get(format!("{}/api/sessions/{}", self.base_url, session_id))
             .header("Authorization", format!("Bearer {}", self.access_token))
-            .send().await
+            .send()
+            .await
             .map_err(|e| e.to_string())?;
         resp.json().await.map_err(|e| e.to_string())
     }
@@ -164,11 +169,16 @@ impl CloudSessionClient {
         session_id: &str,
         messages: &[CloudMessage],
     ) -> Result<(), String> {
-        let resp = self.http
-            .post(format!("{}/api/sessions/{}/messages", self.base_url, session_id))
+        let resp = self
+            .http
+            .post(format!(
+                "{}/api/sessions/{}/messages",
+                self.base_url, session_id
+            ))
             .header("Authorization", format!("Bearer {}", self.access_token))
             .json(messages)
-            .send().await
+            .send()
+            .await
             .map_err(|e| e.to_string())?;
         if !resp.status().is_success() {
             return Err(format!("HTTP {}", resp.status()));
@@ -177,22 +187,29 @@ impl CloudSessionClient {
     }
 
     /// Create a new cloud session.
-    pub async fn create(&self, opts: CloudSessionCreateOpts) -> Result<crate::remote_session::CloudSession, String> {
-        let resp = self.http
+    pub async fn create(
+        &self,
+        opts: CloudSessionCreateOpts,
+    ) -> Result<crate::remote_session::CloudSession, String> {
+        let resp = self
+            .http
             .post(format!("{}/api/sessions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.access_token))
             .json(&opts)
-            .send().await
+            .send()
+            .await
             .map_err(|e| e.to_string())?;
         resp.json().await.map_err(|e| e.to_string())
     }
 
     /// Delete a cloud session.
     pub async fn delete(&self, session_id: &str) -> Result<(), String> {
-        let resp = self.http
+        let resp = self
+            .http
             .delete(format!("{}/api/sessions/{}", self.base_url, session_id))
             .header("Authorization", format!("Bearer {}", self.access_token))
-            .send().await
+            .send()
+            .await
             .map_err(|e| e.to_string())?;
         if !resp.status().is_success() {
             return Err(format!("HTTP {}", resp.status()));

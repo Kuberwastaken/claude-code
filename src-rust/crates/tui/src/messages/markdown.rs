@@ -2,18 +2,16 @@
 
 use crate::figures;
 use once_cell::sync::Lazy;
-use regex::Regex;
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+use regex::Regex;
 use unicode_width::UnicodeWidthStr;
 
 /// Regex pattern to detect URLs (http://, https://, ftp://, www.)
-static URL_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?:https?|ftp)://\S+|www\.\S+")
-        .expect("Invalid URL regex pattern")
-});
+static URL_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?:https?|ftp)://\S+|www\.\S+").expect("Invalid URL regex pattern"));
 
 /// Regex pattern to detect email addresses
 static EMAIL_PATTERN: Lazy<Regex> = Lazy::new(|| {

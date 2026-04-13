@@ -113,19 +113,35 @@ pub fn try_load_from_path(
     // Resolve sub-paths.
     let commands_path = {
         let p = plugin_dir.join("commands");
-        if p.is_dir() { Some(p) } else { None }
+        if p.is_dir() {
+            Some(p)
+        } else {
+            None
+        }
     };
     let agents_path = {
         let p = plugin_dir.join("agents");
-        if p.is_dir() { Some(p) } else { None }
+        if p.is_dir() {
+            Some(p)
+        } else {
+            None
+        }
     };
     let skills_path = {
         let p = plugin_dir.join("skills");
-        if p.is_dir() { Some(p) } else { None }
+        if p.is_dir() {
+            Some(p)
+        } else {
+            None
+        }
     };
     let output_styles_path = {
         let p = plugin_dir.join("output-styles");
-        if p.is_dir() { Some(p) } else { None }
+        if p.is_dir() {
+            Some(p)
+        } else {
+            None
+        }
     };
 
     // Load hooks config (hooks/hooks.json takes priority over inline manifest field).
@@ -314,10 +330,7 @@ fn collect_markdown_commands(
 ///
 /// e.g. `<plugin_dir>/commands/build/deploy.md` → `myplugin:build:deploy`
 fn command_name_from_file(path: &Path, plugin_name: &str) -> String {
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("cmd");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("cmd");
     format!("{}:{}", plugin_name, stem)
 }
 

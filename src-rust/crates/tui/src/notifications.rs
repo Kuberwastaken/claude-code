@@ -3,9 +3,7 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use crate::overlays::{
-    CLAURST_ACCENT, CLAURST_MUTED, CLAURST_PANEL_BORDER, CLAURST_TEXT,
-};
+use crate::overlays::{CLAURST_ACCENT, CLAURST_MUTED, CLAURST_PANEL_BORDER, CLAURST_TEXT};
 
 /// Severity / visual style of a notification.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +46,8 @@ impl NotificationQueue {
     ///
     /// * `duration_secs` — `None` for persistent, `Some(n)` for auto-expire after *n* seconds.
     pub fn push(&mut self, kind: NotificationKind, msg: String, duration_secs: Option<u64>) {
-        let expires_at = duration_secs.map(|secs| Instant::now() + std::time::Duration::from_secs(secs));
+        let expires_at =
+            duration_secs.map(|secs| Instant::now() + std::time::Duration::from_secs(secs));
         self.notifications
             .retain(|n| !(n.kind == kind && n.message == msg));
         let id = format!("notif-{}", self.next_id);
@@ -70,9 +69,8 @@ impl NotificationQueue {
     /// Remove all expired notifications.  Call this once per render frame.
     pub fn tick(&mut self) {
         let now = Instant::now();
-        self.notifications.retain(|n| {
-            n.expires_at.map_or(true, |exp| exp > now)
-        });
+        self.notifications
+            .retain(|n| n.expires_at.map_or(true, |exp| exp > now));
     }
 
     /// Return the currently visible (most recent) notification, if any.
@@ -165,14 +163,21 @@ pub fn render_notification_banner(frame: &mut Frame, queue: &NotificationQueue, 
     let message = if notif.message.chars().count() > msg_budget {
         format!(
             "{}…",
-            notif.message.chars().take(msg_budget.saturating_sub(1)).collect::<String>()
+            notif
+                .message
+                .chars()
+                .take(msg_budget.saturating_sub(1))
+                .collect::<String>()
         )
     } else {
         notif.message.clone()
     };
 
     let mut row0_spans = vec![
-        Span::styled(format!(" {} ", icon), Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format!(" {} ", icon),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(message, Style::default().fg(CLAURST_TEXT)),
     ];
     if notif.dismissible {
@@ -182,7 +187,11 @@ pub fn render_notification_banner(frame: &mut Frame, queue: &NotificationQueue, 
     // ── Row 1: thin progress bar for timed notifications ──
     let progress_line = if let Some(exp) = notif.expires_at {
         let now = Instant::now();
-        let remaining = if exp > now { (exp - now).as_millis() } else { 0 };
+        let remaining = if exp > now {
+            (exp - now).as_millis()
+        } else {
+            0
+        };
         // We don't store total duration, so derive from a fixed 5s assumption.
         // Clamp to [0,1] so the bar can't overflow.
         let frac = (remaining as f64 / 5_000.0).min(1.0);
@@ -261,10 +270,7 @@ pub fn render_notification_banner(frame: &mut Frame, queue: &NotificationQueue, 
         width: toast_width.saturating_sub(2),
         height: 1,
     };
-    frame.render_widget(
-        Paragraph::new("").style(Style::default().bg(bg)),
-        pad_rect,
-    );
+    frame.render_widget(Paragraph::new("").style(Style::default().bg(bg)), pad_rect);
 }
 
 #[cfg(test)]

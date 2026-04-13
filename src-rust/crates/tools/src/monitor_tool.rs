@@ -190,8 +190,14 @@ mod tests {
     fn monitor_schema_has_action_and_task_id() {
         let schema = MonitorTool.input_schema();
         let props = &schema["properties"];
-        assert!(props["action"].is_object(), "schema should have 'action' property");
-        assert!(props["task_id"].is_object(), "schema should have 'task_id' property");
+        assert!(
+            props["action"].is_object(),
+            "schema should have 'action' property"
+        );
+        assert!(
+            props["task_id"].is_object(),
+            "schema should have 'task_id' property"
+        );
     }
 
     #[test]
@@ -210,7 +216,11 @@ mod tests {
         let ctx = make_test_ctx();
         let result = tool.execute(input, &ctx).await;
         // Either "No background tasks." or a list — both are successes.
-        assert!(!result.is_error, "list action should not return an error: {}", result.content);
+        assert!(
+            !result.is_error,
+            "list action should not return an error: {}",
+            result.content
+        );
     }
 
     #[tokio::test]
@@ -247,8 +257,8 @@ mod tests {
         use claurst_core::config::Config;
         use claurst_core::permissions::AutoPermissionHandler;
         use std::path::PathBuf;
-        use std::sync::Arc;
         use std::sync::atomic::AtomicUsize;
+        use std::sync::Arc;
 
         let handler = Arc::new(AutoPermissionHandler {
             mode: claurst_core::config::PermissionMode::Default,
