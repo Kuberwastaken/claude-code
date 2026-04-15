@@ -34,11 +34,13 @@ url = { workspace = true }
 crossterm = { workspace = true }
 parking_lot = { workspace = true }
 dirs = { workspace = true }
-nix = { workspace = true }
 base64 = "0.22"
 sha2 = "0.10"
 open = "5"
 urlencoding = "2"
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
 
 [build-dependencies]
 chrono = { workspace = true }
