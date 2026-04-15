@@ -70,9 +70,34 @@ pub fn format_relative_time(ts_ms: u64) -> String {
     } else if diff_secs < 172800 {
         "yesterday".to_string()
     } else {
-        let days = diff_secs / 86400;
-        format!("{} days ago", days)
+        // For timestamps older than 2 days, return a calendar date ("Mar 15").
+        // Convert the timestamp to a date via UNIX epoch arithmetic.
+        // Days since epoch → approximate month/day without a date library.
+        let ts_secs = ts_ms / 1000;
+        let days_since_epoch = ts_secs / 86400;
+        // Gregorian calendar computation (handles leap years correctly).
+        let (month, day) = days_to_month_day(days_since_epoch);
+        let month_names = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+        format!("{} {}", month_names[(month as usize).saturating_sub(1).min(11)], day)
     }
+}
+
+/// Convert a count of days since the UNIX epoch (1970-01-01) to a
+/// `(month, day)` pair using the proleptic Gregorian calendar.
+fn days_to_month_day(days: u64) -> (u32, u32) {
+    // Algorithm: civil calendar from Howard Hinnant's date algorithms.
+    let z = days as i64 + 719468; // shift epoch to 0000-03-01
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097; // day of era [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // year of era [0, 399]
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // day of year [0, 365]
+    let mp = (5 * doy + 2) / 153; // month of year [0, 11] (March=0)
+    let day = doy - (153 * mp + 2) / 5 + 1; // day [1, 31]
+    let month = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    (month as u32, day as u32)
 }
 
 #[cfg(test)]
@@ -98,5 +123,39 @@ mod tests {
         assert_eq!(format_tokens(500), "500");
         assert_eq!(format_tokens(1500), "1.5K");
         assert_eq!(format_tokens(50_000), "50K");
+    }
+
+    #[test]
+    fn days_to_month_day_known_dates() {
+        // 2024-03-15 → days since epoch = (2024-1970)*365 + leap_days + 74
+        // Verify a known date: 2000-01-01 is day 10957 since epoch.
+        assert_eq!(days_to_month_day(10957), (1, 1));
+        // 2000-03-01 is day 11017 since epoch.
+        assert_eq!(days_to_month_day(11017), (3, 1));
+        // 1970-01-01 is day 0.
+        assert_eq!(days_to_month_day(0), (1, 1));
+    }
+
+    #[test]
+    fn format_relative_time_old_timestamp_returns_calendar_date() {
+        // A timestamp 30 days ago should return a "Mon DD" string, not "X days ago".
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let thirty_days_ago = now_ms.saturating_sub(30 * 86400 * 1000);
+        let result = format_relative_time(thirty_days_ago);
+        // Must NOT contain "days ago".
+        assert!(
+            !result.contains("days ago"),
+            "expected calendar date, got: {result}"
+        );
+        // Must look like "Mmm DD" (e.g. "Mar 5" or "Feb 15").
+        let month_names = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+        let has_month = month_names.iter().any(|m| result.starts_with(m));
+        assert!(has_month, "expected month prefix in: {result}");
     }
 }
