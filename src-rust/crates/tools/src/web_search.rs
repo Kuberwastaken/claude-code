@@ -88,7 +88,6 @@ async fn search_brave(query: &str, num_results: usize, api_key: &str) -> ToolRes
     let resp = match client
         .get(&url)
         .header("Accept", "application/json")
-        .header("Accept-Encoding", "gzip")
         .header("X-Subscription-Token", api_key)
         .send()
         .await
