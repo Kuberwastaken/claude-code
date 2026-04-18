@@ -16,10 +16,86 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.9"
+version = "0.0.8"
 edition = "2021"
 authors = ["Claurst"]
 license = "GPL-3.0"
+rust-version = "1.91.0"
+
+[workspace.lints.rust]
+ambiguous_negative_literals   = "warn"
+missing_debug_implementations = "warn"
+redundant_imports             = "warn"
+redundant_lifetimes           = "warn"
+trivial_numeric_casts         = "warn"
+unexpected_cfgs               = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)'] }
+unsafe_code                   = "warn"
+unsafe_op_in_unsafe_fn        = "warn"
+unused_lifetimes              = "warn"
+
+[workspace.lints.clippy]
+# Major categories
+cargo       = { level = "warn", priority = -1 }
+complexity  = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+pedantic    = { level = "warn", priority = -1 }
+perf        = { level = "warn", priority = -1 }
+style       = { level = "warn", priority = -1 }
+suspicious  = { level = "warn", priority = -1 }
+
+# Panic prevention
+expect_used        = "warn"
+panic              = "deny"
+panic_in_result_fn = "deny"
+unimplemented      = "deny"
+unwrap_used        = "deny"
+
+# No cheating
+allow_attributes                = "deny"
+allow_attributes_without_reason = "warn"
+
+# Code hygiene
+dbg_macro    = "deny"
+print_stderr = "deny"
+print_stdout = "deny"
+todo         = "deny"
+
+# Safety
+await_holding_lock         = "deny"
+exit                       = "deny"
+large_futures              = "deny"
+mem_forget                 = "deny"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc     = "warn"
+
+# Disallowed items (configured in .clippy.toml)
+disallowed_macros  = "deny"
+disallowed_methods = "deny"
+disallowed_types   = "deny"
+
+# Restriction lints for consistency
+clone_on_ref_ptr                  = "warn"
+empty_drop                        = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_structs_with_brackets       = "warn"
+implicit_clone                    = "warn"
+map_err_ignore                    = "warn"
+redundant_type_annotations        = "warn"
+renamed_function_params           = "warn"
+unused_result_ok                  = "warn"
+
+# Pedantic relaxations (too noisy)
+module_name_repetitions = "allow"
+similar_names           = "allow"
+
+# Local lint changes
+blanket_clippy_restriction_lints = "allow"
+cast_possible_truncation         = "allow"
+fn_to_numeric_cast_any           = "warn"
+missing_errors_doc               = "allow" # FIXME!!
+missing_panics_doc               = "allow" # FIXME!!
+missing_safety_doc               = "warn"
 
 [workspace.dependencies]
 # Async runtime

@@ -1,0 +1,15 @@
+# An .aiignore file follows the same syntax as a .gitignore file.
+# .gitignore documentation: https://git-scm.com/docs/gitignore
+
+# you can ignore files
+.DS_Store
+*.cdx.xml
+*.log
+*.tmp
+
+# or folders
+build/
+dist/
+out/
+public/
+target/

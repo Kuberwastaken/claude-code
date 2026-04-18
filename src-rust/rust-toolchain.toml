@@ -1,0 +1,6 @@
+[toolchain]
+# channel = "nightly"
+channel = "stable"
+# components = ["clippy", "llvm-tools", "rustc-codegen-cranelift", "rustfmt"]
+components = ["clippy", "llvm-tools", "rustfmt"]
+profile    = "minimal"

@@ -3685,14 +3685,16 @@ mod tests {
         // When config.api_key is set, it should be returned regardless of env var
         // (Config key takes priority — resolve_api_key returns it first)
         let orig = std::env::var("ANTHROPIC_API_KEY").ok();
-        std::env::remove_var("ANTHROPIC_API_KEY");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("ANTHROPIC_API_KEY") };
 
         let mut cfg = crate::config::Config::default();
         cfg.api_key = Some("sk-ant-config-key".to_string());
         assert_eq!(cfg.resolve_api_key(), Some("sk-ant-config-key".to_string()));
 
         if let Some(k) = orig {
-            std::env::set_var("ANTHROPIC_API_KEY", k);
+            // FIXME: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::set_var("ANTHROPIC_API_KEY", k) };
         }
     }
 
@@ -3700,29 +3702,34 @@ mod tests {
     fn test_config_resolve_api_key_none() {
         // Temporarily ensure no env var override
         let orig = std::env::var("ANTHROPIC_API_KEY").ok();
-        std::env::remove_var("ANTHROPIC_API_KEY");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("ANTHROPIC_API_KEY") };
 
         let cfg = crate::config::Config::default();
         assert!(cfg.resolve_api_key().is_none());
 
         // Restore
         if let Some(k) = orig {
-            std::env::set_var("ANTHROPIC_API_KEY", k);
+            // FIXME: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::set_var("ANTHROPIC_API_KEY", k) };
         }
     }
 
     #[test]
     fn test_config_resolve_api_key_from_env() {
         let orig = std::env::var("ANTHROPIC_API_KEY").ok();
-        std::env::set_var("ANTHROPIC_API_KEY", "sk-ant-env-key");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("ANTHROPIC_API_KEY", "sk-ant-env-key") };
 
         let cfg = crate::config::Config::default();
         assert_eq!(cfg.resolve_api_key(), Some("sk-ant-env-key".to_string()));
 
         // Restore
-        std::env::remove_var("ANTHROPIC_API_KEY");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("ANTHROPIC_API_KEY") };
         if let Some(k) = orig {
-            std::env::set_var("ANTHROPIC_API_KEY", k);
+            // FIXME: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::set_var("ANTHROPIC_API_KEY", k) };
         }
     }
 

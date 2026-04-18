@@ -598,7 +598,8 @@ mod tests {
     #[test]
     fn test_missing_all_scopes() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var(KILL_SWITCH_ENV);
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var(KILL_SWITCH_ENV) };
         let tokens = tokens_with_scopes(vec!["org:create_api_key"]);
         let result = check_voice_availability(Some(&tokens));
         assert!(matches!(result, VoiceAvailability::MissingScopes { .. }));
@@ -619,10 +620,12 @@ mod tests {
     #[test]
     fn test_kill_switch_disables_voice() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::set_var(KILL_SWITCH_ENV, "1");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var(KILL_SWITCH_ENV, "1") };
         let tokens = tokens_with_scopes(vec!["user:inference", "user:profile"]);
         let result = check_voice_availability(Some(&tokens));
-        std::env::remove_var(KILL_SWITCH_ENV);
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var(KILL_SWITCH_ENV) };
         assert_eq!(result, VoiceAvailability::Disabled);
         assert!(!result.is_available());
     }
@@ -630,9 +633,11 @@ mod tests {
     #[test]
     fn test_kill_switch_beats_no_auth() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::set_var(KILL_SWITCH_ENV, "true");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var(KILL_SWITCH_ENV, "true") };
         let result = check_voice_availability(None);
-        std::env::remove_var(KILL_SWITCH_ENV);
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var(KILL_SWITCH_ENV) };
         assert_eq!(result, VoiceAvailability::Disabled);
     }
 
