@@ -59,6 +59,13 @@ cargo build --release --package claurst
 # Binary is at target/release/claurst
 ```
 
+**Raspberry Pi / systems without ALSA** (e.g. Debian Trixie, headless servers):
+
+```bash
+# Build without voice/microphone support — no libasound2-dev required
+cargo build --release --package claurst --no-default-features
+```
+
 ### First run
 
 ```bash
