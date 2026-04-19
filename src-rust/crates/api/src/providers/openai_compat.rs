@@ -76,6 +76,13 @@ pub struct ProviderQuirks {
     /// points to a local or remote host, instead of short-circuiting with
     /// "No API key configured".
     pub no_api_key_required: bool,
+
+    /// When set, `list_models()` uses Ollama's native `/api/tags` endpoint
+    /// (and optionally `/api/show` for per-model metadata) instead of the
+    /// OpenAI-compatible `/v1/models` endpoint.  The value is the Ollama host
+    /// root (e.g. `"http://localhost:11434"`) so the native API can be called
+    /// independently of the `/v1` base URL used for chat completions.
+    pub ollama_native_host: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -416,6 +423,251 @@ impl OpenAiCompatProvider {
 
         Ok(resp)
     }
+
+    // -----------------------------------------------------------------------
+    // Ollama native model discovery
+    // -----------------------------------------------------------------------
+
+    /// List models using Ollama's native `/api/tags` endpoint, then enrich
+    /// each model with metadata from `/api/show` (context window, parameter
+    /// size, quantization level).
+    ///
+    /// Models are sorted with coding-oriented models first (names containing
+    /// "code" or "coder"), then by parameter size descending, so the best
+    /// local coding model naturally appears at the top.
+    async fn list_models_ollama_native(
+        &self,
+        ollama_host: &str,
+    ) -> Result<Vec<ModelInfo>, ProviderError> {
+        let tags_url = format!("{}/api/tags", ollama_host.trim_end_matches('/'));
+
+        let resp = self.http_client.get(&tags_url).send().await.map_err(|e| {
+            ProviderError::Other {
+                provider: self.id.clone(),
+                message: format!("Ollama /api/tags request failed: {}", e),
+                status: None,
+                body: None,
+            }
+        })?;
+
+        let status = resp.status().as_u16();
+        let text = resp.text().await.map_err(|e| ProviderError::Other {
+            provider: self.id.clone(),
+            message: format!("Failed to read /api/tags response: {}", e),
+            status: Some(status),
+            body: None,
+        })?;
+
+        if !(200..300).contains(&(status as usize)) {
+            return Err(self.map_http_error(status, &text));
+        }
+
+        let json: Value = serde_json::from_str(&text).map_err(|e| ProviderError::Other {
+            provider: self.id.clone(),
+            message: format!("Failed to parse /api/tags JSON: {}", e),
+            status: Some(status),
+            body: Some(text),
+        })?;
+
+        let models_arr = match json.get("models").and_then(|m| m.as_array()) {
+            Some(m) => m,
+            None => return Ok(vec![]),
+        };
+
+        // Collect model names from /api/tags.
+        let model_names: Vec<String> = models_arr
+            .iter()
+            .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(String::from))
+            .collect();
+
+        // Fetch detailed metadata for each model via /api/show.
+        let show_url_base = format!("{}/api/show", ollama_host.trim_end_matches('/'));
+        let provider_id = self.id.clone();
+
+        let mut models: Vec<(ModelInfo, bool, u64)> = Vec::with_capacity(model_names.len());
+
+        for name in &model_names {
+            let (context_window, max_output, is_coder, param_size) =
+                self.fetch_ollama_model_info(&show_url_base, name).await;
+
+            models.push((
+                ModelInfo {
+                    id: ModelId::new(name.as_str()),
+                    provider_id: provider_id.clone(),
+                    name: Self::ollama_display_name(name),
+                    context_window,
+                    max_output_tokens: max_output,
+                },
+                is_coder,
+                param_size,
+            ));
+        }
+
+        // Sort: coding models first, then by parameter size descending.
+        models.sort_by(|a, b| {
+            b.1.cmp(&a.1) // coders first
+                .then_with(|| b.2.cmp(&a.2)) // larger models first
+        });
+
+        Ok(models.into_iter().map(|(info, _, _)| info).collect())
+    }
+
+    /// Call `/api/show` for a single model to extract its actual context
+    /// window, parameter count, and whether it's coding-oriented.
+    ///
+    /// Returns `(context_window, max_output_tokens, is_coder, param_size_bytes)`.
+    /// Falls back to sensible defaults if the request fails.
+    async fn fetch_ollama_model_info(
+        &self,
+        show_url: &str,
+        model_name: &str,
+    ) -> (u32, u32, bool, u64) {
+        let default_ctx = 4_096u32;
+        let default_out = 2_048u32;
+        let lower = model_name.to_lowercase();
+        let is_coder_by_name = lower.contains("code")
+            || lower.contains("coder")
+            || lower.contains("codestral")
+            || lower.contains("starcoder")
+            || lower.contains("deepseek-coder")
+            || lower.contains("qwen2.5-coder");
+
+        let body = serde_json::json!({ "name": model_name });
+        let resp = match self.http_client.post(show_url).json(&body).send().await {
+            Ok(r) if r.status().is_success() => r,
+            _ => return (default_ctx, default_out, is_coder_by_name, 0),
+        };
+
+        let json: Value = match resp.json().await {
+            Ok(j) => j,
+            Err(_) => return (default_ctx, default_out, is_coder_by_name, 0),
+        };
+
+        // Extract parameter size from model_info.
+        let param_size = json
+            .get("model_info")
+            .and_then(|mi| {
+                mi.get("general.parameter_count")
+                    .and_then(|v| v.as_u64())
+            })
+            .unwrap_or(0);
+
+        // Extract num_ctx from the modelfile parameters or model_info.
+        let num_ctx = Self::extract_num_ctx(&json).unwrap_or(default_ctx);
+
+        // Max output is typically a fraction of context window for local
+        // models.  Use half the context or 4096, whichever is smaller.
+        let max_output = std::cmp::min(num_ctx / 2, 4_096);
+
+        // Check if the model family or template indicates coding capability.
+        let family = json
+            .get("model_info")
+            .and_then(|mi| mi.get("general.basename").and_then(|v| v.as_str()))
+            .unwrap_or("");
+        let is_coder = is_coder_by_name
+            || family.contains("code")
+            || family.contains("coder");
+
+        (num_ctx, max_output, is_coder, param_size)
+    }
+
+    /// Extract `num_ctx` (context window) from the `/api/show` response.
+    ///
+    /// Ollama stores this in the modelfile parameters string (e.g.
+    /// `"num_ctx 32768"`) or in `model_info` under context-length keys.
+    fn extract_num_ctx(json: &Value) -> Option<u32> {
+        // 1. Check model_info for context length keys.
+        if let Some(mi) = json.get("model_info") {
+            for key in &[
+                "llama.context_length",
+                "qwen2.context_length",
+                "gemma.context_length",
+                "gemma2.context_length",
+                "phi3.context_length",
+                "mistral.context_length",
+                "starcoder2.context_length",
+                "deepseek2.context_length",
+                "command-r.context_length",
+                "granite.context_length",
+            ] {
+                if let Some(v) = mi.get(*key).and_then(|v| v.as_u64()) {
+                    return Some(v as u32);
+                }
+            }
+
+            // Fallback: scan all keys ending in ".context_length"
+            if let Some(obj) = mi.as_object() {
+                for (k, v) in obj {
+                    if k.ends_with(".context_length") {
+                        if let Some(n) = v.as_u64() {
+                            return Some(n as u32);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Parse from the modelfile parameters string.
+        if let Some(params) = json.get("parameters").and_then(|p| p.as_str()) {
+            for line in params.lines() {
+                let trimmed = line.trim();
+                if let Some(rest) = trimmed.strip_prefix("num_ctx") {
+                    if let Ok(n) = rest.trim().parse::<u32>() {
+                        return Some(n);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Produce a human-readable display name from an Ollama model name.
+    ///
+    /// `"qwen2.5-coder:32b-instruct-q4_K_M"` → `"Qwen 2.5 Coder (32B, Q4_K_M)"`
+    fn ollama_display_name(raw: &str) -> String {
+        let (base, tag) = raw.split_once(':').unwrap_or((raw, "latest"));
+
+        let pretty_base = base
+            .replace('-', " ")
+            .replace('_', " ")
+            .split_whitespace()
+            .map(|word| {
+                let mut chars = word.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(c) => {
+                        let upper: String = c.to_uppercase().collect();
+                        format!("{}{}", upper, chars.as_str())
+                    }
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        if tag == "latest" {
+            return pretty_base;
+        }
+
+        let tag_parts: Vec<&str> = tag.split('-').collect();
+        let mut size_part = None;
+        let mut quant_part = None;
+        for part in &tag_parts {
+            let lower = part.to_lowercase();
+            if lower.ends_with('b') && lower.trim_end_matches('b').parse::<f64>().is_ok() {
+                size_part = Some(part.to_uppercase());
+            } else if lower.starts_with('q') && lower.len() > 1 {
+                quant_part = Some(part.to_uppercase());
+            }
+        }
+
+        match (size_part, quant_part) {
+            (Some(s), Some(q)) => format!("{} ({}, {})", pretty_base, s, q),
+            (Some(s), None) => format!("{} ({})", pretty_base, s),
+            (None, Some(q)) => format!("{} ({})", pretty_base, q),
+            (None, None) => format!("{} ({})", pretty_base, tag),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -702,6 +954,13 @@ impl LlmProvider for OpenAiCompatProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>, ProviderError> {
+        // Use Ollama native API when configured — provides richer metadata
+        // (parameter size, quantization, actual context window) than the
+        // generic OpenAI-compat /v1/models endpoint.
+        if let Some(ref ollama_host) = self.quirks.ollama_native_host {
+            return self.list_models_ollama_native(ollama_host).await;
+        }
+
         let url = format!("{}/models", self.base_url.trim_end_matches('/'));
         let builder = self.http_client.get(&url);
         let builder = self.apply_auth(builder);

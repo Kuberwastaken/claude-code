@@ -64,6 +64,7 @@ pub fn ollama() -> OpenAiCompatProvider {
             "exceeded.*context length".to_string(),
         ],
         no_api_key_required: true,
+        ollama_native_host: Some(host),
         ..Default::default()
     })
 }
