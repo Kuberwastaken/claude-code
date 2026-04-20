@@ -1,0 +1,91 @@
+# Clippy configuration
+# https://doc.rust-lang.org/clippy/configuration.html
+# Note: `.clippy.toml` takes precedence; `clippy.toml` is ignored if both exist.
+# If a project has `clippy.toml`, rename it to `.clippy.toml`.
+
+avoid-breaking-exported-api    = true
+check-private-items            = true
+cognitive-complexity-threshold = 25
+msrv                           = "1.91.0"
+
+# Allow these identifiers in doc comments without backtick-quoting
+doc-valid-idents = [
+  "DirectX",
+  "EiB",
+  "GPLv2",
+  "GPLv3",
+  "GiB",
+  "GilRs",
+  "GitHub",
+  "HTTPS",
+  "IPv4",
+  "IPv6",
+  "JSON",
+  "JavaScript",
+  "MiB",
+  "MySQL",
+  "NVidia",
+  "NaN",
+  "OAuth",
+  "OpenGL",
+  "OpenXR",
+  "PiB",
+  "PostgreSQL",
+  "SQLite",
+  "TCP",
+  "TLS",
+  "TiB",
+  "TrueType",
+  "UDP",
+  "VSync",
+  "WebGL2",
+  "WebGPU",
+  "glTF",
+  "macOS",
+  "sRGB",
+]
+
+# SAFETY comment configuration
+accept-comment-above-attributes = true
+accept-comment-above-statement  = true
+
+# ── Disallowed methods ──────────────────────────────────────────────
+# Triggers clippy::disallowed_methods (must be enabled in Cargo.toml)
+disallowed-methods = [
+  # { path = "criterion::black_box", reason = "use core::hint::black_box instead" },
+  # Deprecated / UB
+  { path = "f32::abs_sub", reason = "deprecated — use (a - b).abs() or f32::max(a - b, 0.0)" },
+  { path = "f64::abs_sub", reason = "deprecated — use (a - b).abs() or f64::max(a - b, 0.0)" },
+  { path = "std::mem::uninitialized", reason = "UB — use MaybeUninit<T> instead" },
+  { path = "std::mem::zeroed", reason = "UB for non-POD types — use MaybeUninit<T> instead" },
+
+  # Edition 2024 safety
+  { path = "std::env::remove_var", reason = "unsafe in Edition 2024 — wrap in unsafe {} with justification" },
+  { path = "std::env::set_var", reason = "unsafe in Edition 2024 — wrap in unsafe {} with justification" },
+
+  # Security
+  { path = "std::process::Command::new", reason = "may run executables from CWD — use absolute paths or resolve explicitly" },
+
+  # Platform correctness
+  { path = "std::fs::canonicalize", reason = "returns UNC/verbatim paths on Windows — use dunce::canonicalize instead" },
+
+  # Non-reentrant C functions (use Rust std alternatives)
+  { path = "libc::getenv", reason = "inherent race condition — use std::env::var" },
+  { path = "libc::localtime", reason = "not reentrant — use chrono or libc::localtime_r" },
+  { path = "libc::strerror", reason = "not reentrant — use std::io::Error" },
+  { path = "libc::strtok", reason = "not reentrant — use str::split" },
+]
+
+# ── Disallowed types ────────────────────────────────────────────────
+# Triggers clippy::disallowed_types (must be enabled in Cargo.toml)
+disallowed-types = [
+  { path = "std::sync::mpsc::Receiver", reason = "use crossbeam::channel — std mpsc has known perf issues" },
+  { path = "std::sync::mpsc::Sender", reason = "use crossbeam::channel — std mpsc has known perf issues" },
+  { path = "std::sync::mpsc::SyncSender", reason = "use crossbeam::channel — std mpsc has known perf issues" },
+]
+
+# ── Disallowed macros ───────────────────────────────────────────────
+# Triggers clippy::disallowed_macros (must be enabled in Cargo.toml)
+disallowed-macros = [
+  { path = "lazy_static::lazy_static", reason = "use std::sync::OnceLock (1.70+) or std::sync::LazyLock (1.80+)" },
+]

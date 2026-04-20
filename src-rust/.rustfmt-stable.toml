@@ -1,0 +1,27 @@
+# This file was originally created by running the command
+# rustfmt --print-config default rustfmt.toml && sort -u rustfmt.toml -o rustfmt.toml.
+# Changes from the defaults are marked with comments.
+#
+# https://rust-lang.github.io/rustfmt/?version=v1.9.0&search=
+
+# Default use_try_shorthand = false
+use_try_shorthand = true
+
+# Rust language edition to be used by the parser.
+# Default edition = "2015"
+edition = "2024"
+
+# Controls the edition of the Rust Style Guide to use for formatting (RFC 3338)
+# https://doc.rust-lang.org/nightly/style-guide/
+max_width            = 100
+style_edition        = "2024"
+use_small_heuristics = "Default"
+
+# Line endings will be converted to \n.
+newline_style = "Unix"
+
+# Control the layout of parameters in function signatures.
+fn_params_layout = "Compressed"
+
+# Use field initialize shorthand if possible.
+use_field_init_shorthand = true

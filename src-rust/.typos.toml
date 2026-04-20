@@ -1,0 +1,189 @@
+[files]
+extend-exclude = ["*.cdx.xml", "*.drawio", "*.svg"]
+ignore-dot     = true
+ignore-files   = true
+ignore-global  = true
+ignore-hidden  = true
+ignore-parent  = true
+ignore-vcs     = true
+
+[default]
+binary                       = false
+check-file                   = true
+check-filename               = true
+extend-ignore-identifiers-re = []
+extend-ignore-re             = []
+extend-ignore-words-re       = []
+identifier-leading-digits    = false
+ignore-hex                   = true
+locale                       = "en"
+unicode                      = true
+
+[default.extend-identifiers]
+
+[default.extend-words]
+
+[type.rust]
+binary                       = false
+check-file                   = true
+check-filename               = true
+extend-glob                  = []
+extend-ignore-identifiers-re = []
+extend-ignore-re             = []
+extend-ignore-words-re       = []
+identifier-leading-digits    = false
+ignore-hex                   = true
+locale                       = "en"
+unicode                      = true
+
+[type.rust.extend-identifiers]
+flate2 = "flate2"
+
+[type.rust.extend-words]
+ser = "ser"
+
+[type.lock]
+binary                       = false
+check-file                   = false
+check-filename               = true
+extend-glob                  = []
+extend-ignore-identifiers-re = []
+extend-ignore-re             = []
+extend-ignore-words-re       = []
+identifier-leading-digits    = false
+ignore-hex                   = true
+locale                       = "en"
+unicode                      = true
+
+[type.lock.extend-identifiers]
+
+[type.lock.extend-words]
+
+[type.jl]
+binary                       = false
+check-file                   = true
+check-filename               = true
+extend-glob                  = []
+extend-ignore-identifiers-re = []
+extend-ignore-re             = []
+extend-ignore-words-re       = []
+identifier-leading-digits    = false
+ignore-hex                   = true
+locale                       = "en"
+unicode                      = true
+
+[type.jl.extend-identifiers]
+
+[type.jl.extend-words]
+egal  = "egal"
+egals = "egals"
+modul = "modul"
+usig  = "usig"
+
+[type.man]
+binary                       = false
+check-file                   = true
+check-filename               = true
+extend-glob                  = []
+extend-ignore-identifiers-re = []
+extend-ignore-re             = []
+extend-ignore-words-re       = []
+identifier-leading-digits    = false
+ignore-hex                   = true
+locale                       = "en"
+unicode                      = true
+
+[type.man.extend-identifiers]
+Nd = "Nd"
+
+[type.man.extend-words]
+
+[type.py]
+binary                       = false
+check-file                   = true
+check-filename               = true
+extend-glob                  = []
+extend-ignore-identifiers-re = []
+extend-ignore-re             = []
+extend-ignore-words-re       = []
+identifier-leading-digits    = false
+ignore-hex                   = true
+locale                       = "en"
+unicode                      = true
+
+[type.py.extend-identifiers]
+NDArray = "NDArray"
+
+[type.py.extend-words]
+
+[type.sh]
+binary                       = false
+check-file                   = true
+check-filename               = true
+extend-glob                  = []
+extend-ignore-identifiers-re = []
+extend-ignore-re             = []
+extend-ignore-words-re       = []
+identifier-leading-digits    = false
+ignore-hex                   = true
+locale                       = "en"
+unicode                      = true
+
+[type.sh.extend-identifiers]
+ot   = "ot"
+stap = "stap"
+
+[type.sh.extend-words]
+
+[type.cert]
+binary                       = false
+check-file                   = false
+check-filename               = true
+extend-glob                  = []
+extend-ignore-identifiers-re = []
+extend-ignore-re             = []
+extend-ignore-words-re       = []
+identifier-leading-digits    = false
+ignore-hex                   = true
+locale                       = "en"
+unicode                      = true
+
+[type.cert.extend-identifiers]
+
+[type.cert.extend-words]
+
+[type.vimscript]
+binary                       = false
+check-file                   = true
+check-filename               = true
+extend-glob                  = []
+extend-ignore-identifiers-re = []
+extend-ignore-re             = []
+extend-ignore-words-re       = []
+identifier-leading-digits    = false
+ignore-hex                   = true
+locale                       = "en"
+unicode                      = true
+
+[type.vimscript.extend-identifiers]
+windo = "windo"
+
+[type.vimscript.extend-words]
+
+[type.css]
+binary                       = false
+check-file                   = true
+check-filename               = true
+extend-glob                  = []
+extend-ignore-identifiers-re = []
+extend-ignore-re             = []
+extend-ignore-words-re       = []
+identifier-leading-digits    = false
+ignore-hex                   = true
+locale                       = "en"
+unicode                      = true
+
+[type.css.extend-identifiers]
+nd = "nd"
+
+[type.css.extend-words]

@@ -1,0 +1,59 @@
+# This file was originally created by running the command
+# rustfmt --print-config default rustfmt.toml && sort -u rustfmt.toml -o rustfmt.toml.
+# Changes from the defaults are marked with comments.
+#
+# https://rust-lang.github.io/rustfmt/?version=v1.9.0&search=
+
+# Enable nightly options in stable toolchain:
+# Default unstable_features = false
+unstable_features = true
+
+# Default use_try_shorthand = false
+use_try_shorthand = true
+
+# Rust language edition to be used by the parser.
+# Default edition = "2015"
+edition = "2024"
+
+# Controls the edition of the Rust Style Guide to use for formatting (RFC 3338)
+# https://doc.rust-lang.org/nightly/style-guide/
+blank_lines_lower_bound  = 0
+blank_lines_upper_bound  = 1
+indent_style             = "Block"
+max_width                = 100
+normalize_doc_attributes = true
+style_edition            = "2024"
+trailing_comma           = "Vertical"
+use_small_heuristics     = "Default"
+
+# Line endings will be converted to \n.
+newline_style = "Unix"
+
+# Break comments to fit on the line
+comment_width               = 100
+format_code_in_doc_comments = true
+wrap_comments               = true
+
+# Reorder import and extern crate statements alphabetically in groups (a group
+# is separated by a newline).
+reorder_imports = true
+
+# Reorder impl items. type and const are put first, then macros and methods.
+reorder_impl_items = true
+
+# Merge imports from the same crate into a single use statement. Conversely,
+# imports from different crates are split into separate statements.
+imports_granularity = "Crate"
+
+# Discard existing import groups, and create three groups for: std/core/alloc,
+# extern, self/super/crate imports
+group_imports = "StdExternalCrate"
+
+# Third party code is formatted upstream.
+ignore = ["/*-build/", "/build-*/", "/build/", "/vendor/"]
+
+# Control the layout of parameters in function signatures.
+fn_params_layout = "Compressed"
+
+# Use field initialize shorthand if possible.
+use_field_init_shorthand = true
