@@ -733,6 +733,7 @@ dependencies = [
  "tokio-tungstenite",
  "tracing",
  "urlencoding",
+ "walkdir",
 ]
 
 [[package]]

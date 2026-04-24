@@ -111,6 +111,14 @@ impl Tool for McpToolWrapper {
     version = APP_VERSION,
     about = "Claurst - AI-powered coding assistant",
     long_about = None,
+    after_help = "COMMANDS:\n\
+    claude migrate [--dry-run]       Import Claude Code config into Claurst\n\
+    claude agents [list|create]      Manage sub-agents\n\
+    claude branch [create|list|switch]  Conversation branching\n\
+    claude ide [status|connect]      IDE integration\n\
+    claude remote-setup              Check remote environment\n\
+\n\
+    Run 'claude <command> --help' for more info on a specific command.",
 )]
 struct Cli {
     /// Initial prompt to send (enables headless/print mode)

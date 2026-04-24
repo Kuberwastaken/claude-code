@@ -17,6 +17,7 @@
 //!   src/commands/remote-setup/index.ts (implied by component structure)
 
 use crate::{CommandContext, CommandResult};
+use std::path::PathBuf;
 // `open` crate: used by StickersCommand to launch the browser.
 
 // ---------------------------------------------------------------------------
@@ -1070,6 +1071,704 @@ impl NamedCommand for UltraplanCommand {
 }
 
 // ---------------------------------------------------------------------------
+// migrate — Import Claude Code (.claude) configuration into Claurst (.claurst)
+// ---------------------------------------------------------------------------
+
+pub struct MigrateCommand;
+
+impl NamedCommand for MigrateCommand {
+    fn name(&self) -> &str { "migrate" }
+    fn description(&self) -> &str { "Import Claude Code configuration into Claurst" }
+    fn usage(&self) -> &str {
+        "claude migrate [--dry-run] [--overwrite] [--sessions]\n\n\
+         Imports global settings, MCP servers, agents, skills, and AGENTS.md\n\
+         from ~/.claude/ into ~/.claurst/. Also migrates project-level\n\
+         .claude/settings.json to .claurst/settings.json when run in a project.\n\n\
+         Options:\n\
+           --dry-run    Show what would be migrated without writing anything\n\
+           --overwrite  Replace existing Claurst config instead of merging\n\
+           --sessions   Also copy session history files"
+    }
+
+    fn execute_named(&self, args: &[&str], ctx: &CommandContext) -> CommandResult {
+        let dry_run = args.iter().any(|a| *a == "--dry-run");
+        let overwrite = args.iter().any(|a| *a == "--overwrite");
+        let migrate_sessions = args.iter().any(|a| *a == "--sessions");
+
+        let claude_dir = dirs::home_dir()
+            .map(|h| h.join(".claude"))
+            .unwrap_or_else(|| PathBuf::from(".claude"));
+        let claurst_dir = claurst_core::config::Settings::config_dir();
+
+        if !claude_dir.exists() {
+            return CommandResult::Error(format!(
+                "Claude Code config directory not found: {}\n\
+                 Nothing to migrate.",
+                claude_dir.display()
+            ));
+        }
+
+        let mut report = Vec::new();
+
+        // ---- 1. Global settings.json ------------------------------------------------
+        let claude_settings_path = claude_dir.join("settings.json");
+        if claude_settings_path.exists() {
+            match migrate_settings_file(&claude_settings_path, &claurst_dir, overwrite, dry_run, &mut report) {
+                Ok(()) => {}
+                Err(e) => report.push(format!("  ! settings.json: {e}")),
+            }
+        } else {
+            report.push("  - settings.json (not found in ~/.claude/)".to_string());
+        }
+
+        // ---- 2. Project-level settings.json -----------------------------------------
+        let project_claude = ctx.working_dir.join(".claude").join("settings.json");
+        let project_claurst = ctx.working_dir.join(".claurst");
+        if project_claude.exists() {
+            match migrate_settings_file(&project_claude, &project_claurst, overwrite, dry_run, &mut report) {
+                Ok(()) => {}
+                Err(e) => report.push(format!("  ! .claude/settings.json: {e}")),
+            }
+        }
+
+        // ---- 3. Memory files (CLAUDE.md / AGENTS.md) -------------------------------
+        // Claude Code uses CLAUDE.md; Claurst supports both AGENTS.md (primary)
+        // and CLAUDE.md (fallback). Migrate whichever exists, preserving name.
+        for filename in [&"CLAUDE.md", &"AGENTS.md"] {
+            let src = claude_dir.join(filename);
+            let dst = claurst_dir.join(filename);
+            if src.exists() {
+                if dry_run {
+                    report.push(format!(
+                        "  ~ {}  →  {} (dry-run)",
+                        filename,
+                        dst.display()
+                    ));
+                } else {
+                    if let Some(parent) = dst.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    match std::fs::copy(&src, &dst) {
+                        Ok(_) => report.push(format!(
+                            "  ✓ {}  →  {}",
+                            filename,
+                            dst.display()
+                        )),
+                        Err(e) => report.push(format!(
+                            "  ! {}: {e}",
+                            filename
+                        )),
+                    }
+                }
+            }
+        }
+
+        // ---- 4. Project-level memory files ------------------------------------------
+        for filename in [&"CLAUDE.md", &"AGENTS.md"] {
+            let src = ctx.working_dir.join(".claude").join(filename);
+            let dst = ctx.working_dir.join(".claurst").join(filename);
+            if src.exists() {
+                if dry_run {
+                    report.push(format!(
+                        "  ~ .claude/{}  →  {} (dry-run)",
+                        filename,
+                        dst.display()
+                    ));
+                } else {
+                    if let Some(parent) = dst.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    match std::fs::copy(&src, &dst) {
+                        Ok(_) => report.push(format!(
+                            "  ✓ .claude/{}  →  {}",
+                            filename,
+                            dst.display()
+                        )),
+                        Err(e) => report.push(format!(
+                            "  ! .claude/{}: {e}",
+                            filename
+                        )),
+                    }
+                }
+            }
+        }
+
+        // ---- 5. Skills directories --------------------------------------------------
+        let global_skills_src = claude_dir.join("skills");
+        let global_skills_dst = claurst_dir.join("skills");
+        if global_skills_src.exists() && global_skills_src.is_dir() {
+            if dry_run {
+                report.push(format!(
+                    "  ~ skills/  →  {} (dry-run)",
+                    global_skills_dst.display()
+                ));
+            } else {
+                match copy_dir_contents(&global_skills_src, &global_skills_dst) {
+                    Ok(count) => report.push(format!(
+                        "  ✓ skills/  →  {} ({} files)",
+                        global_skills_dst.display(),
+                        count
+                    )),
+                    Err(e) => report.push(format!(
+                        "  ! skills/: {e}"
+                    )),
+                }
+            }
+        }
+
+        let project_skills_src = ctx.working_dir.join(".claude").join("skills");
+        let project_skills_dst = ctx.working_dir.join(".claurst").join("skills");
+        if project_skills_src.exists() && project_skills_src.is_dir() {
+            if dry_run {
+                report.push(format!(
+                    "  ~ .claude/skills/  →  {} (dry-run)",
+                    project_skills_dst.display()
+                ));
+            } else {
+                match copy_dir_contents(&project_skills_src, &project_skills_dst) {
+                    Ok(count) => report.push(format!(
+                        "  ✓ .claude/skills/  →  {} ({} files)",
+                        project_skills_dst.display(),
+                        count
+                    )),
+                    Err(e) => report.push(format!(
+                        "  ! .claude/skills/: {e}"
+                    )),
+                }
+            }
+        }
+
+        // ---- 6. Sessions (optional) -------------------------------------------------
+        if migrate_sessions {
+            let claude_sessions = claude_dir.join("sessions");
+            let claurst_sessions = claurst_dir.join("sessions");
+            if claude_sessions.exists() && claude_sessions.is_dir() {
+                if dry_run {
+                    report.push(format!(
+                        "  ~ sessions/  →  {} (dry-run)",
+                        claurst_sessions.display()
+                    ));
+                } else {
+                    match copy_dir_contents(&claude_sessions, &claurst_sessions) {
+                        Ok(count) => report.push(format!(
+                            "  ✓ sessions/  →  {} ({} files)",
+                            claurst_sessions.display(),
+                            count
+                        )),
+                        Err(e) => report.push(format!(
+                            "  ! sessions/: {e}"
+                        )),
+                    }
+                }
+            }
+        }
+
+        // ---- 7. Remaining files (dependencies like @RTK.md, etc.) -------------------
+        // Copy any other files/directories from ~/.claude/ that weren't handled above.
+        let skip_names: std::collections::HashSet<&str> = [
+            "settings.json", "AGENTS.md", "CLAUDE.md",
+            "skills", "sessions",
+        ].iter().copied().collect();
+        if let Ok(entries) = std::fs::read_dir(&claude_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if skip_names.contains(name_str.as_ref()) {
+                    continue;
+                }
+                let src = entry.path();
+                let dst = claurst_dir.join(&name);
+                if dry_run {
+                    report.push(format!(
+                        "  ~ {}  →  {} (dry-run)",
+                        name_str,
+                        dst.display()
+                    ));
+                } else {
+                    if src.is_dir() {
+                        match copy_dir_contents(&src, &dst) {
+                            Ok(count) => report.push(format!(
+                                "  ✓ {}/  →  {} ({} files)",
+                                name_str,
+                                dst.display(),
+                                count
+                            )),
+                            Err(e) => report.push(format!(
+                                "  ! {}/: {e}",
+                                name_str
+                            )),
+                        }
+                    } else {
+                        if let Some(parent) = dst.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        match std::fs::copy(&src, &dst) {
+                            Ok(_) => report.push(format!(
+                                "  ✓ {}  →  {}",
+                                name_str,
+                                dst.display()
+                            )),
+                            Err(e) => report.push(format!(
+                                "  ! {}: {e}",
+                                name_str
+                            )),
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---- 8. Project-level remaining files ---------------------------------------
+        let project_claude_dir = ctx.working_dir.join(".claude");
+        let project_claurst_dir = ctx.working_dir.join(".claurst");
+        if project_claude_dir.exists() && project_claude_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&project_claude_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+                    if skip_names.contains(name_str.as_ref()) {
+                        continue;
+                    }
+                    let src = entry.path();
+                    let dst = project_claurst_dir.join(&name);
+                    if dry_run {
+                        report.push(format!(
+                            "  ~ .claude/{}  →  {} (dry-run)",
+                            name_str,
+                            dst.display()
+                        ));
+                    } else {
+                        if src.is_dir() {
+                            match copy_dir_contents(&src, &dst) {
+                                Ok(count) => report.push(format!(
+                                    "  ✓ .claude/{}/  →  {} ({} files)",
+                                    name_str,
+                                    dst.display(),
+                                    count
+                                )),
+                                Err(e) => report.push(format!(
+                                    "  ! .claude/{}/: {e}",
+                                    name_str
+                                )),
+                            }
+                        } else {
+                            if let Some(parent) = dst.parent() {
+                                let _ = std::fs::create_dir_all(parent);
+                            }
+                            match std::fs::copy(&src, &dst) {
+                                Ok(_) => report.push(format!(
+                                    "  ✓ .claude/{}  →  {}",
+                                    name_str,
+                                    dst.display()
+                                )),
+                                Err(e) => report.push(format!(
+                                    "  ! .claude/{}: {e}",
+                                    name_str
+                                )),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let header = if dry_run {
+            "Migration Preview (dry-run — no files were written)\n"
+        } else {
+            "Migration Complete\n"
+        };
+
+        CommandResult::Message(format!(
+            "{}{}\n\n\
+             Source: {}\n\
+             Target: {}\n\n\
+             Run 'claude migrate --dry-run' first to preview changes.",
+            header,
+            report.join("\n"),
+            claude_dir.display(),
+            claurst_dir.display(),
+        ))
+    }
+}
+
+/// Read a Claude Code settings.json and write it as Claurst settings.json.
+fn migrate_settings_file(
+    src: &std::path::Path,
+    dst_dir: &std::path::Path,
+    overwrite: bool,
+    dry_run: bool,
+    report: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(src)?;
+    let cc_value: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("invalid JSON in {}: {e}", src.display()))?;
+
+    // Load existing Claurst settings (if any) for merging.
+    let mut claurst_settings = if overwrite || dry_run {
+        claurst_core::config::Settings::default()
+    } else {
+        let dst = dst_dir.join("settings.json");
+        if dst.exists() {
+            std::fs::read_to_string(&dst)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default()
+        } else {
+            claurst_core::config::Settings::default()
+        }
+    };
+
+    // ---- Map fields from Claude Code (camelCase) to Claurst (snake_case) ----------
+
+    if let Some(v) = cc_value.get("mcpServers") {
+        let servers = parse_cc_mcp_servers(v);
+        if !servers.is_empty() {
+            claurst_settings.config.mcp_servers.extend(servers);
+            // dedupe by name
+            let mut seen = std::collections::HashSet::new();
+            claurst_settings.config.mcp_servers.retain(|s| seen.insert(s.name.clone()));
+        }
+    }
+
+    if let Some(v) = cc_value.get("allowedTools") {
+        if let Some(arr) = v.as_array() {
+            for item in arr {
+                if let Some(s) = item.as_str() {
+                    if !claurst_settings.config.allowed_tools.iter().any(|t| t == s) {
+                        claurst_settings.config.allowed_tools.push(s.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(v) = cc_value.get("disabledTools") {
+        if let Some(arr) = v.as_array() {
+            for item in arr {
+                if let Some(s) = item.as_str() {
+                    if !claurst_settings.config.disallowed_tools.iter().any(|t| t == s) {
+                        claurst_settings.config.disallowed_tools.push(s.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(v) = cc_value.get("env") {
+        if let Some(obj) = v.as_object() {
+            for (k, val) in obj {
+                if let Some(s) = val.as_str() {
+                    claurst_settings.config.env.insert(k.clone(), s.to_string());
+                }
+            }
+        }
+    }
+
+    if let Some(v) = cc_value.get("theme") {
+        if let Some(s) = v.as_str() {
+            claurst_settings.config.theme = match s {
+                "dark" => claurst_core::config::Theme::Dark,
+                "light" => claurst_core::config::Theme::Light,
+                "deuteranopia" => claurst_core::config::Theme::Deuteranopia,
+                _ => claurst_core::config::Theme::Default,
+            };
+        }
+    }
+
+    if let Some(v) = cc_value.get("customSystemPrompt") {
+        if let Some(s) = v.as_str() {
+            claurst_settings.config.custom_system_prompt = Some(s.to_string());
+        }
+    }
+
+    if let Some(v) = cc_value.get("appendSystemPrompt") {
+        if let Some(s) = v.as_str() {
+            claurst_settings.config.append_system_prompt = Some(s.to_string());
+        }
+    }
+
+    if let Some(v) = cc_value.get("permissionMode") {
+        if let Some(s) = v.as_str() {
+            claurst_settings.config.permission_mode = match s {
+                "acceptEdits" => claurst_core::config::PermissionMode::AcceptEdits,
+                "bypassPermissions" => claurst_core::config::PermissionMode::BypassPermissions,
+                "plan" => claurst_core::config::PermissionMode::Plan,
+                _ => claurst_core::config::PermissionMode::Default,
+            };
+        }
+    }
+
+    if let Some(v) = cc_value.get("outputFormat") {
+        if let Some(s) = v.as_str() {
+            claurst_settings.config.output_format = match s {
+                "json" => claurst_core::config::OutputFormat::Json,
+                "streamJson" => claurst_core::config::OutputFormat::StreamJson,
+                _ => claurst_core::config::OutputFormat::Text,
+            };
+        }
+    }
+
+    if let Some(v) = cc_value.get("autoCompact") {
+        if let Some(b) = v.as_bool() {
+            claurst_settings.config.auto_compact = b;
+        }
+    }
+
+    if let Some(v) = cc_value.get("compactThreshold") {
+        if let Some(n) = v.as_f64() {
+            claurst_settings.config.compact_threshold = n as f32;
+        }
+    }
+
+    if let Some(v) = cc_value.get("maxTokens") {
+        if let Some(n) = v.as_u64() {
+            claurst_settings.config.max_tokens = Some(n as u32);
+        }
+    }
+
+    if let Some(v) = cc_value.get("model") {
+        if let Some(s) = v.as_str() {
+            claurst_settings.config.model = Some(s.to_string());
+        }
+    }
+
+    if let Some(v) = cc_value.get("projectDir") {
+        if let Some(s) = v.as_str() {
+            claurst_settings.config.project_dir = Some(PathBuf::from(s));
+        }
+    }
+
+    if let Some(v) = cc_value.get("workspacePaths") {
+        if let Some(arr) = v.as_array() {
+            for item in arr {
+                if let Some(s) = item.as_str() {
+                    let p = PathBuf::from(s);
+                    if !claurst_settings.config.workspace_paths.iter().any(|wp| wp == &p) {
+                        claurst_settings.config.workspace_paths.push(p);
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(v) = cc_value.get("disableClaudeMds") {
+        if let Some(b) = v.as_bool() {
+            claurst_settings.config.disable_claude_mds = b;
+        }
+    }
+
+    if let Some(v) = cc_value.get("enableAllMcpServers") {
+        if let Some(b) = v.as_bool() {
+            claurst_settings.config.enable_all_mcp_servers = b;
+        }
+    }
+
+    if let Some(v) = cc_value.get("provider") {
+        if let Some(s) = v.as_str() {
+            claurst_settings.provider = Some(s.to_string());
+            claurst_settings.config.provider = Some(s.to_string());
+        }
+    }
+
+    // providerConfigs → provider_configs
+    if let Some(v) = cc_value.get("providerConfigs") {
+        if let Some(obj) = v.as_object() {
+            for (k, val) in obj {
+                if let Ok(pc) = serde_json::from_value::<claurst_core::config::ProviderConfig>(val.clone()) {
+                    claurst_settings.config.provider_configs.insert(k.clone(), pc.clone());
+                    claurst_settings.providers.insert(k.clone(), pc);
+                }
+            }
+        }
+    }
+
+    // commands (same structure, just camelCase keys inside)
+    if let Some(v) = cc_value.get("commands") {
+        if let Some(obj) = v.as_object() {
+            for (k, val) in obj {
+                if let Ok(ct) = serde_json::from_value::<claurst_core::config::CommandTemplate>(val.clone()) {
+                    claurst_settings.config.commands.insert(k.clone(), ct.clone());
+                    claurst_settings.commands.insert(k.clone(), ct);
+                }
+            }
+        }
+    }
+
+    // agents (same structure, just camelCase keys inside)
+    if let Some(v) = cc_value.get("agents") {
+        if let Some(obj) = v.as_object() {
+            for (k, val) in obj {
+                if let Ok(ad) = serde_json::from_value::<claurst_core::config::AgentDefinition>(val.clone()) {
+                    claurst_settings.config.agents.insert(k.clone(), ad.clone());
+                    claurst_settings.agents.insert(k.clone(), ad);
+                }
+            }
+        }
+    }
+
+    // skills
+    if let Some(v) = cc_value.get("skills") {
+        if let Ok(sc) = serde_json::from_value::<claurst_core::config::SkillsConfig>(v.clone()) {
+            claurst_settings.config.skills.paths.extend(sc.paths);
+            claurst_settings.config.skills.urls.extend(sc.urls);
+            claurst_settings.config.skills.paths.dedup();
+            claurst_settings.config.skills.urls.dedup();
+            claurst_settings.skills = claurst_settings.config.skills.clone();
+        }
+    }
+
+    // formatter
+    if let Some(v) = cc_value.get("formatter") {
+        if let Some(obj) = v.as_object() {
+            for (k, val) in obj {
+                if let Ok(fc) = serde_json::from_value::<claurst_core::config::FormatterConfig>(val.clone()) {
+                    claurst_settings.config.formatter.insert(k.clone(), fc.clone());
+                    claurst_settings.formatter.insert(k.clone(), fc);
+                }
+            }
+        }
+    }
+
+    // hooks (event name → list of commands or objects)
+    if let Some(v) = cc_value.get("hooks") {
+        if let Some(obj) = v.as_object() {
+            for (k, val) in obj {
+                if let Some(arr) = val.as_array() {
+                    let entries: Vec<claurst_core::config::HookEntry> = arr
+                        .iter()
+                        .filter_map(|item| {
+                            if let Some(s) = item.as_str() {
+                                // String shorthand: "command"
+                                Some(claurst_core::config::HookEntry {
+                                    command: s.to_string(),
+                                    ..Default::default()
+                                })
+                            } else if let Ok(he) = serde_json::from_value::<claurst_core::config::HookEntry>(item.clone()) {
+                                // Object form with command/toolFilter/blocking
+                                Some(he)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    let event_val = serde_json::Value::String(k.clone());
+                    if let Ok(event) = serde_json::from_value::<claurst_core::config::HookEvent>(event_val) {
+                        claurst_settings.config.hooks.insert(event, entries);
+                    }
+                }
+            }
+        }
+    }
+
+    // version
+    if claurst_settings.version.is_none() {
+        claurst_settings.version = Some(1);
+    }
+
+    let dst = dst_dir.join("settings.json");
+
+    if dry_run {
+        report.push(format!(
+            "  ~ {}  →  {} (dry-run)",
+            src.display(),
+            dst.display()
+        ));
+    } else {
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_string_pretty(&claurst_settings)?;
+        std::fs::write(&dst, json)?;
+        report.push(format!(
+            "  ✓ {}  →  {}",
+            src.display(),
+            dst.display()
+        ));
+    }
+
+    Ok(())
+}
+
+/// Parse Claude Code's `mcpServers` field.
+/// Claude Code uses an object: `{ "name": { command, args, env } }`.
+/// Claurst uses an array: `[{ name, command, args, env }]`. The Claurst
+/// `McpServerConfig` also supports `url` and `type`.
+fn parse_cc_mcp_servers(value: &serde_json::Value) -> Vec<claurst_core::config::McpServerConfig> {
+    let mut servers = Vec::new();
+
+    if let Some(obj) = value.as_object() {
+        // Object format: { "name": { command, args, env, url } }
+        for (name, cfg) in obj {
+            if let Some(cmd) = cfg.get("command").and_then(|v| v.as_str()) {
+                let args = cfg.get("args")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .unwrap_or_default();
+                let env = cfg.get("env")
+                    .and_then(|v| v.as_object())
+                    .map(|obj| obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+                    .unwrap_or_default();
+                let url = cfg.get("url").and_then(|v| v.as_str()).map(String::from);
+                let server_type = cfg.get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("stdio")
+                    .to_string();
+                servers.push(claurst_core::config::McpServerConfig {
+                    name: name.clone(),
+                    command: Some(cmd.to_string()),
+                    args,
+                    env,
+                    url,
+                    server_type,
+                });
+            } else if let Some(url) = cfg.get("url").and_then(|v| v.as_str()) {
+                // URL-only server (SSE type)
+                let env = cfg.get("env")
+                    .and_then(|v| v.as_object())
+                    .map(|obj| obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+                    .unwrap_or_default();
+                servers.push(claurst_core::config::McpServerConfig {
+                    name: name.clone(),
+                    command: None,
+                    args: vec![],
+                    env,
+                    url: Some(url.to_string()),
+                    server_type: "sse".to_string(),
+                });
+            }
+        }
+    } else if let Some(arr) = value.as_array() {
+        // Array format (less common but possible)
+        for item in arr {
+            if let Ok(srv) = serde_json::from_value::<claurst_core::config::McpServerConfig>(item.clone()) {
+                servers.push(srv);
+            }
+        }
+    }
+
+    servers
+}
+
+/// Recursively copy directory contents. Returns number of files copied.
+fn copy_dir_contents(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<usize> {
+    std::fs::create_dir_all(dst)?;
+    let mut count = 0usize;
+    for entry in walkdir::WalkDir::new(src) {
+        let entry = entry?;
+        let path = entry.path();
+        let relative = path.strip_prefix(src)?;
+        let dest_path = dst.join(relative);
+        if path.is_dir() {
+            std::fs::create_dir_all(&dest_path)?;
+        } else {
+            std::fs::copy(path, &dest_path)?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -1089,6 +1788,7 @@ pub fn all_named_commands() -> Vec<Box<dyn NamedCommand>> {
         Box::new(RemoteSetupCommand),
         Box::new(StickersCommand),
         Box::new(UltraplanCommand),
+        Box::new(MigrateCommand),
     ]
 }
 
@@ -1244,5 +1944,121 @@ mod tests {
         let cmd = InstallGithubAppCommand;
         let result = cmd.execute_named(&[], &ctx);
         assert!(matches!(result, CommandResult::Message(_)));
+    }
+
+    #[test]
+    fn test_migrate_command_exists() {
+        assert!(find_named_command("migrate").is_some());
+    }
+
+    #[test]
+    fn test_parse_cc_mcp_servers_object_format() {
+        let json = serde_json::json!({
+            "filesystem": {
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+                "env": { "KEY": "val" }
+            },
+            "fetch": {
+                "url": "http://localhost:3000/sse"
+            }
+        });
+        let servers = parse_cc_mcp_servers(&json);
+        assert_eq!(servers.len(), 2);
+
+        let fs = servers.iter().find(|s| s.name == "filesystem").unwrap();
+        assert_eq!(fs.command.as_deref(), Some("npx"));
+        assert_eq!(fs.args, vec!["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]);
+        assert_eq!(fs.env.get("KEY"), Some(&"val".to_string()));
+        assert_eq!(fs.server_type, "stdio");
+
+        let fetch = servers.iter().find(|s| s.name == "fetch").unwrap();
+        assert_eq!(fetch.url.as_deref(), Some("http://localhost:3000/sse"));
+        assert_eq!(fetch.server_type, "sse");
+    }
+
+    #[test]
+    fn test_parse_cc_mcp_servers_array_format() {
+        let json = serde_json::json!([
+            { "name": "git", "command": "uvx", "args": ["mcp-server-git"], "server_type": "stdio" }
+        ]);
+        let servers = parse_cc_mcp_servers(&json);
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "git");
+    }
+
+    #[test]
+    fn test_migrate_settings_dry_run() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("settings.json");
+        let dst_dir = tmp.path().join("claurst");
+
+        let cc_settings = serde_json::json!({
+            "mcpServers": {
+                "test": { "command": "echo", "args": ["hi"] }
+            },
+            "allowedTools": ["Bash", "Read"],
+            "theme": "dark",
+            "model": "claude-sonnet-4-6",
+            "maxTokens": 4096,
+            "autoCompact": true,
+        });
+        std::fs::write(&src, serde_json::to_string_pretty(&cc_settings).unwrap()).unwrap();
+
+        let mut report = Vec::new();
+        let result = migrate_settings_file(&src, &dst_dir, false, true, &mut report);
+        assert!(result.is_ok());
+        assert!(report[0].contains("dry-run"));
+        // Nothing should be written
+        assert!(!dst_dir.join("settings.json").exists());
+    }
+
+    #[test]
+    fn test_migrate_settings_writes_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("settings.json");
+        let dst_dir = tmp.path().join("claurst");
+
+        let cc_settings = serde_json::json!({
+            "mcpServers": {
+                "test": { "command": "echo", "args": ["hi"] }
+            },
+            "allowedTools": ["Bash"],
+            "theme": "dark",
+            "model": "claude-sonnet-4-6",
+            "env": { "FOO": "bar" },
+        });
+        std::fs::write(&src, serde_json::to_string_pretty(&cc_settings).unwrap()).unwrap();
+
+        let mut report = Vec::new();
+        let result = migrate_settings_file(&src, &dst_dir, false, false, &mut report);
+        assert!(result.is_ok());
+        assert!(dst_dir.join("settings.json").exists());
+
+        let content = std::fs::read_to_string(dst_dir.join("settings.json")).unwrap();
+        let settings: claurst_core::config::Settings = serde_json::from_str(&content).unwrap();
+        assert_eq!(settings.config.mcp_servers.len(), 1);
+        assert_eq!(settings.config.mcp_servers[0].name, "test");
+        assert_eq!(settings.config.allowed_tools, vec!["Bash"]);
+        assert!(matches!(settings.config.theme, claurst_core::config::Theme::Dark));
+        assert_eq!(settings.config.model.as_deref(), Some("claude-sonnet-4-6"));
+        assert_eq!(settings.config.env.get("FOO"), Some(&"bar".to_string()));
+    }
+
+    #[test]
+    fn test_copy_dir_contents() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("a.txt"), "hello").unwrap();
+        std::fs::create_dir(src.join("sub")).unwrap();
+        std::fs::write(src.join("sub/b.txt"), "world").unwrap();
+
+        let count = copy_dir_contents(&src, &dst).unwrap();
+        assert_eq!(count, 2);
+        assert!(dst.join("a.txt").exists());
+        assert!(dst.join("sub/b.txt").exists());
+        assert_eq!(std::fs::read_to_string(dst.join("a.txt")).unwrap(), "hello");
     }
 }
