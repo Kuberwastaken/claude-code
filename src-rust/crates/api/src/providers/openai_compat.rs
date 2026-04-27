@@ -251,8 +251,11 @@ impl OpenAiCompatProvider {
                 &request.messages,
                 field,
             );
-            // DeepSeek rejects `content: null` on assistant messages — it
-            // requires either a non-null content (even "") or tool_calls.
+        }
+
+        // Some providers (DeepSeek, Ollama) reject `content: null` on
+        // assistant messages — replace with an empty string.
+        if self.quirks.reasoning_field.is_some() || self.quirks.no_api_key_required {
             Self::ensure_content_not_null(&mut messages);
         }
 
