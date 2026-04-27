@@ -26,4 +26,6 @@ base64 = { workspace = true }
 getrandom = { workspace = true }
 dirs = { workspace = true }
 chrono = { workspace = true }
+open = { workspace = true }
 urlencoding = { workspace = true }
+rmcp = { version = "1.4.0", default-features = false, features = ["client", "auth", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest-native-tls"] }

@@ -9,7 +9,7 @@ use claurst_core::cost::CostTracker;
 use claurst_core::permissions::{PermissionDecision, PermissionHandler, PermissionRequest};
 use claurst_core::types::ToolDefinition;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -148,6 +148,20 @@ pub enum PermissionLevel {
     Forbidden,
 }
 
+#[derive(Debug)]
+pub struct PendingPermissionRequest {
+    pub tool_use_id: String,
+    pub request: claurst_core::permissions::PermissionRequest,
+    pub reason: String,
+    pub decision_tx: Option<tokio::sync::oneshot::Sender<PermissionDecision>>,
+}
+
+#[derive(Default)]
+pub struct PendingPermissionStore {
+    pub queue: VecDeque<PendingPermissionRequest>,
+    pub waiting: HashMap<String, PendingPermissionRequest>,
+}
+
 /// Persistent shell state shared across Bash tool invocations within one session.
 ///
 /// The `BashTool` reads and writes this state on every call so that `cd` and
@@ -237,10 +251,14 @@ pub struct ToolContext {
     /// Configured event hooks (PreToolUse, PostToolUse, etc.).
     pub config: claurst_core::config::Config,
     /// Managed agent (manager-executor) configuration, if active.
-    pub managed_agent_config: Option<claurst_core::ManagedAgentConfig>,
+    pub managed_agent_config: Option<claurst_core::config::ManagedAgentConfig>,
     /// Optional notifier for injecting completion messages into the next agent turn.
     /// Set when the query loop has a command queue wired up.
     pub completion_notifier: Option<CompletionNotifier>,
+    /// Queue used by interactive mode to surface permission dialogs to the TUI.
+    pub pending_permissions: Option<Arc<parking_lot::Mutex<PendingPermissionStore>>>,
+    /// Shared permission manager so the interactive loop can record session/persistent approvals.
+    pub permission_manager: Option<Arc<std::sync::Mutex<claurst_core::permissions::PermissionManager>>>,
 }
 
 impl ToolContext {
@@ -254,6 +272,82 @@ impl ToolContext {
         }
     }
 
+    fn permission_allowed_roots(&self) -> Vec<PathBuf> {
+        let mut roots = self.config.workspace_paths.clone();
+        roots.extend(self.config.additional_dirs.clone());
+        roots
+    }
+
+    fn build_permission_request(
+        &self,
+        tool_name: &str,
+        description: &str,
+        details: Option<String>,
+        is_read_only: bool,
+        path: Option<PathBuf>,
+    ) -> PermissionRequest {
+        PermissionRequest {
+            tool_name: tool_name.to_string(),
+            description: description.to_string(),
+            details,
+            is_read_only,
+            path: path.map(|p| p.display().to_string()),
+            working_dir: Some(self.working_dir.clone()),
+            allowed_roots: self.permission_allowed_roots(),
+            context_description: None,
+        }
+    }
+
+    fn request_permission_inner(
+        &self,
+        request: PermissionRequest,
+    ) -> Result<(), claurst_core::error::ClaudeError> {
+        let interactive_reason = request.details.clone();
+        let decision = self.permission_handler.request_permission(&request);
+        match decision {
+            PermissionDecision::Allow | PermissionDecision::AllowPermanently => Ok(()),
+            PermissionDecision::Ask { reason } if self.non_interactive => Err(
+                claurst_core::error::ClaudeError::PermissionDenied(format!(
+                    "Permission denied for tool '{}': {}",
+                    request.tool_name,
+                    interactive_reason.unwrap_or(reason)
+                )),
+            ),
+            PermissionDecision::Ask { reason } => {
+                let Some(queue) = &self.pending_permissions else {
+                    return Err(claurst_core::error::ClaudeError::PermissionDenied(format!(
+                        "Permission denied for tool '{}'",
+                        request.tool_name
+                    )));
+                };
+
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                queue.lock().queue.push_back(PendingPermissionRequest {
+                    tool_use_id: format!(
+                        "perm-{}-{}",
+                        self.session_id,
+                        self.current_turn.fetch_add(1, Ordering::Relaxed)
+                    ),
+                    request,
+                    reason: interactive_reason.unwrap_or(reason),
+                    decision_tx: Some(tx),
+                });
+
+                let decision = tokio::task::block_in_place(|| rx.blocking_recv());
+                match decision {
+                    Ok(PermissionDecision::Allow | PermissionDecision::AllowPermanently) => Ok(()),
+                    _ => Err(claurst_core::error::ClaudeError::PermissionDenied(
+                        "Permission denied by user".to_string(),
+                    )),
+                }
+            }
+            _ => Err(claurst_core::error::ClaudeError::PermissionDenied(format!(
+                "Permission denied for tool '{}'",
+                request.tool_name
+            ))),
+        }
+    }
+
     /// Check permissions for a tool invocation.
     pub fn check_permission(
         &self,
@@ -261,28 +355,23 @@ impl ToolContext {
         description: &str,
         is_read_only: bool,
     ) -> Result<(), claurst_core::error::ClaudeError> {
-        let request = PermissionRequest {
-            tool_name: tool_name.to_string(),
-            description: description.to_string(),
-            details: None,
-            is_read_only,
-            context_description: None,
-        };
-        let decision = self.permission_handler.request_permission(&request);
-        match decision {
-            PermissionDecision::Allow | PermissionDecision::AllowPermanently => Ok(()),
-            _ => Err(claurst_core::error::ClaudeError::PermissionDenied(format!(
-                "Permission denied for tool '{}'",
-                tool_name
-            ))),
-        }
+        let request = self.build_permission_request(tool_name, description, None, is_read_only, None);
+        self.request_permission_inner(request)
+    }
+
+    pub fn check_permission_for_path(
+        &self,
+        tool_name: &str,
+        description: &str,
+        path: PathBuf,
+        is_read_only: bool,
+    ) -> Result<(), claurst_core::error::ClaudeError> {
+        let request = self.build_permission_request(tool_name, description, None, is_read_only, Some(path));
+        self.request_permission_inner(request)
     }
 
     /// Like `check_permission` but also passes structured `details` text
     /// (e.g. a risk explanation) that the TUI permission dialog can display.
-    ///
-    /// Used by PowerShellTool (and any future tool) when it needs to show
-    /// the user *why* a command is considered risky before they approve it.
     pub fn check_permission_with_details(
         &self,
         tool_name: &str,
@@ -290,21 +379,55 @@ impl ToolContext {
         details: &str,
         is_read_only: bool,
     ) -> Result<(), claurst_core::error::ClaudeError> {
-        let request = PermissionRequest {
-            tool_name: tool_name.to_string(),
-            description: description.to_string(),
-            details: Some(details.to_string()),
+        let request = self.build_permission_request(
+            tool_name,
+            description,
+            Some(details.to_string()),
             is_read_only,
-            context_description: None,
-        };
-        let decision = self.permission_handler.request_permission(&request);
-        match decision {
-            PermissionDecision::Allow | PermissionDecision::AllowPermanently => Ok(()),
-            _ => Err(claurst_core::error::ClaudeError::PermissionDenied(format!(
+            None,
+        );
+        self.request_permission_inner(request).map_err(|_| {
+            claurst_core::error::ClaudeError::PermissionDenied(format!(
                 "Permission denied for tool '{}': {}",
                 tool_name, details
-            ))),
-        }
+            ))
+        })
+    }
+
+    pub fn path_is_within_workspace(&self, path: &std::path::Path) -> bool {
+        let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let mut roots = vec![
+            std::fs::canonicalize(&self.working_dir).unwrap_or_else(|_| self.working_dir.clone()),
+        ];
+        roots.extend(
+            self.permission_allowed_roots()
+                .into_iter()
+                .map(|root| std::fs::canonicalize(&root).unwrap_or(root)),
+        );
+        roots.iter().any(|root| resolved.starts_with(root))
+    }
+
+    pub fn check_permission_with_details_and_path(
+        &self,
+        tool_name: &str,
+        description: &str,
+        details: &str,
+        path: PathBuf,
+        is_read_only: bool,
+    ) -> Result<(), claurst_core::error::ClaudeError> {
+        let request = self.build_permission_request(
+            tool_name,
+            description,
+            Some(details.to_string()),
+            is_read_only,
+            Some(path),
+        );
+        self.request_permission_inner(request).map_err(|_| {
+            claurst_core::error::ClaudeError::PermissionDenied(format!(
+                "Permission denied for tool '{}': {}",
+                tool_name, details
+            ))
+        })
     }
 
     pub fn current_turn_index(&self) -> usize {
@@ -421,6 +544,53 @@ pub fn find_tool(name: &str) -> Option<Box<dyn Tool>> {
 mod tests {
     use super::*;
 
+    struct AskPermissionHandler {
+        reason: String,
+    }
+
+    impl claurst_core::permissions::PermissionHandler for AskPermissionHandler {
+        fn check_permission(
+            &self,
+            _request: &claurst_core::permissions::PermissionRequest,
+        ) -> claurst_core::permissions::PermissionDecision {
+            claurst_core::permissions::PermissionDecision::Ask {
+                reason: self.reason.clone(),
+            }
+        }
+
+        fn request_permission(
+            &self,
+            request: &claurst_core::permissions::PermissionRequest,
+        ) -> claurst_core::permissions::PermissionDecision {
+            self.check_permission(request)
+        }
+    }
+
+    fn test_tool_context(
+        handler: Arc<dyn claurst_core::permissions::PermissionHandler>,
+    ) -> ToolContext {
+        use claurst_core::config::Config;
+
+        ToolContext {
+            working_dir: PathBuf::from("/workspace"),
+            permission_mode: claurst_core::config::PermissionMode::Default,
+            permission_handler: handler,
+            cost_tracker: claurst_core::cost::CostTracker::new(),
+            session_id: "test".to_string(),
+            file_history: Arc::new(parking_lot::Mutex::new(
+                claurst_core::file_history::FileHistory::new(),
+            )),
+            current_turn: Arc::new(AtomicUsize::new(0)),
+            non_interactive: true,
+            mcp_manager: None,
+            config: Config::default(),
+            managed_agent_config: None,
+            completion_notifier: None,
+            pending_permissions: None,
+            permission_manager: None,
+        }
+    }
+
     // ---- Tool registry tests ------------------------------------------------
 
     #[test]
@@ -535,28 +705,12 @@ mod tests {
 
     #[test]
     fn test_resolve_path_absolute() {
-        use claurst_core::config::Config;
         use claurst_core::permissions::AutoPermissionHandler;
 
         let handler = Arc::new(AutoPermissionHandler {
             mode: claurst_core::config::PermissionMode::Default,
         });
-        let ctx = ToolContext {
-            working_dir: PathBuf::from("/workspace"),
-            permission_mode: claurst_core::config::PermissionMode::Default,
-            permission_handler: handler,
-            cost_tracker: claurst_core::cost::CostTracker::new(),
-            session_id: "test".to_string(),
-            file_history: Arc::new(parking_lot::Mutex::new(
-                claurst_core::file_history::FileHistory::new(),
-            )),
-            current_turn: Arc::new(AtomicUsize::new(0)),
-            non_interactive: true,
-            mcp_manager: None,
-            config: Config::default(),
-            managed_agent_config: None,
-            completion_notifier: None,
-        };
+        let ctx = test_tool_context(handler);
 
         // Absolute paths pass through unchanged
         let resolved = ctx.resolve_path("/absolute/path/file.rs");
@@ -565,32 +719,51 @@ mod tests {
 
     #[test]
     fn test_resolve_path_relative() {
-        use claurst_core::config::Config;
         use claurst_core::permissions::AutoPermissionHandler;
 
         let handler = Arc::new(AutoPermissionHandler {
             mode: claurst_core::config::PermissionMode::Default,
         });
-        let ctx = ToolContext {
-            working_dir: PathBuf::from("/workspace"),
-            permission_mode: claurst_core::config::PermissionMode::Default,
-            permission_handler: handler,
-            cost_tracker: claurst_core::cost::CostTracker::new(),
-            session_id: "test".to_string(),
-            file_history: Arc::new(parking_lot::Mutex::new(
-                claurst_core::file_history::FileHistory::new(),
-            )),
-            current_turn: Arc::new(AtomicUsize::new(0)),
-            non_interactive: true,
-            mcp_manager: None,
-            config: Config::default(),
-            managed_agent_config: None,
-            completion_notifier: None,
-        };
+        let ctx = test_tool_context(handler);
 
         // Relative paths get joined with working_dir
         let resolved = ctx.resolve_path("src/main.rs");
         assert_eq!(resolved, PathBuf::from("/workspace/src/main.rs"));
+    }
+
+    #[test]
+    fn test_request_permission_uses_details_for_non_interactive_errors() {
+        let ctx = test_tool_context(Arc::new(AskPermissionHandler {
+            reason: "generic reason".to_string(),
+        }));
+        let request = ctx.build_permission_request(
+            "PowerShell",
+            "[High risk] set execution policy",
+            Some("[High risk] This may modify system-wide security policy.".to_string()),
+            false,
+            Some(PathBuf::from("Set-ExecutionPolicy RemoteSigned")),
+        );
+
+        let error = ctx.request_permission_inner(request).unwrap_err().to_string();
+        assert!(error.contains("[High risk] This may modify system-wide security policy."));
+        assert!(!error.contains("generic reason"));
+    }
+
+    #[test]
+    fn test_request_permission_falls_back_to_handler_reason_without_details() {
+        let ctx = test_tool_context(Arc::new(AskPermissionHandler {
+            reason: "generic reason".to_string(),
+        }));
+        let request = ctx.build_permission_request(
+            "Bash",
+            "run ls",
+            None,
+            false,
+            Some(PathBuf::from("ls -la")),
+        );
+
+        let error = ctx.request_permission_inner(request).unwrap_err().to_string();
+        assert!(error.contains("generic reason"));
     }
 
     // ---- PermissionLevel tests ---------------------------------------------

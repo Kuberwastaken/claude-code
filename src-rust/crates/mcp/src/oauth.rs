@@ -3,6 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpListener;
 
 // ---------------------------------------------------------------------------
 // Token storage
@@ -28,6 +31,10 @@ impl McpToken {
             .unwrap_or_default()
             .as_secs();
         now + grace_secs >= exp
+    }
+
+    pub fn expiry_datetime(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        token_expiry_datetime(self.expires_at)
     }
 }
 
@@ -60,7 +67,287 @@ pub fn get_mcp_token(server_name: &str) -> Option<McpToken> {
 /// Delete the stored token for a server (effectively logs out).
 pub fn remove_mcp_token(server_name: &str) -> std::io::Result<()> {
     let path = token_path(server_name);
-    if path.exists() { std::fs::remove_file(&path) } else { Ok(()) }
+    if path.exists() {
+        std::fs::remove_file(&path)
+    } else {
+        Ok(())
+    }
+}
+
+pub fn token_expiry_datetime(
+    expires_at: Option<u64>,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    expires_at.map(|timestamp| {
+        chrono::DateTime::<chrono::Utc>::from(
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(timestamp),
+        )
+    })
+}
+
+// ---------------------------------------------------------------------------
+// OAuth metadata / auth flow helpers
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpOAuthMetadata {
+    pub authorization_endpoint: String,
+    pub token_endpoint: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct McpAuthSession {
+    pub server_name: String,
+    pub auth_url: String,
+    pub redirect_uri: String,
+    pub verifier: String,
+    pub metadata: McpOAuthMetadata,
+}
+
+#[derive(Debug, Clone)]
+pub struct McpAuthResult {
+    pub server_name: String,
+    pub auth_url: String,
+    pub redirect_uri: String,
+    pub token_path: PathBuf,
+}
+
+fn normalized_server_url(server_url: &str) -> &str {
+    server_url.trim_end_matches('/')
+}
+
+fn fallback_oauth_metadata(server_url: &str) -> McpOAuthMetadata {
+    let base_url = normalized_server_url(server_url);
+    McpOAuthMetadata {
+        authorization_endpoint: format!("{}/oauth/authorize", base_url),
+        token_endpoint: format!("{}/oauth/token", base_url),
+    }
+}
+
+fn build_mcp_auth_url(
+    authorization_endpoint: &str,
+    redirect_uri: &str,
+    verifier: &str,
+) -> String {
+    let challenge = pkce_challenge(verifier);
+    format!(
+        "{}?client_id=claurst&redirect_uri={}&response_type=code&code_challenge={}&code_challenge_method=S256",
+        authorization_endpoint,
+        urlencoding::encode(redirect_uri),
+        challenge,
+    )
+}
+
+pub async fn fetch_oauth_metadata(server_url: &str) -> anyhow::Result<McpOAuthMetadata> {
+    let base_url = normalized_server_url(server_url);
+    let fallback = fallback_oauth_metadata(base_url);
+    let metadata_url = format!("{}/.well-known/oauth-authorization-server", base_url);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
+
+    match client.get(&metadata_url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            let meta: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| anyhow::anyhow!("OAuth metadata parse error: {}", e))?;
+            Ok(McpOAuthMetadata {
+                authorization_endpoint: meta
+                    .get("authorization_endpoint")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or(fallback.authorization_endpoint.as_str())
+                    .to_string(),
+                token_endpoint: meta
+                    .get("token_endpoint")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or(fallback.token_endpoint.as_str())
+                    .to_string(),
+            })
+        }
+        Ok(_) | Err(_) => Ok(fallback),
+    }
+}
+
+pub async fn begin_mcp_auth(
+    server_name: &str,
+    server_url: &str,
+) -> anyhow::Result<McpAuthSession> {
+    let metadata = fetch_oauth_metadata(server_url).await?;
+    let redirect_port = oauth_port_alloc()
+        .map_err(|e| anyhow::anyhow!("Failed to allocate OAuth redirect port: {}", e))?;
+    let redirect_uri = format!("http://127.0.0.1:{}/callback", redirect_port);
+    let verifier = pkce_verifier();
+    let auth_url = build_mcp_auth_url(
+        &metadata.authorization_endpoint,
+        &redirect_uri,
+        &verifier,
+    );
+
+    Ok(McpAuthSession {
+        server_name: server_name.to_string(),
+        auth_url,
+        redirect_uri,
+        verifier,
+        metadata,
+    })
+}
+
+async fn bind_callback_listener(
+    redirect_uri: &str,
+) -> anyhow::Result<(TcpListener, String, String)> {
+    let redirect_url = url::Url::parse(redirect_uri)
+        .map_err(|e| anyhow::anyhow!("Failed to parse redirect URI '{}': {}", redirect_uri, e))?;
+    let host = redirect_url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("Redirect URI '{}' is missing host", redirect_uri))?
+        .to_string();
+    let port = redirect_url
+        .port_or_known_default()
+        .ok_or_else(|| anyhow::anyhow!("Redirect URI '{}' is missing port", redirect_uri))?;
+    let callback_path = if redirect_url.path().is_empty() {
+        "/callback".to_string()
+    } else {
+        redirect_url.path().to_string()
+    };
+    let listener = TcpListener::bind((host.as_str(), port))
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to bind OAuth callback listener on {}:{}: {}", host, port, e))?;
+
+    Ok((listener, host, callback_path))
+}
+
+async fn wait_for_authorization_code(
+    listener: TcpListener,
+    host: &str,
+    callback_path: &str,
+    expected_state: Option<&str>,
+) -> anyhow::Result<String> {
+    let (mut socket, _) = tokio::time::timeout(Duration::from_secs(180), listener.accept())
+        .await
+        .map_err(|_| anyhow::anyhow!("Timeout waiting for OAuth callback"))?
+        .map_err(|e| anyhow::anyhow!("Failed to accept OAuth callback connection: {}", e))?;
+
+    let (reader, mut writer) = socket.split();
+    let mut reader = BufReader::new(reader);
+    let mut request_line = String::new();
+    reader
+        .read_line(&mut request_line)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read OAuth callback request: {}", e))?;
+    loop {
+        let mut header = String::new();
+        reader
+            .read_line(&mut header)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to read OAuth callback headers: {}", e))?;
+        if header.trim().is_empty() {
+            break;
+        }
+    }
+
+    let path = request_line.split_whitespace().nth(1).unwrap_or("");
+    let parsed_url = url::Url::parse(&format!("http://{}{}", host, path))
+        .map_err(|e| anyhow::anyhow!("Failed to parse OAuth callback URL '{}': {}", path, e))?;
+
+    let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\nMCP OAuth authentication finished. You can close this tab.\r\n";
+    writer
+        .write_all(response.as_bytes())
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to write OAuth callback response: {}", e))?;
+
+    if parsed_url.path() != callback_path {
+        anyhow::bail!(
+            "OAuth callback path mismatch: expected '{}', got '{}'",
+            callback_path,
+            parsed_url.path()
+        );
+    }
+
+    if let Some(expected_state) = expected_state {
+        let received_state = parsed_url
+            .query_pairs()
+            .find(|(key, _)| key == "state")
+            .map(|(_, value)| value.to_string());
+        if received_state.as_deref() != Some(expected_state) {
+            anyhow::bail!("OAuth state mismatch — possible CSRF attack");
+        }
+    }
+
+    parsed_url
+        .query_pairs()
+        .find(|(key, _)| key == "code")
+        .map(|(_, value)| value.to_string())
+        .ok_or_else(|| anyhow::anyhow!("OAuth callback did not contain an authorization code"))
+}
+
+pub async fn run_mcp_auth_session(session: McpAuthSession) -> anyhow::Result<McpAuthResult> {
+    let (listener, host, callback_path) = bind_callback_listener(&session.redirect_uri).await?;
+    open::that(&session.auth_url)
+        .map_err(|e| anyhow::anyhow!("Failed to open browser for OAuth: {}", e))?;
+
+    let code = wait_for_authorization_code(listener, &host, &callback_path, None).await?;
+    let mut token = exchange_code(
+        &session.metadata.token_endpoint,
+        &code,
+        &session.verifier,
+        &session.redirect_uri,
+    )
+    .await?;
+    token.server_name = session.server_name.clone();
+    store_mcp_token(&token).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to store MCP token for '{}': {}",
+            session.server_name,
+            e
+        )
+    })?;
+
+    Ok(McpAuthResult {
+        server_name: session.server_name,
+        auth_url: session.auth_url,
+        redirect_uri: session.redirect_uri,
+        token_path: token_path(&token.server_name),
+    })
+}
+
+pub async fn run_mcp_auth_flow(
+    server_name: &str,
+    server_url: &str,
+) -> anyhow::Result<McpAuthResult> {
+    let session = begin_mcp_auth(server_name, server_url).await?;
+    run_mcp_auth_session(session).await
+}
+
+pub async fn get_valid_mcp_token(
+    server_name: &str,
+    server_url: &str,
+) -> anyhow::Result<Option<McpToken>> {
+    let Some(token) = get_mcp_token(server_name) else {
+        return Ok(None);
+    };
+
+    if !token.is_expired(60) {
+        return Ok(Some(token));
+    }
+
+    if token.refresh_token.is_none() {
+        return Ok(None);
+    }
+
+    let metadata = fetch_oauth_metadata(server_url).await?;
+    refresh_mcp_token(server_name, &metadata.token_endpoint)
+        .await
+        .map(Some)
+}
+
+pub async fn get_valid_mcp_access_token(
+    server_name: &str,
+    server_url: &str,
+) -> anyhow::Result<Option<String>> {
+    Ok(get_valid_mcp_token(server_name, server_url)
+        .await?
+        .map(|token| token.access_token))
 }
 
 // ---------------------------------------------------------------------------
@@ -290,5 +577,43 @@ mod tests {
             server_name: "test".to_string(),
         };
         assert!(t.is_expired(0));
+    }
+
+    #[test]
+    fn fallback_metadata_uses_default_oauth_paths() {
+        let metadata = fallback_oauth_metadata("https://example.com/mcp/");
+        assert_eq!(
+            metadata.authorization_endpoint,
+            "https://example.com/mcp/oauth/authorize"
+        );
+        assert_eq!(metadata.token_endpoint, "https://example.com/mcp/oauth/token");
+    }
+
+    #[test]
+    fn build_auth_url_contains_required_params() {
+        let verifier = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
+        let redirect_uri = "http://127.0.0.1:9999/callback";
+        let url = build_mcp_auth_url(
+            "https://example.com/oauth/authorize",
+            redirect_uri,
+            verifier,
+        );
+        assert!(url.contains("client_id=claurst"));
+        assert!(url.contains("response_type=code"));
+        assert!(url.contains("code_challenge_method=S256"));
+        assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A9999%2Fcallback"));
+    }
+
+    #[tokio::test]
+    async fn bind_callback_listener_reuses_redirect_port() {
+        let (listener, host, callback_path) =
+            bind_callback_listener("http://127.0.0.1:14555/callback")
+                .await
+                .expect("listener should bind");
+        let port = listener.local_addr().expect("listener addr").port();
+        assert_eq!(host, "127.0.0.1");
+        assert_eq!(callback_path, "/callback");
+        assert_eq!(port, 14555);
+        drop(listener);
     }
 }

@@ -144,6 +144,15 @@ impl Tool for GrepTool {
             .map(|p| ctx.resolve_path(p))
             .unwrap_or_else(|| ctx.working_dir.clone());
 
+        if let Err(e) = ctx.check_permission_for_path(
+            self.name(),
+            &format!("Grep {} in {}", params.pattern, search_path.display()),
+            search_path.clone(),
+            true,
+        ) {
+            return ToolResult::error(e.to_string());
+        }
+
         debug!(pattern = %params.pattern, path = %search_path.display(), "Running grep");
 
         // Compile regex
@@ -209,6 +218,17 @@ impl Tool for GrepTool {
             }
 
             let path = entry.path();
+
+            if !ctx.path_is_within_workspace(path) {
+                if let Err(e) = ctx.check_permission_for_path(
+                    self.name(),
+                    &format!("Grep result {}", path.display()),
+                    path.to_path_buf(),
+                    true,
+                ) {
+                    return ToolResult::error(e.to_string());
+                }
+            }
 
             // Type filter
             if !type_exts.is_empty() {

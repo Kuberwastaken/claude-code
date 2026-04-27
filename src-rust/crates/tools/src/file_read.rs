@@ -64,6 +64,16 @@ impl Tool for FileReadTool {
         let path = ctx.resolve_path(&params.file_path);
         debug!(path = %path.display(), "Reading file");
 
+        // Permission check
+        if let Err(e) = ctx.check_permission_for_path(
+            self.name(),
+            &format!("Read {}", path.display()),
+            path.clone(),
+            true,
+        ) {
+            return ToolResult::error(e.to_string());
+        }
+
         // Check if file exists
         if !path.exists() {
             return ToolResult::error(format!("File not found: {}", path.display()));

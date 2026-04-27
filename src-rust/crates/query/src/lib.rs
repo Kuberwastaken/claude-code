@@ -376,6 +376,36 @@ fn build_provider_options(
                 "textVerbosity".to_string(),
                 serde_json::json!("low"),
             );
+
+            // DeepSeek V4 thinking mode: map effort level to thinking/reasoning_effort params.
+            // DeepSeek docs: thinking={"type":"enabled/disabled"}, reasoning_effort="high"|"max"
+            // low/medium are mapped to "high" by the API; xhigh mapped to "max".
+            if provider_id == "deepseek" {
+                match effort_level {
+                    None
+                    | Some(claurst_core::effort::EffortLevel::Medium)
+                    | Some(claurst_core::effort::EffortLevel::High) => {
+                        options.insert(
+                            "thinking".to_string(),
+                            serde_json::json!({"type": "enabled"}),
+                        );
+                        options.insert("reasoningEffort".to_string(), serde_json::json!("high"));
+                    }
+                    Some(claurst_core::effort::EffortLevel::Max) => {
+                        options.insert(
+                            "thinking".to_string(),
+                            serde_json::json!({"type": "enabled"}),
+                        );
+                        options.insert("reasoningEffort".to_string(), serde_json::json!("max"));
+                    }
+                    Some(claurst_core::effort::EffortLevel::Low) => {
+                        options.insert(
+                            "thinking".to_string(),
+                            serde_json::json!({"type": "disabled"}),
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -1096,6 +1126,9 @@ pub async fn run_query_loop(
 
                     // Accumulators for building the final assistant message.
                     let mut text_chunks: Vec<String> = Vec::new();
+                    // Accumulate reasoning/thinking content for providers like
+                    // DeepSeek that require reasoning_content to be sent back.
+                    let mut thinking_chunks: Vec<String> = Vec::new();
                     // tool_call_blocks: index → (id, name, accumulated_json)
                     let mut tool_call_blocks: std::collections::HashMap<usize, (String, String, String)> =
                         std::collections::HashMap::new();
@@ -1150,6 +1183,12 @@ pub async fn run_query_loop(
                                             claurst_api::StreamEvent::TextDelta { text, .. } => {
                                                 text_chunks.push(text.clone());
                                             }
+                                            claurst_api::StreamEvent::ThinkingDelta { thinking, .. } => {
+                                                thinking_chunks.push(thinking.clone());
+                                            }
+                                            claurst_api::StreamEvent::ReasoningDelta { reasoning, .. } => {
+                                                thinking_chunks.push(reasoning.clone());
+                                            }
                                             claurst_api::StreamEvent::InputJsonDelta { index, partial_json } => {
                                                 if let Some((_, _, buf)) = tool_call_blocks.get_mut(index) {
                                                     buf.push_str(partial_json);
@@ -1190,6 +1229,16 @@ pub async fn run_query_loop(
 
                     // Build the content blocks from accumulated stream data.
                     let mut content_blocks: Vec<ContentBlock> = Vec::new();
+
+                    // Thinking / reasoning block — must come first so that
+                    // inject_reasoning_for_tool_turns can find it later.
+                    let combined_thinking = thinking_chunks.join("");
+                    if !combined_thinking.is_empty() {
+                        content_blocks.push(ContentBlock::Thinking {
+                            thinking: combined_thinking,
+                            signature: String::new(),
+                        });
+                    }
 
                     let combined_text = text_chunks.join("");
                     if !combined_text.is_empty() {

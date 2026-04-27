@@ -3,12 +3,10 @@
 // Tool name: "mcp__auth"
 //
 // When called by the LLM (or user) with a `server_name`, this tool:
-//  1. Checks whether the server is already connected (no auth needed).
-//  2. If the server is an HTTP/SSE server, calls `McpManager::initiate_auth()`
-//     to fetch `/.well-known/oauth-authorization-server` metadata, build the
-//     PKCE authorization URL, and return it so the user can open it.
-//  3. Attempts to open the URL in the system browser (best-effort).
-//  4. For stdio servers, explains env-var based authentication.
+//  1. Checks whether the server is already connected (or currently connecting).
+//  2. If the server is a remote MCP server (`http` / `sse`), runs the browser-
+//     based OAuth flow and stores the resulting token locally.
+//  3. For stdio servers, explains env-var based authentication.
 //
 // This mirrors the TypeScript `mcp__<name>__authenticate` dynamic tool.
 
@@ -32,8 +30,8 @@ impl Tool for McpAuthTool {
 
     fn description(&self) -> &str {
         "Start the OAuth 2.0 + PKCE authorization flow for an MCP server that \
-         requires authentication. Returns the authorization URL that the user \
-         should open in their browser. For stdio servers that use environment \
+         requires authentication. Completes the browser flow and stores the \
+         resulting token locally. For stdio servers that use environment \
          variables for auth, returns setup instructions instead."
     }
 
@@ -60,6 +58,14 @@ impl Tool for McpAuthTool {
             Err(e) => return ToolResult::error(format!("Invalid input: {}", e)),
         };
 
+        if let Err(e) = ctx.check_permission(
+            self.name(),
+            &format!("Authenticate MCP server {}", params.server_name),
+            false,
+        ) {
+            return ToolResult::error(e.to_string());
+        }
+
         let manager = match &ctx.mcp_manager {
             Some(m) => m,
             None => {
@@ -74,11 +80,12 @@ impl Tool for McpAuthTool {
         // 1. Check current connection status.
         match manager.server_status(&params.server_name) {
             McpServerStatus::Connected { tool_count } => {
-                return ToolResult::success(format!(
-                    "MCP server \"{}\" is already connected ({} tool(s) available). \
-                     No authentication needed.",
-                    params.server_name, tool_count
-                ));
+                // Fall through to allow re-authentication even when already connected.
+                tracing::debug!(
+                    server = %params.server_name,
+                    tool_count,
+                    "McpAuthTool: server already connected; continuing with re-authentication"
+                );
             }
             McpServerStatus::Connecting => {
                 return ToolResult::success(format!(
@@ -91,7 +98,7 @@ impl Tool for McpAuthTool {
                 tracing::debug!(
                     server = %params.server_name,
                     error = %error,
-                    "McpAuthTool: server failed; attempting to initiate auth"
+                    "McpAuthTool: server failed; attempting to authenticate"
                 );
             }
             McpServerStatus::Disconnected { .. } => {
@@ -99,31 +106,30 @@ impl Tool for McpAuthTool {
             }
         }
 
-        // 2. Use McpManager::initiate_auth() to build the PKCE auth URL.
-        match manager.initiate_auth(&params.server_name).await {
-            Ok(auth_url) => {
-                // 3. Best-effort browser open.
-                let _ = open::that(&auth_url);
-
-                ToolResult::success(
-                    json!({
-                        "status": "auth_required",
-                        "auth_url": auth_url,
-                        "message": format!(
-                            "Opening browser for OAuth authentication of \"{}\".\n\
-                             If the browser did not open, visit:\n\n  {}\n\n\
-                             After authorizing, run /mcp connect {} to reconnect.",
-                            params.server_name, auth_url, params.server_name
-                        )
-                    })
-                    .to_string(),
-                )
-            }
+        // 2. Run the full OAuth flow and persist the resulting token.
+        match manager.authenticate(&params.server_name).await {
+            Ok(result) => ToolResult::success(
+                json!({
+                    "status": "authenticated",
+                    "server_name": result.server_name,
+                    "auth_url": result.auth_url,
+                    "redirect_uri": result.redirect_uri,
+                    "token_path": result.token_path,
+                    "message": format!(
+                        "Completed OAuth authentication for \"{}\" and saved the token.\n\
+                         Token path: {}\n\
+                         You can now run /mcp connect {} or press r in the MCP panel to reconnect.",
+                        result.server_name,
+                        result.token_path.display(),
+                        result.server_name
+                    )
+                })
+                .to_string(),
+            ),
             Err(e) => {
-                // initiate_auth() failed (e.g. no URL configured, network error).
                 // Return a descriptive error so the LLM can guide the user.
                 ToolResult::error(format!(
-                    "Could not initiate OAuth for \"{}\": {}\n\n\
+                    "Could not complete OAuth for \"{}\": {}\n\n\
                      This may mean the server is a stdio server (uses env-var auth) \
                      or its URL is not configured. Run /mcp auth {} in the Claude \
                      interface for detailed instructions.",

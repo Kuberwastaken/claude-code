@@ -8,6 +8,7 @@
 
 use crate::client::McpClient;
 use crate::expand_server_config;
+use crate::oauth;
 use claurst_core::config::McpServerConfig;
 use dashmap::DashMap;
 use std::collections::HashMap;
@@ -115,6 +116,24 @@ impl McpConnectionManager {
         Ok(())
     }
 
+    async fn connect_expanded_config(name: &str, config: &McpServerConfig) -> anyhow::Result<McpClient> {
+        let auth_token = if matches!(config.server_type.as_str(), "sse" | "http") {
+            match config.url.as_deref() {
+                Some(server_url) => oauth::get_valid_mcp_access_token(name, server_url).await?,
+                None => {
+                    anyhow::bail!(
+                        "MCP server '{}' is configured as '{}' but missing URL",
+                        name,
+                        config.server_type
+                    )
+                }
+            }
+        } else {
+            None
+        };
+        McpClient::connect(config, auth_token).await
+    }
+
     // -----------------------------------------------------------------------
     // Connect / disconnect / restart
     // -----------------------------------------------------------------------
@@ -128,7 +147,6 @@ impl McpConnectionManager {
         let state_arc = entry.value().clone();
         drop(entry); // release dashmap read-guard
 
-        // Mark as connecting
         {
             let mut st = state_arc.lock().await;
             st.status = McpServerStatus::Connecting;
@@ -139,16 +157,16 @@ impl McpConnectionManager {
             expand_server_config(&st.config)
         };
 
-        debug!(server = %name, command = ?config.command, "Connecting to MCP server via stdio");
+        debug!(server = %name, transport = %config.server_type, command = ?config.command, url = ?config.url, "Connecting to MCP server");
 
-        match McpClient::connect_stdio(&config).await {
+        match Self::connect_expanded_config(name, &config).await {
             Ok(client) => {
                 let tool_count = client.tools.len();
                 let client_arc = Arc::new(client);
                 let mut st = state_arc.lock().await;
                 st.client = Some(client_arc);
                 st.status = McpServerStatus::Connected { tool_count };
-                info!(server = %name, tools = tool_count, "MCP server connected");
+                info!(server = %name, transport = %config.server_type, tools = tool_count, "MCP server connected");
                 Ok(())
             }
             Err(e) => {
@@ -165,7 +183,6 @@ impl McpConnectionManager {
 
     /// Disconnect a server and cancel its reconnect loop.
     pub async fn disconnect(&self, name: &str) {
-        // Cancel background reconnect task first
         {
             let mut handles = self.reconnect_handles.lock().await;
             if let Some(handle) = handles.remove(name) {
@@ -198,7 +215,6 @@ impl McpConnectionManager {
         self.state
             .get(name)
             .map(|e| {
-                // Best-effort non-blocking check via try_lock
                 e.value()
                     .try_lock()
                     .map(|st| st.client.is_some())
@@ -253,7 +269,6 @@ impl McpConnectionManager {
     ///
     /// Backoff: 1 s → 2 s → 4 s → … capped at 60 s.
     pub async fn start_reconnect_loop(&self, name: &str) {
-        // Don't start a second loop if one is already running.
         {
             let handles = self.reconnect_handles.lock().await;
             if handles.contains_key(name) {
@@ -286,7 +301,6 @@ impl McpConnectionManager {
         loop {
             let retry_at = Instant::now() + backoff;
 
-            // Update status to Failed with scheduled retry time
             if let Some(entry) = state.get(&name) {
                 if let Ok(mut st) = entry.value().try_lock() {
                     let prev_error = match &st.status {
@@ -309,33 +323,29 @@ impl McpConnectionManager {
 
             tokio::time::sleep(backoff).await;
 
-            // Try to reconnect
             let config = match state.get(&name) {
                 Some(entry) => match entry.value().try_lock() {
                     Ok(st) => expand_server_config(&st.config),
                     Err(_) => {
-                        // State locked by something else; back off and retry
                         backoff = (backoff * 2).min(MAX_BACKOFF);
                         continue;
                     }
                 },
                 None => {
-                    // Server was removed from the registry; stop loop
                     debug!(server = %name, "MCP server removed; stopping reconnect loop");
                     break;
                 }
             };
 
-            // Mark connecting
             if let Some(entry) = state.get(&name) {
                 if let Ok(mut st) = entry.value().try_lock() {
                     st.status = McpServerStatus::Connecting;
                 }
             }
 
-            info!(server = %name, attempt_backoff_secs = backoff.as_secs(), "Attempting MCP reconnect");
+            info!(server = %name, transport = %config.server_type, attempt_backoff_secs = backoff.as_secs(), "Attempting MCP reconnect");
 
-            match McpClient::connect_stdio(&config).await {
+            match Self::connect_expanded_config(&name, &config).await {
                 Ok(client) => {
                     let tool_count = client.tools.len();
                     let client_arc = Arc::new(client);
@@ -345,13 +355,12 @@ impl McpConnectionManager {
                             st.status = McpServerStatus::Connected { tool_count };
                         }
                     }
-                    info!(server = %name, tools = tool_count, "MCP server reconnected successfully");
-                    // Success — exit loop; caller can restart a new loop if needed
+                    info!(server = %name, transport = %config.server_type, tools = tool_count, "MCP server reconnected successfully");
                     break;
                 }
                 Err(e) => {
                     let msg = e.to_string();
-                    error!(server = %name, error = %msg, "MCP reconnect attempt failed");
+                    error!(server = %name, transport = %config.server_type, error = %msg, "MCP reconnect attempt failed");
                     if let Some(entry) = state.get(&name) {
                         if let Ok(mut st) = entry.value().try_lock() {
                             st.status = McpServerStatus::Disconnected {

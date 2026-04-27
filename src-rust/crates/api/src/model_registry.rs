@@ -85,6 +85,7 @@ impl ModelRegistry {
         self.add_anthropic_models();
         self.add_openai_models();
         self.add_google_models();
+        self.add_deepseek_models();
         self.add_zai_models();
     }
 
@@ -168,6 +169,50 @@ impl ModelRegistry {
                 reasoning: true,
                 vision: true,
                 family: Some("gemini".to_string()),
+                status: "active".to_string(),
+            });
+        }
+    }
+
+    // DeepSeek V4 pricing per api-docs.deepseek.com — CNY converted to USD (~7.2 CNY/USD).
+    fn add_deepseek_models(&mut self) {
+        let pid = ProviderId::new(ProviderId::DEEPSEEK);
+        for (id, name, ctx, out, cost_in, cost_out, cost_cache_read) in [
+            (
+                "deepseek-v4-pro",
+                "DeepSeek V4 Pro",
+                1_048_576,
+                393_216,
+                1.75,
+                3.51,
+                0.14,
+            ),
+            (
+                "deepseek-v4-flash",
+                "DeepSeek V4 Flash",
+                1_048_576,
+                393_216,
+                0.14,
+                0.28,
+                0.02,
+            ),
+        ] {
+            self.insert(ModelEntry {
+                info: ModelInfo {
+                    id: ModelId::new(id),
+                    provider_id: pid.clone(),
+                    name: name.to_string(),
+                    context_window: ctx,
+                    max_output_tokens: out,
+                },
+                cost_input: Some(cost_in),
+                cost_output: Some(cost_out),
+                cost_cache_read: Some(cost_cache_read),
+                cost_cache_write: None,
+                tool_calling: true,
+                reasoning: true,
+                vision: false,
+                family: Some("deepseek".to_string()),
                 status: "active".to_string(),
             });
         }
@@ -325,7 +370,7 @@ impl ModelRegistry {
             "gpt-4o",
             "gemini-2.5-pro",
             "gemini-2.5-flash",
-            "deepseek-chat",
+            "deepseek-v4-pro",
             "mistral-large",
             "grok-2",
             "command-r-plus",
@@ -381,7 +426,7 @@ impl ModelRegistry {
             "gpt-4o-mini",
             "gemini-2.5-flash",
             "gemini-2.0-flash",
-            "deepseek-chat",
+            "deepseek-v4-flash",
             "mistral-small",
             "grok-2-mini",
             "command-r",
@@ -595,7 +640,7 @@ impl Default for ModelRegistry {
 ///     (scored by flagship priority -> "latest" preference -> ID desc).
 ///  3. Fall back to the hardcoded table in [`Config::effective_model()`].
 pub fn effective_model_for_config(
-    config: &claurst_core::Config,
+    config: &claurst_core::config::Config,
     registry: &ModelRegistry,
 ) -> String {
     // Explicit user override — always wins.

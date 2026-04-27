@@ -6,7 +6,7 @@
 // variable is absent or empty the provider is still constructed but
 // `health_check()` will return `ProviderStatus::Unavailable`.
 
-use claurst_core::Settings;
+use claurst_core::config::Settings;
 use claurst_core::provider_id::ProviderId;
 
 use super::openai_compat::{OpenAiCompatProvider, ProviderQuirks};
@@ -64,6 +64,7 @@ pub fn ollama() -> OpenAiCompatProvider {
             "exceeded.*context length".to_string(),
         ],
         no_api_key_required: true,
+        ollama_native_host: Some(host),
         ..Default::default()
     })
 }
@@ -126,7 +127,7 @@ pub fn custom_openai() -> OpenAiCompatProvider {
     custom_openai_with_url(base_url)
 }
 
-/// DeepSeek — supports reasoning output via `reasoning_content` field.
+/// DeepSeek V4 — supports reasoning output via `reasoning_content` field.
 /// Reads `DEEPSEEK_API_KEY`.
 pub fn deepseek() -> OpenAiCompatProvider {
     let key = std::env::var("DEEPSEEK_API_KEY").unwrap_or_default();
@@ -140,8 +141,7 @@ pub fn deepseek() -> OpenAiCompatProvider {
         reasoning_field: Some("reasoning_content".to_string()),
         overflow_patterns: vec!["maximum context length is".to_string()],
         include_usage_in_stream: true,
-        // DeepSeek Chat rejects max_tokens > 8192.
-        max_tokens_cap: Some(8192),
+        max_tokens_cap: None,
         ..Default::default()
     })
 }

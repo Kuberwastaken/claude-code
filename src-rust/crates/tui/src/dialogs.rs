@@ -24,6 +24,8 @@ pub enum PermissionDialogKind {
         command: String,
         suggested_prefix: Option<String>,
     },
+    /// PowerShell command execution — rendered like Bash without prefix rules.
+    PowerShell { command: String },
     /// File read — three options: once / session / deny.
     FileRead { path: String },
     /// File write — four options: once / session / project / deny.
@@ -56,7 +58,7 @@ pub struct PermissionOption {
 pub struct PermissionRequest {
     pub tool_use_id: String,
     pub tool_name: String,
-    /// Short verb phrase, e.g. "wants to run: `rm -rf /tmp/foo`"
+    /// Short summary line shown when present.
     pub description: String,
     /// One-sentence danger explanation shown in yellow.
     pub danger_explanation: String,
@@ -99,11 +101,7 @@ impl PermissionRequest {
         reason: String,
         input_preview: Option<String>,
     ) -> Self {
-        let (description, danger_explanation) = if let Some(nl) = reason.find('\n') {
-            (reason[..nl].to_string(), reason[nl + 1..].to_string())
-        } else {
-            (reason, String::new())
-        };
+        let (description, danger_explanation) = split_reason(reason);
 
         Self {
             tool_use_id,
@@ -126,12 +124,6 @@ impl PermissionRequest {
         command: String,
         suggested_prefix: Option<String>,
     ) -> Self {
-        let (description, danger_explanation) = if let Some(nl) = reason.find('\n') {
-            (reason[..nl].to_string(), reason[nl + 1..].to_string())
-        } else {
-            (reason, String::new())
-        };
-
         let options = Self::bash_options(suggested_prefix.as_deref());
         let kind = PermissionDialogKind::Bash {
             command: command.clone(),
@@ -141,12 +133,30 @@ impl PermissionRequest {
         Self {
             tool_use_id,
             tool_name,
-            description,
-            danger_explanation,
+            description: String::new(),
+            danger_explanation: command_reason_body(reason, &command),
             input_preview: Some(command),
             kind,
             selected_option: 0,
             options,
+        }
+    }
+
+    pub fn powershell(
+        tool_use_id: String,
+        tool_name: String,
+        reason: String,
+        command: String,
+    ) -> Self {
+        Self {
+            tool_use_id,
+            tool_name,
+            description: String::new(),
+            danger_explanation: command_reason_body(reason, &command),
+            input_preview: Some(command.clone()),
+            kind: PermissionDialogKind::PowerShell { command },
+            selected_option: 0,
+            options: Self::default_options(),
         }
     }
 
@@ -255,6 +265,31 @@ impl PermissionRequest {
     }
 }
 
+fn split_reason(reason: String) -> (String, String) {
+    if let Some(nl) = reason.find('\n') {
+        (reason[..nl].to_string(), reason[nl + 1..].to_string())
+    } else {
+        (reason, String::new())
+    }
+}
+
+fn command_reason_body(reason: String, command: &str) -> String {
+    let (_, danger_explanation) = split_reason(reason.clone());
+    let candidate = if danger_explanation.is_empty() {
+        reason
+    } else {
+        danger_explanation
+    };
+    let mut lines: Vec<&str> = candidate.lines().collect();
+    if lines.first().is_some_and(|line| line.trim() == command) {
+        lines.remove(0);
+        while lines.first().is_some_and(|line| line.trim().is_empty()) {
+            lines.remove(0);
+        }
+    }
+    lines.join("\n").trim().to_string()
+}
+
 // ---------------------------------------------------------------------------
 // Rendering helpers
 // ---------------------------------------------------------------------------
@@ -316,8 +351,8 @@ fn word_wrap(text: &str, width: usize) -> Vec<String> {
 ///   │                                                │
 ///   │  > rm -rf /tmp/foo                             │
 ///   │                                                │
-///   │  Bash wants to run: `rm -rf /tmp/foo`          │
-///   │  This will delete files permanently.           │
+///   │  This will execute a shell command.             │
+///   │  This may modify system-wide security policy.   │
 ///   │                                                │
 ///   │  [1] Yes, allow once                           │
 ///   │  [2] Yes, allow this session                   │
@@ -335,9 +370,10 @@ pub fn render_permission_dialog(frame: &mut Frame, pr: &PermissionRequest, area:
     let dialog_width = inner_width.min(area.width.saturating_sub(4));
     let text_width = (dialog_width as usize).saturating_sub(4); // 2 border + 2 padding
 
-    // Build a command block for Bash dialogs to prominently display the command.
+    // Build a command block for Bash / PowerShell dialogs to prominently display the command.
     let bash_command_lines: Option<Vec<Line>> = match &pr.kind {
-        PermissionDialogKind::Bash { command, .. } => {
+        PermissionDialogKind::Bash { command, .. }
+        | PermissionDialogKind::PowerShell { command } => {
             let wrapped = word_wrap(command, text_width.saturating_sub(4));
             Some(
                 wrapped
@@ -365,7 +401,11 @@ pub fn render_permission_dialog(frame: &mut Frame, pr: &PermissionRequest, area:
     };
 
     // Count how many lines we need
-    let desc_lines = word_wrap(&pr.description, text_width);
+    let desc_lines = if pr.description.trim().is_empty() {
+        vec![]
+    } else {
+        word_wrap(&pr.description, text_width)
+    };
     let expl_lines = if pr.danger_explanation.is_empty() {
         vec![]
     } else {
@@ -374,7 +414,7 @@ pub fn render_permission_dialog(frame: &mut Frame, pr: &PermissionRequest, area:
 
     // preview line count (used for non-Bash kinds; Bash uses its own block above)
     let preview_line_count: u16 = match &pr.kind {
-        PermissionDialogKind::Bash { .. } => 0, // rendered separately as bash_command_lines
+        PermissionDialogKind::Bash { .. } | PermissionDialogKind::PowerShell { .. } => 0,
         _ => {
             if pr.input_preview.is_some() { 3 } else { 0 }
         }
@@ -424,7 +464,10 @@ pub fn render_permission_dialog(frame: &mut Frame, pr: &PermissionRequest, area:
     }
 
     // ---- Input preview for non-Bash kinds -----------------------------------
-    if !matches!(pr.kind, PermissionDialogKind::Bash { .. }) {
+    if !matches!(
+        pr.kind,
+        PermissionDialogKind::Bash { .. } | PermissionDialogKind::PowerShell { .. }
+    ) {
         if let Some(ref preview) = pr.input_preview {
             lines.push(Line::from(vec![
                 Span::styled(
@@ -490,7 +533,9 @@ pub fn render_permission_dialog(frame: &mut Frame, pr: &PermissionRequest, area:
     }
 
     let (border_color, title_text) = match &pr.kind {
-        PermissionDialogKind::Bash { .. } => (Color::Yellow, " Permission Required "),
+        PermissionDialogKind::Bash { .. } | PermissionDialogKind::PowerShell { .. } => {
+            (Color::Yellow, " Permission Required ")
+        }
         PermissionDialogKind::FileRead { .. } => (Color::Cyan, " File Read Permission "),
         PermissionDialogKind::FileWrite { .. } => (Color::Yellow, " File Write Permission "),
         PermissionDialogKind::Generic => (Color::Yellow, " Permission Required "),
@@ -1199,12 +1244,57 @@ mod tests {
         let pr = PermissionRequest::from_reason(
             "id2".to_string(),
             "Bash".to_string(),
-            "Bash wants to run: `rm -rf /tmp`\nThis will delete files permanently.".to_string(),
+            "Custom summary\nThis will delete files permanently.".to_string(),
             Some("rm -rf /tmp".to_string()),
         );
-        assert_eq!(pr.description, "Bash wants to run: `rm -rf /tmp`");
+        assert_eq!(pr.description, "Custom summary");
         assert_eq!(pr.danger_explanation, "This will delete files permanently.");
         assert_eq!(pr.input_preview.as_deref(), Some("rm -rf /tmp"));
+    }
+
+    #[test]
+    fn powershell_reason_uses_reason_body_only() {
+        let pr = PermissionRequest::powershell(
+            "id-ps".to_string(),
+            "PowerShell".to_string(),
+            "[High risk] This may modify system-wide security policy.".to_string(),
+            "Set-ExecutionPolicy RemoteSigned".to_string(),
+        );
+        assert!(pr.description.is_empty());
+        assert_eq!(
+            pr.danger_explanation,
+            "[High risk] This may modify system-wide security policy."
+        );
+        assert_eq!(
+            pr.kind,
+            PermissionDialogKind::PowerShell {
+                command: "Set-ExecutionPolicy RemoteSigned".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn powershell_reason_drops_duplicate_command_line() {
+        let pr = PermissionRequest::powershell(
+            "id-ps-2".to_string(),
+            "PowerShell".to_string(),
+            "This may modify system-wide security policy.".to_string(),
+            "Set-ExecutionPolicy RemoteSigned".to_string(),
+        );
+        assert!(pr.description.is_empty());
+        assert_eq!(pr.danger_explanation, "This may modify system-wide security policy.");
+    }
+
+    #[test]
+    fn powershell_reason_without_duplicate_line_keeps_explanation() {
+        let pr = PermissionRequest::powershell(
+            "id-ps-3".to_string(),
+            "PowerShell".to_string(),
+            "This will execute a shell command.".to_string(),
+            "Get-ChildItem".to_string(),
+        );
+        assert!(pr.description.is_empty());
+        assert_eq!(pr.danger_explanation, "This will execute a shell command.");
     }
 
     #[test]

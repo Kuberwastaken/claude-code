@@ -318,8 +318,16 @@ pub fn models_for_provider(provider_id: &str) -> Vec<ModelEntry> {
             model_entry("llama-3.1-8b", "Llama 3.1 8B", "128K context"),
         ],
         "deepseek" => vec![
-            model_entry("deepseek-chat", "DeepSeek V3", "64K context"),
-            model_entry("deepseek-reasoner", "DeepSeek R1", "64K context"),
+            model_entry(
+                "deepseek-v4-pro",
+                "DeepSeek V4 Pro",
+                "1M context, 384K output",
+            ),
+            model_entry(
+                "deepseek-v4-flash",
+                "DeepSeek V4 Flash",
+                "1M context, 384K output",
+            ),
         ],
         "mistral" => vec![
             model_entry("mistral-large-latest", "Mistral Large", "128K context"),
@@ -379,12 +387,14 @@ pub fn models_for_provider(provider_id: &str) -> Vec<ModelEntry> {
             model_entry("llama-3.3-70b", "Llama 3.3 70B", "128K context"),
         ],
         "ollama" => vec![
-            model_entry("llama3.2", "Llama 3.2", "local"),
-            model_entry("mistral", "Mistral", "local"),
-            model_entry("codellama", "Code Llama", "local"),
-            model_entry("gemma2", "Gemma 2", "local"),
-            model_entry("phi3", "Phi-3", "local"),
-            model_entry("qwen2.5", "Qwen 2.5", "local"),
+            model_entry("qwen2.5-coder", "Qwen 2.5 Coder", "local — best for coding tasks"),
+            model_entry("deepseek-coder-v2", "DeepSeek Coder V2", "local — coding model"),
+            model_entry("codellama", "Code Llama", "local — coding model"),
+            model_entry("llama3.2", "Llama 3.2", "local — general purpose"),
+            model_entry("mistral", "Mistral", "local — general purpose"),
+            model_entry("gemma2", "Gemma 2", "local — general purpose"),
+            model_entry("phi3", "Phi-3", "local — general purpose"),
+            model_entry("qwen2.5", "Qwen 2.5", "local — general purpose"),
         ],
         "azure" => vec![
             model_entry("gpt-4o", "GPT-4o (Azure)", "128K context"),
@@ -421,7 +431,7 @@ pub fn default_model_for_provider(provider_id: &str) -> String {
         "minimax" => "minimax/MiniMax-M2.7".to_string(),
         "groq" => "groq/llama-3.3-70b-versatile".to_string(),
         "cerebras" => "cerebras/llama-3.3-70b".to_string(),
-        "deepseek" => "deepseek/deepseek-chat".to_string(),
+        "deepseek" => "deepseek/deepseek-v4-pro".to_string(),
         "mistral" => "mistral/mistral-large-latest".to_string(),
         "xai" => "xai/grok-2".to_string(),
         "openrouter" => "openrouter/anthropic/claude-sonnet-4".to_string(),

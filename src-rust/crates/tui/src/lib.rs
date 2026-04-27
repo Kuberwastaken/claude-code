@@ -911,6 +911,85 @@ mod tests {
     }
 
     #[test]
+    fn test_mcp_view_auth_key_queues_selected_server_panel_auth() {
+        let mut app = make_app();
+        app.mcp_view.open(vec![McpServerView {
+            name: "mcphub".to_string(),
+            transport: "http".to_string(),
+            status: McpViewStatus::Connected,
+            tool_count: 1,
+            resource_count: 0,
+            prompt_count: 0,
+            resources: vec![],
+            prompts: vec![],
+            error_message: None,
+            tools: vec![McpToolView {
+                name: "read_file".to_string(),
+                server: "mcphub".to_string(),
+                description: "Read a file".to_string(),
+                input_schema: None,
+            }],
+        }]);
+
+        let submit = app.handle_key_event(key(KeyCode::Char('a')));
+        assert!(!submit);
+        assert_eq!(app.prompt_input.text, "");
+        assert_eq!(app.take_pending_mcp_panel_auth().as_deref(), Some("mcphub"));
+        assert!(!app.mcp_view.open);
+        assert_eq!(app.mcp_view.tool_search, "");
+    }
+
+    #[test]
+    fn test_mcp_view_auth_key_with_no_servers_is_safe_noop() {
+        let mut app = make_app();
+        app.mcp_view.open(vec![]);
+
+        let submit = app.handle_key_event(key(KeyCode::Char('a')));
+        assert!(!submit);
+        assert!(app.mcp_view.open);
+        assert_eq!(app.prompt_input.text, "");
+        assert!(app.take_pending_mcp_panel_auth().is_none());
+    }
+
+    #[test]
+    fn test_mcp_view_auth_key_only_works_in_servers_pane() {
+        let mut app = make_app();
+        app.mcp_view.open(vec![McpServerView {
+            name: "mcphub".to_string(),
+            transport: "http".to_string(),
+            status: McpViewStatus::Connected,
+            tool_count: 1,
+            resource_count: 0,
+            prompt_count: 0,
+            resources: vec![],
+            prompts: vec![],
+            error_message: None,
+            tools: vec![McpToolView {
+                name: "read_file".to_string(),
+                server: "mcphub".to_string(),
+                description: "Read a file".to_string(),
+                input_schema: None,
+            }],
+        }]);
+        app.mcp_view.switch_pane();
+
+        let submit = app.handle_key_event(key(KeyCode::Char('a')));
+        assert!(!submit);
+        assert!(app.mcp_view.open);
+        assert_eq!(app.mcp_view.tool_search, "a");
+        assert!(app.take_pending_mcp_panel_auth().is_none());
+    }
+
+    #[test]
+    fn test_take_pending_mcp_panel_auth_clears_after_read() {
+        let mut app = make_app();
+        app.pending_mcp_panel_auth = Some("mcphub".to_string());
+
+        assert_eq!(app.take_pending_mcp_panel_auth().as_deref(), Some("mcphub"));
+        assert!(app.take_pending_mcp_panel_auth().is_none());
+    }
+
+    #[test]
     fn test_message_renderer_includes_tool_use_and_thinking_blocks() {
         let msg = claurst_core::types::Message::assistant_blocks(vec![
             ContentBlock::Thinking {

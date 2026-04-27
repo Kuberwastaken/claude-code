@@ -1155,7 +1155,7 @@ pub mod config {
                 Some("google") => "gemini-2.5-flash",
                 Some("groq") => "llama-3.3-70b-versatile",
                 Some("cerebras") => "llama-3.3-70b",
-                Some("deepseek") => "deepseek-chat",
+                Some("deepseek") => "deepseek-v4-pro",
                 Some("mistral") => "mistral-large-latest",
                 Some("xai") => "grok-2",
                 Some("openrouter") => "anthropic/claude-sonnet-4",
@@ -2046,13 +2046,7 @@ pub mod permissions {
         level: PermissionLevel,
     ) -> String {
         match level {
-            PermissionLevel::Execute => {
-                let cmd = path.unwrap_or(description);
-                format!(
-                    "Bash wants to run: `{}`\nThis will execute a shell command.",
-                    cmd
-                )
-            }
+            PermissionLevel::Execute => description.to_string(),
             PermissionLevel::Write => {
                 let target = path.unwrap_or(description);
                 let extra = if target.contains("/etc/") || target.contains("\\etc\\") {
@@ -2085,6 +2079,28 @@ pub mod permissions {
     // -----------------------------------------------------------------------
     // PermissionManager
     // -----------------------------------------------------------------------
+
+    /// Returns true when `path` falls under the active workspace roots.
+    fn is_path_within_allowed_roots(
+        path: &str,
+        working_dir: Option<&std::path::Path>,
+        allowed_roots: &[std::path::PathBuf],
+    ) -> bool {
+        let canonical_path = std::fs::canonicalize(path)
+            .unwrap_or_else(|_| std::path::PathBuf::from(path));
+
+        let mut roots: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(root) = working_dir {
+            roots.push(std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()));
+        }
+        roots.extend(
+            allowed_roots
+                .iter()
+                .map(|root| std::fs::canonicalize(root).unwrap_or_else(|_| root.clone())),
+        );
+
+        roots.iter().any(|root| canonical_path.starts_with(root))
+    }
 
     /// Pending permission request waiting for resolution (e.g. from a bridge
     /// remote peer or the interactive TUI dialog).
@@ -2146,6 +2162,8 @@ pub mod permissions {
             tool_name: &str,
             description: &str,
             path: Option<&str>,
+            working_dir: Option<&std::path::Path>,
+            allowed_roots: &[std::path::PathBuf],
         ) -> PermissionDecision {
             use crate::config::PermissionMode;
 
@@ -2186,25 +2204,41 @@ pub mod permissions {
                 return PermissionDecision::Allow;
             }
 
-            // Step 4 — AcceptEdits auto-allows everything
-            if self.mode == PermissionMode::AcceptEdits {
+            let level = match PermissionLevel::for_tool(tool_name) {
+                PermissionLevel::Read
+                    if !matches!(
+                        tool_name,
+                        "Read" | "Glob" | "Grep" | "ListMcpResources" | "ReadMcpResource" | "LSP" | "Skill"
+                    ) => PermissionLevel::Execute,
+                other => other,
+            };
+            let read_in_workspace = path.is_some_and(|target| {
+                is_path_within_allowed_roots(target, working_dir, allowed_roots)
+            });
+            let should_ask_read = match tool_name {
+                "ListMcpResources" | "ReadMcpResource" => true,
+                _ if matches!(level, PermissionLevel::Read) && path.is_some() => !read_in_workspace,
+                _ => false,
+            };
+
+            // Step 4 — AcceptEdits: only auto-allow Edit; everything else keeps normal checks.
+            if self.mode == PermissionMode::AcceptEdits && tool_name == "Edit" {
                 return PermissionDecision::Allow;
             }
 
             // Step 5 — Plan mode: reads only
             if self.mode == PermissionMode::Plan {
-                let level = PermissionLevel::for_tool(tool_name);
                 return match level {
                     PermissionLevel::Read => PermissionDecision::Allow,
                     _ => PermissionDecision::Deny,
                 };
             }
 
-            // Step 6 — Default: derive from tool danger level
-            let level = PermissionLevel::for_tool(tool_name);
+            // Step 6 — Default / remaining AcceptEdits behavior.
             match level {
-                PermissionLevel::Read => PermissionDecision::Allow,
-                PermissionLevel::Write
+                PermissionLevel::Read if !should_ask_read => PermissionDecision::Allow,
+                PermissionLevel::Read
+                | PermissionLevel::Write
                 | PermissionLevel::Execute
                 | PermissionLevel::Network => {
                     let reason =
@@ -2255,6 +2289,28 @@ pub mod permissions {
             let rule = PermissionRule {
                 tool_name: Some(tool_name.to_string()),
                 path_pattern: None,
+                action: PermissionAction::Allow,
+                scope: PermissionScope::Persistent,
+            };
+            let serialized = SerializedPermissionRule::from(&rule);
+            settings.permission_rules.push(serialized);
+            settings
+                .save_sync()
+                .map_err(|e| crate::error::ClaudeError::Config(e.to_string()))?;
+            self.persistent_rules.push(rule);
+            Ok(())
+        }
+
+        /// Allow `tool_name` persistently on `path` and save settings.
+        pub fn add_persistent_allow_path(
+            &mut self,
+            tool_name: &str,
+            path: &str,
+            settings: &mut crate::config::Settings,
+        ) -> crate::error::Result<()> {
+            let rule = PermissionRule {
+                tool_name: Some(tool_name.to_string()),
+                path_pattern: Some(path.to_string()),
                 action: PermissionAction::Allow,
                 scope: PermissionScope::Persistent,
             };
@@ -2332,6 +2388,12 @@ pub mod permissions {
         pub description: String,
         pub details: Option<String>,
         pub is_read_only: bool,
+        /// Canonical or resolved target path when the permission decision is path-sensitive.
+        pub path: Option<String>,
+        /// Current workspace root used for path-boundary checks.
+        pub working_dir: Option<std::path::PathBuf>,
+        /// Additional workspace roots considered in-bounds for file access.
+        pub allowed_roots: Vec<std::path::PathBuf>,
         /// Context-aware description showing user WHY the tool needs permission.
         /// E.g. "bash: execute `ls -la /home`", "write file: /path/to/.bashrc", "fetch: https://example.com"
         pub context_description: Option<String>,
@@ -2360,7 +2422,15 @@ pub mod permissions {
             use crate::config::PermissionMode;
             match self.mode {
                 PermissionMode::BypassPermissions => PermissionDecision::Allow,
-                PermissionMode::AcceptEdits => PermissionDecision::Allow,
+                    PermissionMode::AcceptEdits => {
+                        if request.tool_name == "Edit" {
+                            PermissionDecision::Allow
+                        } else if request.is_read_only {
+                            PermissionDecision::Allow
+                        } else {
+                            PermissionDecision::Deny
+                        }
+                    }
                 PermissionMode::Plan => {
                     if request.is_read_only {
                         PermissionDecision::Allow
@@ -2435,7 +2505,9 @@ pub mod permissions {
                 let decision = m.evaluate(
                     &request.tool_name,
                     &request.description,
-                    request.details.as_deref(),
+                    request.path.as_deref(),
+                    request.working_dir.as_deref(),
+                    &request.allowed_roots,
                 );
                 return match decision {
                     PermissionDecision::Ask { .. } => PermissionDecision::Deny,
@@ -2470,7 +2542,9 @@ pub mod permissions {
                 return m.evaluate(
                     &request.tool_name,
                     &request.description,
-                    request.details.as_deref(),
+                    request.path.as_deref(),
+                    request.working_dir.as_deref(),
+                    &request.allowed_roots,
                 );
             }
             // If the lock is poisoned fall back to allow (user is watching)
@@ -2517,14 +2591,57 @@ pub mod permissions {
         #[test]
         fn bypass_always_allows() {
             let m = mgr(PermissionMode::BypassPermissions);
-            assert_eq!(m.evaluate("Bash", "rm -rf /", None), PermissionDecision::Allow);
+            assert_eq!(
+                m.evaluate("Bash", "rm -rf /", None, None, &[]),
+                PermissionDecision::Allow
+            );
         }
 
         #[test]
-        fn default_read_allows() {
+        fn default_read_allows_workspace_paths() {
             let m = mgr(PermissionMode::Default);
+            let cwd = std::path::Path::new("/workspace");
             assert_eq!(
-                m.evaluate("Read", "read file", None),
+                m.evaluate(
+                    "Read",
+                    "read file",
+                    Some("/workspace/src/lib.rs"),
+                    Some(cwd),
+                    &[],
+                ),
+                PermissionDecision::Allow
+            );
+        }
+
+        #[test]
+        fn default_read_asks_outside_workspace() {
+            let m = mgr(PermissionMode::Default);
+            let cwd = std::path::Path::new("/workspace");
+            match m.evaluate(
+                "Read",
+                "read file",
+                Some("/tmp/outside.txt"),
+                Some(cwd),
+                &[],
+            ) {
+                PermissionDecision::Ask { .. } => {}
+                other => panic!("Expected Ask, got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn default_read_allows_additional_workspace_roots() {
+            let m = mgr(PermissionMode::Default);
+            let cwd = std::path::Path::new("/workspace");
+            let extra = vec![std::path::PathBuf::from("/external")];
+            assert_eq!(
+                m.evaluate(
+                    "Read",
+                    "read file",
+                    Some("/external/notes.txt"),
+                    Some(cwd),
+                    &extra,
+                ),
                 PermissionDecision::Allow
             );
         }
@@ -2532,7 +2649,7 @@ pub mod permissions {
         #[test]
         fn default_bash_asks() {
             let m = mgr(PermissionMode::Default);
-            match m.evaluate("Bash", "echo hello", None) {
+            match m.evaluate("Bash", "echo hello", None, None, &[]) {
                 PermissionDecision::Ask { .. } => {}
                 other => panic!("Expected Ask, got {:?}", other),
             }
@@ -2543,7 +2660,7 @@ pub mod permissions {
             let mut m = mgr(PermissionMode::Default);
             m.add_session_allow("Bash");
             assert_eq!(
-                m.evaluate("Bash", "echo hi", None),
+                m.evaluate("Bash", "echo hi", None, None, &[]),
                 PermissionDecision::Allow
             );
         }
@@ -2558,14 +2675,14 @@ pub mod permissions {
                 action: PermissionAction::Deny,
                 scope: PermissionScope::Session,
             });
-            assert_eq!(m.evaluate("Bash", "echo hi", None), PermissionDecision::Deny);
+            assert_eq!(m.evaluate("Bash", "echo hi", None, None, &[]), PermissionDecision::Deny);
         }
 
         #[test]
         fn plan_denies_writes() {
             let m = mgr(PermissionMode::Plan);
             assert_eq!(
-                m.evaluate("Write", "write file", Some("/tmp/foo")),
+                m.evaluate("Write", "write file", Some("/tmp/foo"), None, &[]),
                 PermissionDecision::Deny
             );
         }
@@ -2574,18 +2691,22 @@ pub mod permissions {
         fn plan_allows_reads() {
             let m = mgr(PermissionMode::Plan);
             assert_eq!(
-                m.evaluate("Read", "read file", Some("/tmp/foo")),
+                m.evaluate("Read", "read file", Some("/tmp/foo"), None, &[]),
                 PermissionDecision::Allow
             );
         }
 
         #[test]
-        fn accept_edits_allows_all() {
+        fn accept_edits_only_allows_edit() {
             let m = mgr(PermissionMode::AcceptEdits);
             assert_eq!(
-                m.evaluate("Bash", "rm -rf /tmp", None),
+                m.evaluate("Edit", "edit file", Some("/workspace/src/lib.rs"), None, &[]),
                 PermissionDecision::Allow
             );
+            match m.evaluate("Bash", "rm -rf /tmp", None, None, &[]) {
+                PermissionDecision::Ask { .. } => {}
+                other => panic!("Expected Ask, got {:?}", other),
+            }
         }
 
         #[test]
@@ -2598,7 +2719,7 @@ pub mod permissions {
                 scope: PermissionScope::Session,
             });
             assert_eq!(
-                m.evaluate("Write", "write", Some("/tmp/foo/bar.txt")),
+                m.evaluate("Write", "write", Some("/tmp/foo/bar.txt"), None, &[]),
                 PermissionDecision::Allow
             );
         }
@@ -2612,7 +2733,7 @@ pub mod permissions {
                 action: PermissionAction::Allow,
                 scope: PermissionScope::Session,
             });
-            match m.evaluate("Write", "write", Some("/etc/hosts")) {
+            match m.evaluate("Write", "write", Some("/etc/hosts"), None, &[]) {
                 PermissionDecision::Ask { .. } => {}
                 other => panic!("Expected Ask, got {:?}", other),
             }
@@ -2621,9 +2742,19 @@ pub mod permissions {
         #[test]
         fn format_reason_bash() {
             let s =
-                format_permission_reason("Bash", "ls -la", None, PermissionLevel::Execute);
-            assert!(s.contains("Bash wants to run"));
-            assert!(s.contains("ls -la"));
+                format_permission_reason("Bash", "This will execute a shell command.", None, PermissionLevel::Execute);
+            assert_eq!(s, "This will execute a shell command.");
+        }
+
+        #[test]
+        fn format_reason_powershell() {
+            let s = format_permission_reason(
+                "PowerShell",
+                "[High risk] This may modify system-wide security policy.",
+                None,
+                PermissionLevel::Execute,
+            );
+            assert_eq!(s, "[High risk] This may modify system-wide security policy.");
         }
 
         #[test]
@@ -3930,6 +4061,9 @@ mod tests {
             description: format!("{} operation", tool_name),
             details: None,
             is_read_only,
+            path: None,
+            working_dir: None,
+            allowed_roots: Vec::new(),
             context_description: None,
         }
     }
@@ -3968,35 +4102,23 @@ mod tests {
     }
 
     #[test]
-    fn test_auto_handler_accept_edits_allows_writes() {
+    fn test_auto_handler_accept_edits_only_allows_edit() {
         let handler = crate::permissions::AutoPermissionHandler {
             mode: crate::config::PermissionMode::AcceptEdits,
         };
         assert_eq!(
+            handler.check_permission(&make_req("Edit", false)),
+            crate::permissions::PermissionDecision::Allow
+        );
+        assert_eq!(
             handler.check_permission(&make_req("FileWrite", false)),
-            crate::permissions::PermissionDecision::Allow
-        );
-    }
-
-    #[test]
-    fn test_auto_handler_plan_denies_writes() {
-        let handler = crate::permissions::AutoPermissionHandler {
-            mode: crate::config::PermissionMode::Plan,
-        };
-        assert_eq!(
-            handler.check_permission(&make_req("Bash", false)),
             crate::permissions::PermissionDecision::Deny
-        );
-        assert_eq!(
-            handler.check_permission(&make_req("FileRead", true)),
-            crate::permissions::PermissionDecision::Allow
         );
     }
 
     #[test]
     fn test_interactive_handler_default_allows_writes() {
-        // InteractivePermissionHandler allows writes in Default mode
-        // (user is watching the TUI)
+        // Legacy InteractivePermissionHandler still allows everything outside Plan.
         let handler = crate::permissions::InteractivePermissionHandler {
             mode: crate::config::PermissionMode::Default,
         };
@@ -4007,17 +4129,35 @@ mod tests {
     }
 
     #[test]
-    fn test_interactive_handler_plan_allows_reads_denies_writes() {
-        let handler = crate::permissions::InteractivePermissionHandler {
-            mode: crate::config::PermissionMode::Plan,
-        };
+    fn test_managed_interactive_default_asks_for_write() {
+        let manager = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::permissions::PermissionManager::new(
+                crate::config::PermissionMode::Default,
+                &crate::config::Settings::default(),
+            ),
+        ));
+        let handler = crate::permissions::InteractivePermissionHandler::with_manager(manager);
+        match handler.check_permission(&make_req("FileWrite", false)) {
+            crate::permissions::PermissionDecision::Ask { .. } => {}
+            other => panic!("Expected Ask, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_managed_interactive_default_allows_workspace_read() {
+        let manager = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::permissions::PermissionManager::new(
+                crate::config::PermissionMode::Default,
+                &crate::config::Settings::default(),
+            ),
+        ));
+        let handler = crate::permissions::InteractivePermissionHandler::with_manager(manager);
+        let mut req = make_req("Read", true);
+        req.path = Some("/workspace/src/lib.rs".to_string());
+        req.working_dir = Some(std::path::PathBuf::from("/workspace"));
         assert_eq!(
-            handler.check_permission(&make_req("FileRead", true)),
+            handler.check_permission(&req),
             crate::permissions::PermissionDecision::Allow
-        );
-        assert_eq!(
-            handler.check_permission(&make_req("FileWrite", false)),
-            crate::permissions::PermissionDecision::Deny
         );
     }
 

@@ -53,6 +53,21 @@ impl Tool for ListMcpResourcesTool {
             Err(e) => return ToolResult::error(format!("Invalid input: {}", e)),
         };
 
+        if let Err(e) = ctx.check_permission(
+            self.name(),
+            &format!(
+                "List MCP resources{}",
+                params
+                    .server
+                    .as_deref()
+                    .map(|s| format!(" for {}", s))
+                    .unwrap_or_default()
+            ),
+            true,
+        ) {
+            return ToolResult::error(e.to_string());
+        }
+
         let manager = match &ctx.mcp_manager {
             Some(m) => m,
             None => {
@@ -122,6 +137,14 @@ impl Tool for ReadMcpResourceTool {
             Ok(p) => p,
             Err(e) => return ToolResult::error(format!("Invalid input: {}", e)),
         };
+
+        if let Err(e) = ctx.check_permission(
+            self.name(),
+            &format!("Read MCP resource {}:{}", params.server, params.uri),
+            true,
+        ) {
+            return ToolResult::error(e.to_string());
+        }
 
         let manager = match &ctx.mcp_manager {
             Some(m) => m,

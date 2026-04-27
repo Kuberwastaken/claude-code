@@ -65,11 +65,9 @@ impl Tool for SkillTool {
         };
 
         let dirs = skill_search_dirs(ctx);
-
         if params.skill == "list" {
             return list_skills(&dirs).await;
         }
-
         let skill_name = params.skill.trim_end_matches(".md");
         debug!(skill = skill_name, "Loading skill");
 
@@ -87,8 +85,8 @@ impl Tool for SkillTool {
             return ToolResult::success(prompt);
         }
 
-        let raw = match find_and_read_skill(skill_name, &dirs).await {
-            Some(c) => c,
+        let (skill_path, raw) = match find_and_read_skill(skill_name, &dirs).await {
+            Some(found) => found,
             None => {
                 return ToolResult::error(format!(
                     "Skill '{}' not found. Use skill=\"list\" to see available skills.",
@@ -96,6 +94,15 @@ impl Tool for SkillTool {
                 ));
             }
         };
+
+        if let Err(e) = ctx.check_permission_for_path(
+            self.name(),
+            &format!("Load skill {}", params.skill),
+            skill_path,
+            true,
+        ) {
+            return ToolResult::error(e.to_string());
+        }
 
         // Strip YAML frontmatter if present (--- ... ---)
         let content = strip_frontmatter(&raw);
@@ -186,11 +193,11 @@ async fn list_skills(dirs: &[PathBuf]) -> ToolResult {
     ))
 }
 
-async fn find_and_read_skill(name: &str, dirs: &[PathBuf]) -> Option<String> {
+async fn find_and_read_skill(name: &str, dirs: &[PathBuf]) -> Option<(PathBuf, String)> {
     for dir in dirs {
         let path = dir.join(format!("{}.md", name));
         if let Ok(content) = tokio::fs::read_to_string(&path).await {
-            return Some(content);
+            return Some((path, content));
         }
     }
     None

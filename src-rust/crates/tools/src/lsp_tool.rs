@@ -73,6 +73,15 @@ impl Tool for LspTool {
                 .into_owned()
         };
 
+        if let Err(e) = ctx.check_permission_for_path(
+            self.name(),
+            &format!("LSP {} {}", action, file_path),
+            std::path::PathBuf::from(&file_path),
+            true,
+        ) {
+            return ToolResult::error(e.to_string());
+        }
+
         // line/column only required for position-based actions
         let line = input
             .get("line")

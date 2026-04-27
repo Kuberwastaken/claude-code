@@ -283,6 +283,8 @@ pub fn render_mcp_view(state: &McpViewState, area: Rect, buf: &mut Buffer) {
         Span::raw("filter tools  "),
         Span::styled(" e ", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
         Span::raw("error detail  "),
+        Span::styled(" a ", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
+        Span::raw("auth  "),
         Span::styled(" r ", Style::default().fg(CLAURST_ACCENT).add_modifier(Modifier::BOLD)),
         Span::raw("reconnect"),
     ]);
@@ -645,6 +647,19 @@ mod tests {
         let buf = terminal.backend().buffer().clone();
         let content: String = buf.content().iter().map(|c| c.symbol().chars().next().unwrap_or(' ')).collect();
         assert!(content.contains("timeout") || content.contains("Error Detail"));
+    }
+
+    #[test]
+    fn mcp_view_footer_renders_auth_hotkey() {
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        let mut state = McpViewState::new();
+        state.open(vec![make_server("fs-server", McpViewStatus::Connected, None)]);
+        terminal.draw(|frame| {
+            render_mcp_view(&state, frame.area(), frame.buffer_mut());
+        }).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let content: String = buf.content().iter().map(|c| c.symbol().chars().next().unwrap_or(' ')).collect();
+        assert!(content.contains("auth") || content.contains(" a "));
     }
 
     #[test]

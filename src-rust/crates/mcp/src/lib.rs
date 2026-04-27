@@ -23,19 +23,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{mpsc, oneshot, Mutex};
-use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, info, warn};
 
 pub use client::McpClient;
 pub use types::*;
 pub use connection_manager::{McpConnectionManager, McpServerStatus};
 
+pub mod backend;
 pub mod connection_manager;
 pub mod registry;
 pub mod oauth;
+pub mod rmcp_backend;
 
 // ---------------------------------------------------------------------------
 // Environment variable expansion
@@ -118,7 +116,8 @@ pub mod types {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct JsonRpcRequest {
         pub jsonrpc: String,
-        pub id: Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub id: Option<Value>,
         pub method: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub params: Option<Value>,
@@ -128,7 +127,7 @@ pub mod types {
         pub fn new(id: impl Into<Value>, method: impl Into<String>, params: Option<Value>) -> Self {
             Self {
                 jsonrpc: "2.0".to_string(),
-                id: id.into(),
+                id: Some(id.into()),
                 method: method.into(),
                 params,
             }
@@ -137,12 +136,13 @@ pub mod types {
         pub fn notification(method: impl Into<String>, params: Option<Value>) -> Self {
             Self {
                 jsonrpc: "2.0".to_string(),
-                id: Value::Null,
+                id: None,
                 method: method.into(),
                 params,
             }
         }
     }
+
 
     /// A JSON-RPC 2.0 response.
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,46 +165,6 @@ pub mod types {
     }
 
     // ---- MCP protocol types ------------------------------------------------
-
-    /// MCP initialize request params.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct InitializeParams {
-        pub protocol_version: String,
-        pub capabilities: ClientCapabilities,
-        pub client_info: ClientInfo,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct ClientCapabilities {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub roots: Option<RootsCapability>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub sampling: Option<Value>,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct RootsCapability {
-        #[serde(rename = "listChanged")]
-        pub list_changed: bool,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct ClientInfo {
-        pub name: String,
-        pub version: String,
-    }
-
-    /// MCP initialize response result.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct InitializeResult {
-        pub protocol_version: String,
-        pub capabilities: ServerCapabilities,
-        pub server_info: ServerInfo,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub instructions: Option<String>,
-    }
 
     #[derive(Debug, Clone, Serialize, Deserialize, Default)]
     pub struct ServerCapabilities {
@@ -394,6 +354,18 @@ pub mod types {
 
 pub mod transport {
     use super::*;
+    use reqwest::header::{CONTENT_TYPE, HeaderValue};
+    #[cfg(test)]
+    use tokio::sync::mpsc;
+
+    pub const LEGACY_PROTOCOL_VERSION: &str = "2024-11-05";
+    pub const STREAMABLE_HTTP_PROTOCOL_VERSION: &str = "2025-11-25";
+    pub const STREAMABLE_HTTP_PROTOCOL_VERSIONS: &[&str] = &[
+        STREAMABLE_HTTP_PROTOCOL_VERSION,
+        "2025-06-18",
+        "2025-03-26",
+        LEGACY_PROTOCOL_VERSION,
+    ];
 
     /// A transport can send requests and receive responses.
     #[async_trait]
@@ -416,148 +388,155 @@ pub mod transport {
         fn subscribe_to_notifications(
             &self,
         ) -> BoxStream<'static, anyhow::Result<serde_json::Value>>;
+
+        fn protocol_version(&self) -> &'static str {
+            LEGACY_PROTOCOL_VERSION
+        }
     }
 
-    /// Stdio transport: spawns a subprocess and communicates via stdin/stdout.
-    pub struct StdioTransport {
-        child: Arc<Mutex<Child>>,
-        stdin: Arc<Mutex<ChildStdin>>,
-        stdout_rx: Arc<Mutex<mpsc::UnboundedReceiver<String>>>,
+    pub(crate) fn bearer_header_value(token: &str) -> anyhow::Result<HeaderValue> {
+        HeaderValue::from_str(&format!("Bearer {}", token))
+            .map_err(|e| anyhow::anyhow!("invalid bearer token header: {}", e))
     }
 
-    impl StdioTransport {
-        pub async fn spawn(config: &McpServerConfig) -> anyhow::Result<Self> {
-            let command = config
-                .command
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' has no command configured", config.name))?;
+    pub(crate) fn is_event_stream_response(response: &reqwest::Response) -> bool {
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.contains("text/event-stream"))
+            .unwrap_or(false)
+    }
 
-            let mut cmd = Command::new(command);
-            cmd.args(&config.args)
-                .envs(&config.env)
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped());
+    pub(crate) fn resolve_legacy_endpoint(base_url: &str, endpoint: &str) -> anyhow::Result<String> {
+        let endpoint = endpoint.trim();
+        if endpoint.is_empty() {
+            anyhow::bail!("legacy SSE endpoint event did not include a POST endpoint");
+        }
+        if let Ok(url) = url::Url::parse(endpoint) {
+            return Ok(url.to_string());
+        }
+        let base = url::Url::parse(base_url)
+            .map_err(|e| anyhow::anyhow!("invalid legacy SSE base URL '{}': {}", base_url, e))?;
+        base.join(endpoint)
+            .map(|url| url.to_string())
+            .map_err(|e| anyhow::anyhow!("failed to resolve legacy SSE endpoint '{}': {}", endpoint, e))
+    }
 
-            let mut child = cmd.spawn().map_err(|e| {
+    #[cfg(test)]
+    pub(super) fn route_incoming_value(
+        server_name: &str,
+        value: serde_json::Value,
+        response_tx: &mpsc::UnboundedSender<JsonRpcResponse>,
+        notification_tx: &mpsc::UnboundedSender<serde_json::Value>,
+    ) -> anyhow::Result<()> {
+        let is_response = value.get("id").map(|id| !id.is_null()).unwrap_or(false)
+            || value.get("result").is_some()
+            || value.get("error").is_some();
+
+        if is_response {
+            let response: JsonRpcResponse = serde_json::from_value(value).map_err(|e| {
                 anyhow::anyhow!(
-                    "MCP server '{}': failed to spawn '{}': {}",
-                    config.name,
-                    command,
+                    "MCP server '{}': failed to parse JSON-RPC response from HTTP transport: {}",
+                    server_name,
                     e
                 )
             })?;
+            let _ = response_tx.send(response);
+            return Ok(());
+        }
 
-            let stdin = child
-                .stdin
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("MCP server '{}': could not capture stdin", config.name))?;
-            let stdout = child
-                .stdout
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("MCP server '{}': could not capture stdout", config.name))?;
+        if value.get("method").is_some() {
+            let _ = notification_tx.send(value);
+        }
 
-            let (tx, rx) = mpsc::unbounded_channel::<String>();
+        Ok(())
+    }
 
-            // Background reader task — forwards stdout lines to the channel.
-            tokio::spawn(async move {
-                let reader = BufReader::new(stdout);
-                let mut lines = reader.lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    if tx.send(line).is_err() {
-                        break;
-                    }
-                }
-            });
+    fn dispatch_sse_event<F>(
+        event_name: &mut Option<String>,
+        data_lines: &mut Vec<String>,
+        on_event: &mut F,
+    ) -> anyhow::Result<()>
+    where
+        F: FnMut(Option<&str>, &str) -> anyhow::Result<()>,
+    {
+        if event_name.is_none() && data_lines.is_empty() {
+            return Ok(());
+        }
+        let data = data_lines.join("\n");
+        on_event(event_name.as_deref(), &data)?;
+        *event_name = None;
+        data_lines.clear();
+        Ok(())
+    }
 
-            Ok(Self {
-                child: Arc::new(Mutex::new(child)),
-                stdin: Arc::new(Mutex::new(stdin)),
-                stdout_rx: Arc::new(Mutex::new(rx)),
-            })
+    pub(super) fn process_sse_line(
+        line: &str,
+        event_name: &mut Option<String>,
+        data_lines: &mut Vec<String>,
+    ) {
+        if line.starts_with(':') {
+            return;
+        }
+        let (field, value) = match line.split_once(':') {
+            Some((field, value)) => (field, value.strip_prefix(' ').unwrap_or(value)),
+            None => (line, ""),
+        };
+        match field {
+            "event" => *event_name = Some(value.to_string()),
+            "data" => data_lines.push(value.to_string()),
+            _ => {}
         }
     }
 
-    #[async_trait]
-    impl McpTransport for StdioTransport {
-        async fn send(&self, message: &JsonRpcRequest) -> anyhow::Result<()> {
-            let json = serde_json::to_string(message)? + "\n";
-            let mut stdin = self.stdin.lock().await;
-            stdin.write_all(json.as_bytes()).await?;
-            stdin.flush().await?;
-            Ok(())
-        }
+    pub(crate) async fn process_sse_response<F>(
+        response: reqwest::Response,
+        mut on_event: F,
+    ) -> anyhow::Result<()>
+    where
+        F: FnMut(Option<&str>, &str) -> anyhow::Result<()>,
+    {
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+        let mut event_name: Option<String> = None;
+        let mut data_lines: Vec<String> = Vec::new();
 
-        async fn recv(&self) -> anyhow::Result<Option<JsonRpcResponse>> {
-            let mut rx = self.stdout_rx.lock().await;
-            let line = rx.recv().await;
-            match line {
-                Some(s) => {
-                    let resp: JsonRpcResponse = serde_json::from_str(&s)
-                        .map_err(|e| anyhow::anyhow!("MCP response parse error: {} (raw: {})", e, s))?;
-                    Ok(Some(resp))
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| anyhow::anyhow!("failed reading SSE stream: {}", e))?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+            while let Some(pos) = buffer.find('\n') {
+                let mut line: String = buffer.drain(..=pos).collect();
+                if line.ends_with('\n') {
+                    line.pop();
                 }
-                None => Ok(None),
+                if line.ends_with('\r') {
+                    line.pop();
+                }
+                if line.is_empty() {
+                    dispatch_sse_event(&mut event_name, &mut data_lines, &mut on_event)?;
+                } else {
+                    process_sse_line(&line, &mut event_name, &mut data_lines);
+                }
             }
         }
 
-        async fn close(&self) -> anyhow::Result<()> {
-            let mut child = self.child.lock().await;
-            let _ = child.kill().await;
-            Ok(())
-        }
-
-        async fn try_receive_raw(&self) -> anyhow::Result<Option<serde_json::Value>> {
-            let mut rx = self.stdout_rx.lock().await;
-            match rx.try_recv() {
-                Ok(line) => {
-                    let val: serde_json::Value = serde_json::from_str(&line)
-                        .map_err(|e| anyhow::anyhow!("MCP raw parse error: {} (raw: {})", e, line))?;
-                    Ok(Some(val))
-                }
-                Err(mpsc::error::TryRecvError::Empty) => Ok(None),
-                Err(mpsc::error::TryRecvError::Disconnected) => Ok(None),
+        if !buffer.is_empty() {
+            if buffer.ends_with('\r') {
+                buffer.pop();
+            }
+            if buffer.is_empty() {
+                dispatch_sse_event(&mut event_name, &mut data_lines, &mut on_event)?;
+            } else {
+                process_sse_line(&buffer, &mut event_name, &mut data_lines);
             }
         }
 
-        fn subscribe_to_notifications(
-            &self,
-        ) -> BoxStream<'static, anyhow::Result<serde_json::Value>> {
-            let stdout_rx = Arc::clone(&self.stdout_rx);
-
-            // Create a channel to bridge from the exclusive receiver to the stream
-            let (tx, rx) = mpsc::channel::<anyhow::Result<serde_json::Value>>(100);
-
-            // Spawn a background task that polls the stdout_rx and forwards to tx
-            tokio::spawn(async move {
-                loop {
-                    let line = {
-                        let mut out_rx = stdout_rx.lock().await;
-                        out_rx.recv().await
-                    };
-
-                    match line {
-                        Some(s) => {
-                            let val: anyhow::Result<serde_json::Value> =
-                                serde_json::from_str(&s)
-                                    .map_err(|e| anyhow::anyhow!("MCP raw parse error: {} (raw: {})", e, s));
-
-                            if tx.send(val).await.is_err() {
-                                // Receiver dropped; exit the polling task
-                                break;
-                            }
-                        }
-                        None => {
-                            // stdout_rx closed
-                            break;
-                        }
-                    }
-                }
-            });
-
-            Box::pin(ReceiverStream::new(rx))
-        }
+        dispatch_sse_event(&mut event_name, &mut data_lines, &mut on_event)?;
+        Ok(())
     }
+
 }
 
 // ---------------------------------------------------------------------------
@@ -566,7 +545,6 @@ pub mod transport {
 
 pub mod client {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     /// A fully initialized MCP client connected to a single server.
     pub struct McpClient {
@@ -577,93 +555,123 @@ pub mod client {
         pub resources: Vec<McpResource>,
         pub prompts: Vec<McpPrompt>,
         pub instructions: Option<String>,
-        transport: Arc<dyn transport::McpTransport>,
-        next_id: AtomicU64,
-        #[allow(dead_code)]
-        pending: Arc<Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse>>>>,
+        backend: Option<Arc<dyn backend::McpClientBackend>>,
     }
 
     impl McpClient {
-        /// Connect to an MCP server using stdio transport and complete the
-        /// initialize handshake.  The `config` should already have env vars
-        /// expanded via `expand_server_config`.
-        pub async fn connect_stdio(config: &McpServerConfig) -> anyhow::Result<Self> {
-            let transport = transport::StdioTransport::spawn(config).await?;
-            let client = Self {
-                server_name: config.name.clone(),
-                server_info: None,
-                capabilities: ServerCapabilities::default(),
-                tools: vec![],
-                resources: vec![],
-                prompts: vec![],
-                instructions: None,
-                transport: Arc::new(transport),
-                next_id: AtomicU64::new(1),
-                pending: Arc::new(Mutex::new(HashMap::new())),
-            };
-
-            client.initialize().await
+        fn from_snapshot(snapshot: backend::McpClientSnapshot) -> Self {
+            Self {
+                server_name: snapshot.server_name,
+                server_info: snapshot.server_info,
+                capabilities: snapshot.capabilities,
+                tools: snapshot.tools,
+                resources: snapshot.resources,
+                prompts: snapshot.prompts,
+                instructions: snapshot.instructions,
+                backend: None,
+            }
         }
 
-        /// Send the MCP initialize handshake and discover capabilities.
-        async fn initialize(mut self) -> anyhow::Result<Self> {
-            let params = InitializeParams {
-                protocol_version: "2024-11-05".to_string(),
-                capabilities: ClientCapabilities {
-                    roots: Some(RootsCapability { list_changed: false }),
-                    sampling: None,
-                },
-                client_info: ClientInfo {
-                    name: claurst_core::constants::APP_NAME.to_string(),
-                    version: claurst_core::constants::APP_VERSION.to_string(),
-                },
-            };
+        fn from_backend(backend: Arc<dyn backend::McpClientBackend>) -> Self {
+            let snapshot = backend.snapshot();
+            let mut client = Self::from_snapshot(snapshot);
+            client.backend = Some(backend);
+            client
+        }
 
-            let result: InitializeResult = self
-                .call("initialize", Some(serde_json::to_value(&params)?))
-                .await
-                .map_err(|e| anyhow::anyhow!("MCP server '{}' initialize failed: {}", self.server_name, e))?;
+        fn backend(&self) -> anyhow::Result<&Arc<dyn backend::McpClientBackend>> {
+            self.backend
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("MCP client backend missing"))
+        }
 
-            self.server_info = Some(result.server_info);
-            self.instructions = result.instructions;
-            self.capabilities = result.capabilities.clone();
-
-            // Send initialized notification
-            let notif = JsonRpcRequest::notification("notifications/initialized", None);
-            self.transport.send(&notif).await?;
-
-            // Discover tools if supported
-            if result.capabilities.tools.is_some() {
-                match self.list_tools().await {
-                    Ok(tools) => self.tools = tools,
-                    Err(e) => warn!(server = %self.server_name, error = %e, "Failed to list tools"),
+        pub async fn connect(config: &McpServerConfig, auth_token: Option<String>) -> anyhow::Result<Self> {
+            match config.server_type.as_str() {
+                "stdio" => Self::connect_stdio(config).await,
+                "sse" => {
+                    let backend = crate::rmcp_backend::RmcpClientBackend::connect_legacy_sse(
+                        config,
+                        auth_token,
+                    )
+                    .await?;
+                    Ok(Self::from_backend(Arc::new(backend)))
                 }
-            }
-
-            // Discover resources if supported
-            if result.capabilities.resources.is_some() {
-                match self.list_resources().await {
-                    Ok(resources) => self.resources = resources,
-                    Err(e) => warn!(server = %self.server_name, error = %e, "Failed to list resources"),
+                "http" => {
+                    let mut last_error = None;
+                    for &protocol_version in transport::STREAMABLE_HTTP_PROTOCOL_VERSIONS {
+                        let protocol_version = serde_json::from_value::<rmcp::model::ProtocolVersion>(
+                            Value::String(protocol_version.to_string()),
+                        )
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "MCP server '{}': invalid streamable HTTP protocol version '{}': {}",
+                                config.name,
+                                protocol_version,
+                                e
+                            )
+                        })?;
+                        let protocol_version_label = protocol_version.as_str().to_string();
+                        match crate::rmcp_backend::RmcpClientBackend::connect_http(
+                            config,
+                            auth_token.clone(),
+                            protocol_version,
+                        )
+                        .await
+                        {
+                            Ok(backend) => return Ok(Self::from_backend(Arc::new(backend))),
+                            Err(e) => {
+                                let message = e.to_string();
+                                if Self::is_unsupported_protocol_error(&message) {
+                                    debug!(
+                                        server = %config.name,
+                                        protocol_version = %protocol_version_label,
+                                        error = %message,
+                                        "Streamable HTTP protocol version unsupported; trying fallback"
+                                    );
+                                    last_error = Some(e);
+                                    continue;
+                                }
+                                return Err(e);
+                            }
+                        }
+                    }
+                    Err(last_error.unwrap_or_else(|| {
+                        anyhow::anyhow!(
+                            "MCP server '{}': no supported streamable HTTP protocol version found",
+                            config.name
+                        )
+                    }))
                 }
+                other => Err(anyhow::anyhow!(
+                    "MCP server '{}': unsupported transport type '{}'",
+                    config.name,
+                    other
+                )),
             }
+        }
 
-            // Discover prompts if supported
-            if result.capabilities.prompts.is_some() {
-                match self.list_prompts().await {
-                    Ok(prompts) => self.prompts = prompts,
-                    Err(e) => warn!(server = %self.server_name, error = %e, "Failed to list prompts"),
-                }
-            }
+        pub(crate) fn is_unsupported_protocol_error(message: &str) -> bool {
+            // rmcp, servers, and gateways do not emit a single stable
+            // protocol-negotiation error string, so match the known variants
+            // conservatively to keep downgrade fallback working.
+            let lower = message.to_ascii_lowercase();
+            lower.contains("unsupported protocol version")
+                || lower.contains("unsupported mcp-protocol-version")
+                || (lower.contains("protocol version") && lower.contains("unsupported"))
+                || (lower.contains("mcp-protocol-version") && lower.contains("bad request"))
+        }
 
-            Ok(self)
+        /// Connect to an MCP server using stdio transport. The `config` should
+        /// already have env vars expanded via `expand_server_config`.
+        pub async fn connect_stdio(config: &McpServerConfig) -> anyhow::Result<Self> {
+            let backend = crate::rmcp_backend::RmcpClientBackend::connect_stdio(config).await?;
+            Ok(Self::from_backend(Arc::new(backend)))
         }
 
         // ---- High-level API -----------------------------------------------
 
         pub async fn list_tools(&self) -> anyhow::Result<Vec<McpTool>> {
-            let result: ListToolsResult = self.call("tools/list", None).await?;
-            Ok(result.tools)
+            self.backend()?.list_tools().await
         }
 
         pub async fn call_tool(
@@ -671,70 +679,28 @@ pub mod client {
             name: &str,
             arguments: Option<Value>,
         ) -> anyhow::Result<CallToolResult> {
-            let params = CallToolParams {
-                name: name.to_string(),
-                arguments,
-            };
-            self.call("tools/call", Some(serde_json::to_value(&params)?))
-                .await
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "MCP server '{}': tool '{}' call failed: {}",
-                        self.server_name,
-                        name,
-                        e
-                    )
-                })
+            self.backend()?.call_tool(name, arguments).await.map_err(|e| {
+                anyhow::anyhow!(
+                    "MCP server '{}': tool '{}' call failed: {}",
+                    self.server_name,
+                    name,
+                    e
+                )
+            })
         }
 
         pub async fn list_resources(&self) -> anyhow::Result<Vec<McpResource>> {
-            let result: ListResourcesResult = self.call("resources/list", None).await?;
-            let mut resources = result.resources;
-
-            // Apply template rendering for resources with prompt annotations
-            for resource in &mut resources {
-                if let Some(annotations) = &resource.annotations {
-                    if let Some(prompt_template) = annotations.get("prompt") {
-                        if let Some(template_str) = prompt_template.as_str() {
-                            // Build context from resource fields
-                            let context = serde_json::json!({
-                                "uri": resource.uri,
-                                "name": resource.name,
-                                "description": resource.description,
-                                "mimeType": resource.mime_type,
-                            });
-
-                            // Render the template and replace description
-                            let rendered = TemplateRenderer::render(template_str, &context);
-                            resource.description = Some(rendered);
-                        }
-                    }
-                }
-            }
-
+            let mut resources = self.backend()?.list_resources().await?;
+            apply_resource_templates(&mut resources);
             Ok(resources)
         }
 
         pub async fn read_resource(&self, uri: &str) -> anyhow::Result<ResourceContents> {
-            let params = serde_json::json!({ "uri": uri });
-            let result: Value = self.call("resources/read", Some(params)).await?;
-            let contents = result
-                .get("contents")
-                .and_then(|c| c.as_array())
-                .and_then(|arr| arr.first())
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "MCP server '{}': no contents in resources/read response for '{}'",
-                        self.server_name,
-                        uri
-                    )
-                })?;
-            Ok(serde_json::from_value(contents.clone())?)
+            self.backend()?.read_resource(uri).await
         }
 
         pub async fn list_prompts(&self) -> anyhow::Result<Vec<McpPrompt>> {
-            let result: ListPromptsResult = self.call("prompts/list", None).await?;
-            Ok(result.prompts)
+            self.backend()?.list_prompts().await
         }
 
         /// Invoke `prompts/get` with the given name and optional arguments map.
@@ -746,12 +712,15 @@ pub mod client {
             name: &str,
             arguments: Option<std::collections::HashMap<String, String>>,
         ) -> anyhow::Result<GetPromptResult> {
-            let mut params = serde_json::json!({ "name": name });
-            if let Some(args) = arguments {
-                params["arguments"] = serde_json::to_value(args)?;
-            }
-            let result: GetPromptResult = self.call("prompts/get", Some(params)).await?;
-            Ok(result)
+            self.backend()?.get_prompt(name, arguments).await
+        }
+
+        pub async fn subscribe_resource(&self, uri: &str) -> anyhow::Result<()> {
+            self.backend()?.subscribe_resource(uri).await
+        }
+
+        pub async fn unsubscribe_resource(&self, uri: &str) -> anyhow::Result<()> {
+            self.backend()?.unsubscribe_resource(uri).await
         }
 
         /// Get all tools as `ToolDefinition` objects suitable for the API.
@@ -759,102 +728,14 @@ pub mod client {
             self.tools.iter().map(|t| t.into()).collect()
         }
 
-        /// Access the transport for subscribing to notifications.
-        pub fn transport(&self) -> Arc<dyn transport::McpTransport> {
-            Arc::clone(&self.transport)
+        /// Subscribe to raw JSON notifications from the active backend.
+        pub fn subscribe_to_notifications(&self) -> BoxStream<'static, anyhow::Result<serde_json::Value>> {
+            self.backend()
+                .expect("MCP client backend missing")
+                .subscribe_to_notifications()
         }
 
         // ---- Notification dispatch ----------------------------------------
-
-        /// Drain any pending server-initiated notifications from the transport
-        /// and route them to the appropriate subscribers in `resource_subscriptions`.
-        ///
-        /// Only messages that have a `"method"` field but no non-null `"id"` field
-        /// are treated as notifications; everything else is skipped (this method
-        /// does NOT consume RPC response messages).
-        ///
-        /// Handled notification methods:
-        /// - `notifications/resources/updated` — delivers a [`ResourceChangedEvent`]
-        ///   to the matching sender in `resource_subscriptions`.
-        /// - `notifications/tools/list_changed` — logged at info level.
-        /// - anything else — logged at debug level.
-        /// Drain any pending server-initiated notifications from the transport
-        /// and route them to the appropriate subscribers in `resource_subscriptions`.
-        /// This method is kept for backward compatibility and fallback use.
-        #[allow(dead_code)]
-        pub(crate) async fn poll_notifications(
-            &self,
-            resource_subscriptions: &dashmap::DashMap<
-                (String, String),
-                tokio::sync::mpsc::Sender<ResourceChangedEvent>,
-            >,
-        ) {
-            loop {
-                let raw = match self.transport.try_receive_raw().await {
-                    Ok(Some(v)) => v,
-                    Ok(None) => break,
-                    Err(e) => {
-                        debug!(
-                            server = %self.server_name,
-                            error = %e,
-                            "poll_notifications: transport error"
-                        );
-                        break;
-                    }
-                };
-
-                // Only process server-initiated notifications (have "method", no non-null "id")
-                let has_method = raw.get("method").is_some();
-                let has_id = raw.get("id").map(|v| !v.is_null()).unwrap_or(false);
-                if !has_method || has_id {
-                    // This is an RPC response, not a notification — skip it.
-                    // (In practice this should not occur because call() drains
-                    //  responses synchronously before poll_notifications runs.)
-                    debug!(
-                        server = %self.server_name,
-                        "poll_notifications: skipping non-notification message"
-                    );
-                    continue;
-                }
-
-                let method = raw["method"].as_str().unwrap_or("");
-                match method {
-                    "notifications/resources/updated" => {
-                        let uri = raw["params"]["uri"].as_str().unwrap_or("").to_string();
-                        let key = (self.server_name.clone(), uri.clone());
-                        if let Some(tx) = resource_subscriptions.get(&key) {
-                            let event = ResourceChangedEvent {
-                                server_name: self.server_name.clone(),
-                                uri,
-                            };
-                            if let Err(e) = tx.send(event).await {
-                                debug!(
-                                    server = %self.server_name,
-                                    error = %e,
-                                    "poll_notifications: resource subscription receiver dropped"
-                                );
-                            }
-                        } else {
-                            debug!(
-                                server = %self.server_name,
-                                uri = %raw["params"]["uri"],
-                                "poll_notifications: no subscriber for resource update"
-                            );
-                        }
-                    }
-                    "notifications/tools/list_changed" => {
-                        info!(server = %self.server_name, "MCP tools list changed");
-                    }
-                    other => {
-                        debug!(
-                            server = %self.server_name,
-                            method = %other,
-                            "Unhandled MCP notification"
-                        );
-                    }
-                }
-            }
-        }
 
         /// Process a single notification message from the transport stream.
         /// Routes resource updates to subscribers and logs other notifications.
@@ -916,59 +797,8 @@ pub mod client {
             }
         }
 
-        // ---- Internal RPC machinery ---------------------------------------
-
-        /// Send a request and wait for the response, deserializing into T.
-        pub(crate) async fn call<T: for<'de> Deserialize<'de>>(
-            &self,
-            method: &str,
-            params: Option<Value>,
-        ) -> anyhow::Result<T> {
-            let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-            let req = JsonRpcRequest::new(id, method, params);
-
-            // We use a simple request/response loop here (no concurrent requests).
-            // For production use, proper demultiplexing by id would be needed.
-            self.transport.send(&req).await?;
-
-            loop {
-                let resp = self
-                    .transport
-                    .recv()
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("MCP transport closed while waiting for response to '{}'", method))?;
-
-                // Check if this response matches our request id
-                let resp_id = resp.id.as_ref().and_then(|v| v.as_u64()).unwrap_or(0);
-                if resp_id != id {
-                    // Might be a server-initiated notification; skip
-                    debug!(got_id = resp_id, want_id = id, "Skipping non-matching response");
-                    continue;
-                }
-
-                if let Some(err) = resp.error {
-                    return Err(anyhow::anyhow!(
-                        "MCP error {} from '{}': {}",
-                        err.code,
-                        method,
-                        err.message
-                    ));
-                }
-
-                let result = resp
-                    .result
-                    .ok_or_else(|| anyhow::anyhow!("No result in MCP response for '{}'", method))?;
-                return Ok(serde_json::from_value(result)?);
-            }
-        }
-
-        /// Test-only constructor: build an `McpClient` backed by an arbitrary
-        /// transport without going through the real MCP handshake.
         #[cfg(test)]
-        pub fn new_for_test(
-            server_name: impl Into<String>,
-            transport: Arc<dyn transport::McpTransport>,
-        ) -> Self {
+        pub fn new_for_test(server_name: impl Into<String>) -> Self {
             Self {
                 server_name: server_name.into(),
                 server_info: None,
@@ -977,9 +807,26 @@ pub mod client {
                 resources: vec![],
                 prompts: vec![],
                 instructions: None,
-                transport,
-                next_id: AtomicU64::new(1),
-                pending: Arc::new(Mutex::new(HashMap::new())),
+                backend: None,
+            }
+        }
+    }
+
+    fn apply_resource_templates(resources: &mut [McpResource]) {
+        for resource in resources {
+            if let Some(annotations) = &resource.annotations {
+                if let Some(prompt_template) = annotations.get("prompt") {
+                    if let Some(template_str) = prompt_template.as_str() {
+                        let context = serde_json::json!({
+                            "uri": resource.uri,
+                            "name": resource.name,
+                            "description": resource.description,
+                            "mimeType": resource.mime_type,
+                        });
+                        let rendered = TemplateRenderer::render(template_str, &context);
+                        resource.description = Some(rendered);
+                    }
+                }
             }
         }
     }
@@ -1051,16 +898,17 @@ impl McpManager {
             let expanded = expand_server_config(config);
 
             match expanded.server_type.as_str() {
-                "stdio" => {
-                    debug!(
-                        server = %expanded.name,
-                        command = ?expanded.command,
-                        "Connecting to MCP server via stdio"
-                    );
-                    match McpClient::connect_stdio(&expanded).await {
+                "stdio" | "sse" | "http" => {
+                    let auth_token = if matches!(expanded.server_type.as_str(), "sse" | "http") {
+                        manager.load_token(&expanded.name).await
+                    } else {
+                        None
+                    };
+                    match client::McpClient::connect(&expanded, auth_token).await {
                         Ok(client) => {
                             info!(
                                 server = %expanded.name,
+                                transport = %expanded.server_type,
                                 tools = client.tools.len(),
                                 resources = client.resources.len(),
                                 "MCP server connected"
@@ -1070,6 +918,7 @@ impl McpManager {
                         Err(e) => {
                             error!(
                                 server = %expanded.name,
+                                transport = %expanded.server_type,
                                 error = %e,
                                 "Failed to connect to MCP server"
                             );
@@ -1318,50 +1167,52 @@ impl McpManager {
     /// Return the current authentication state for a server.
     ///
     /// - Returns `Authenticated` if a valid (non-expired) token exists on disk.
-    /// - Returns `NotRequired` for stdio servers (they don't use OAuth).
-    /// - Returns `Required` for HTTP servers that lack a valid token.
+    /// - Returns `NotRequired` for stdio servers.
+    /// - Returns `Required` for remote `http` / `sse` servers that lack a valid token.
     pub fn auth_state(&self, server_name: &str) -> McpAuthState {
-        // Check whether a token is already stored
-        if let Some(token) = oauth::get_mcp_token(server_name) {
-            if !token.is_expired(60) {
-                let token_expiry = token.expires_at.map(|ts| {
-                    chrono::DateTime::<chrono::Utc>::from(
-                        std::time::UNIX_EPOCH + std::time::Duration::from_secs(ts),
-                    )
-                });
-                return McpAuthState::Authenticated { token_expiry };
-            }
-        }
-
-        // Determine server type from stored configs
         let config = match self.server_configs.get(server_name) {
             Some(c) => c,
             None => return McpAuthState::NotRequired,
         };
 
-        match config.server_type.as_str() {
-            "http" | "sse" => McpAuthState::Required {
-                auth_url: config
-                    .url
-                    .clone()
-                    .unwrap_or_else(|| "(unknown URL)".to_string()),
-            },
-            _ => McpAuthState::NotRequired,
+        if !matches!(config.server_type.as_str(), "http" | "sse") {
+            return McpAuthState::NotRequired;
+        }
+
+        if let Some(token) = oauth::get_mcp_token(server_name) {
+            if !token.is_expired(60) {
+                return McpAuthState::Authenticated {
+                    token_expiry: token.expiry_datetime(),
+                };
+            }
+
+            if token.refresh_token.is_some() {
+                return McpAuthState::Required {
+                    auth_url: format!(
+                        "{} (refreshable token detected; connection will try to refresh automatically)",
+                        config.url
+                            .clone()
+                            .unwrap_or_else(|| "(unknown URL)".to_string())
+                    ),
+                };
+            }
+        }
+
+        McpAuthState::Required {
+            auth_url: config
+                .url
+                .clone()
+                .unwrap_or_else(|| "(unknown URL)".to_string()),
         }
     }
 
     /// Initiate OAuth 2.0 + PKCE for an HTTP MCP server.
-    ///
-    /// 1. GETs `<server_url>/.well-known/oauth-authorization-server`
-    /// 2. Parses `authorization_endpoint`
-    /// 3. Generates PKCE challenge
-    /// 4. Returns the full auth URL (browser opening done at the command layer)
-    ///
-    /// The PKCE verifier is *not* persisted here; it is embedded in the URL
-    /// so the command layer can display it.  A full end-to-end exchange would
-    /// store the verifier and wait for the callback — that is handled by
-    /// `oauth::exchange_code` once the code is received.
     pub async fn initiate_auth(&self, server_name: &str) -> anyhow::Result<String> {
+        Ok(self.begin_auth(server_name).await?.auth_url)
+    }
+
+    /// Build a full OAuth authorization session for an HTTP/SSE MCP server.
+    pub async fn begin_auth(&self, server_name: &str) -> anyhow::Result<oauth::McpAuthSession> {
         let config = self
             .server_configs
             .get(server_name)
@@ -1375,67 +1226,29 @@ impl McpManager {
                     "MCP server '{}' has no URL configured (required for OAuth)",
                     server_name
                 )
-            })?
-            .trim_end_matches('/');
+            })?;
 
-        // 1. Fetch OAuth Authorization Server Metadata (RFC 8414)
-        let metadata_url = format!("{}/.well-known/oauth-authorization-server", base_url);
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
+        oauth::begin_mcp_auth(server_name, base_url).await
+    }
 
-        let authorization_endpoint = match client.get(&metadata_url).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                let meta: serde_json::Value = resp
-                    .json()
-                    .await
-                    .map_err(|e| anyhow::anyhow!("OAuth metadata parse error: {}", e))?;
-                meta.get("authorization_endpoint")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "OAuth metadata for '{}' missing 'authorization_endpoint'",
-                            server_name
-                        )
-                    })?
-            }
-            Ok(resp) => {
-                // Metadata endpoint not found — fall back to <base_url>/oauth/authorize
-                let status = resp.status();
-                debug!(
-                    server = %server_name,
-                    status = %status,
-                    "OAuth metadata endpoint returned non-success; using fallback"
-                );
-                format!("{}/oauth/authorize", base_url)
-            }
-            Err(e) => {
-                // Network error — fall back
-                debug!(server = %server_name, error = %e, "Failed to fetch OAuth metadata; using fallback");
-                format!("{}/oauth/authorize", base_url)
-            }
-        };
+    /// Run the browser-based OAuth flow and persist the resulting token.
+    pub async fn authenticate(&self, server_name: &str) -> anyhow::Result<oauth::McpAuthResult> {
+        let config = self
+            .server_configs
+            .get(server_name)
+            .ok_or_else(|| anyhow::anyhow!("Unknown MCP server: {}", server_name))?;
 
-        // 2. Allocate a redirect port
-        let redirect_port = oauth::oauth_port_alloc()
-            .map_err(|e| anyhow::anyhow!("Failed to allocate OAuth redirect port: {}", e))?;
-        let redirect_uri = format!("http://127.0.0.1:{}/callback", redirect_port);
+        let base_url = config
+            .url
+            .as_deref()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "MCP server '{}' has no URL configured (required for OAuth)",
+                    server_name
+                )
+            })?;
 
-        // 3. Generate PKCE
-        let verifier = oauth::pkce_verifier();
-        let challenge = oauth::pkce_challenge(&verifier);
-
-        // 4. Build auth URL
-        let auth_url = format!(
-            "{}?client_id=claurst&redirect_uri={}&response_type=code&code_challenge={}&code_challenge_method=S256",
-            authorization_endpoint,
-            urlencoding::encode(&redirect_uri),
-            challenge,
-        );
-
-        Ok(auth_url)
+        oauth::run_mcp_auth_flow(server_name, base_url).await
     }
 
     /// Store an OAuth access token for an MCP server.
@@ -1467,14 +1280,14 @@ impl McpManager {
 
     /// Load the stored OAuth access token for an MCP server, if any.
     ///
-    /// Returns `None` if no token is stored or the token is expired.
-    pub fn load_token(&self, server_name: &str) -> Option<String> {
-        let token = oauth::get_mcp_token(server_name)?;
-        if token.is_expired(60) {
-            None
-        } else {
-            Some(token.access_token)
-        }
+    /// Returns `None` if no token is stored or the token cannot be refreshed.
+    pub async fn load_token(&self, server_name: &str) -> Option<String> {
+        let config = self.server_configs.get(server_name)?;
+        let server_url = config.url.as_deref()?;
+        oauth::get_valid_mcp_access_token(server_name, server_url)
+            .await
+            .ok()
+            .flatten()
     }
 
     // -----------------------------------------------------------------------
@@ -1501,7 +1314,7 @@ impl McpManager {
 
             tokio::spawn(async move {
                 // Subscribe to the transport's notification stream
-                let mut notification_stream = client_clone.transport().subscribe_to_notifications();
+                let mut notification_stream = client_clone.subscribe_to_notifications();
 
                 // Process notifications from the stream
                 while let Some(result) = notification_stream.next().await {
@@ -1661,6 +1474,16 @@ mod tests {
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"jsonrpc\":\"2.0\""));
         assert!(json.contains("\"method\":\"tools/list\""));
+        assert!(json.contains("\"id\":1"));
+    }
+
+    #[test]
+    fn test_json_rpc_notification_omits_id() {
+        let req = JsonRpcRequest::notification("notifications/initialized", None);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"jsonrpc\":\"2.0\""));
+        assert!(json.contains("\"method\":\"notifications/initialized\""));
+        assert!(!json.contains("\"id\""));
     }
 
     // ---- McpTool → ToolDefinition ------------------------------------------
@@ -1779,6 +1602,45 @@ mod tests {
         let mgr = McpManager::new();
         assert!(mgr.failed_servers().is_empty());
     }
+
+    #[test]
+    fn test_auth_state_uses_token_expiry_datetime() {
+        let mut mgr = McpManager::new();
+        mgr.server_configs.insert(
+            "remote".to_string(),
+            McpServerConfig {
+                name: "remote".to_string(),
+                command: None,
+                args: vec![],
+                env: HashMap::new(),
+                url: Some("https://example.com/mcp".to_string()),
+                server_type: "http".to_string(),
+            },
+        );
+
+        let expires_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            + 3600;
+        let token = oauth::McpToken {
+            access_token: "tok".to_string(),
+            refresh_token: None,
+            expires_at: Some(expires_at),
+            scope: None,
+            server_name: "remote".to_string(),
+        };
+        oauth::store_mcp_token(&token).expect("store token");
+
+        match mgr.auth_state("remote") {
+            McpAuthState::Authenticated { token_expiry } => {
+                assert_eq!(token_expiry, token.expiry_datetime());
+            }
+            other => panic!("expected authenticated, got {:?}", other),
+        }
+
+        oauth::remove_mcp_token("remote").ok();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1828,8 +1690,7 @@ pub async fn subscribe_resource(
         }
     };
 
-    let params = serde_json::json!({ "uri": uri });
-    if let Err(e) = client.call::<serde_json::Value>("resources/subscribe", Some(params)).await {
+    if let Err(e) = client.subscribe_resource(uri).await {
         tracing::warn!(server_name, uri, error = %e, "subscribe_resource RPC failed");
         return make_dead();
     }
@@ -1857,12 +1718,83 @@ pub async fn unsubscribe_resource(
         .get(server_name)
         .ok_or_else(|| format!("unsubscribe_resource: server '{}' not connected", server_name))?;
 
-    let params = serde_json::json!({ "uri": uri });
     client
-        .call_tool("resources/unsubscribe", Some(params))
+        .unsubscribe_resource(uri)
         .await
         .map_err(|e| format!("unsubscribe_resource failed: {e}"))
         .map(|_| ())
+}
+
+// ---------------------------------------------------------------------------
+// Transport tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod transport_tests {
+    use super::transport::*;
+    use tokio::sync::mpsc as tokio_mpsc;
+
+    #[tokio::test]
+    async fn test_route_incoming_value_sends_response_to_response_queue() {
+        let (response_tx, mut response_rx) = tokio_mpsc::unbounded_channel();
+        let (notification_tx, mut notification_rx) = tokio_mpsc::unbounded_channel();
+        let value = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "result": {"ok": true}
+        });
+
+        route_incoming_value("srv", value, &response_tx, &notification_tx).unwrap();
+
+        let response = response_rx.recv().await.expect("expected response");
+        assert_eq!(response.id, Some(serde_json::json!(7)));
+        assert!(notification_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_route_incoming_value_sends_notification_to_notification_queue() {
+        let (response_tx, mut response_rx) = tokio_mpsc::unbounded_channel();
+        let (notification_tx, mut notification_rx) = tokio_mpsc::unbounded_channel();
+        let value = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/resources/updated",
+            "params": {"uri": "file:///foo.txt"}
+        });
+
+        route_incoming_value("srv", value.clone(), &response_tx, &notification_tx).unwrap();
+
+        let notification = notification_rx.recv().await.expect("expected notification");
+        assert_eq!(notification, value);
+        assert!(response_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_resolve_legacy_endpoint_supports_relative_path() {
+        let endpoint = resolve_legacy_endpoint("https://example.com/mcp", "/messages").unwrap();
+        assert_eq!(endpoint, "https://example.com/messages");
+    }
+
+    #[test]
+    fn test_process_sse_line_collects_event_and_data() {
+        let mut event_name = None;
+        let mut data_lines = Vec::new();
+        process_sse_line("event: endpoint", &mut event_name, &mut data_lines);
+        process_sse_line("data: /messages", &mut event_name, &mut data_lines);
+        assert_eq!(event_name.as_deref(), Some("endpoint"));
+        assert_eq!(data_lines, vec!["/messages".to_string()]);
+    }
+
+    #[test]
+    fn test_is_unsupported_protocol_error_matches_rmcp_variants() {
+        assert!(crate::McpClient::is_unsupported_protocol_error(
+            "unsupported protocol version: 2025-11-25"
+        ));
+        assert!(crate::McpClient::is_unsupported_protocol_error(
+            "Bad Request: Unsupported MCP-Protocol-Version: 2025-11-25"
+        ));
+        assert!(!crate::McpClient::is_unsupported_protocol_error("connection reset by peer"));
+    }
+
 }
 
 // ---------------------------------------------------------------------------
@@ -1873,110 +1805,24 @@ pub async fn unsubscribe_resource(
 mod notification_tests {
     use super::*;
 
-    /// A mock transport that returns pre-queued raw JSON lines and discards sends.
-    struct MockTransport {
-        queue: tokio::sync::Mutex<std::collections::VecDeque<String>>,
-    }
-
-    impl MockTransport {
-        fn with_lines(lines: &[&str]) -> Arc<Self> {
-            Arc::new(Self {
-                queue: tokio::sync::Mutex::new(
-                    lines.iter().map(|s| s.to_string()).collect(),
-                ),
-            })
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl transport::McpTransport for MockTransport {
-        async fn send(&self, _msg: &JsonRpcRequest) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        async fn recv(&self) -> anyhow::Result<Option<JsonRpcResponse>> {
-            Ok(None)
-        }
-
-        async fn close(&self) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        async fn try_receive_raw(&self) -> anyhow::Result<Option<serde_json::Value>> {
-            let mut q = self.queue.lock().await;
-            match q.pop_front() {
-                Some(line) => {
-                    let v: serde_json::Value = serde_json::from_str(&line)?;
-                    Ok(Some(v))
-                }
-                None => Ok(None),
-            }
-        }
-
-        fn subscribe_to_notifications(
-            &self,
-        ) -> BoxStream<'static, anyhow::Result<serde_json::Value>> {
-            let queue = Arc::new(tokio::sync::Mutex::new(
-                self.queue
-                    .blocking_lock()
-                    .iter()
-                    .map(|s| s.clone())
-                    .collect::<std::collections::VecDeque<_>>(),
-            ));
-
-            let (tx, rx) = tokio::sync::mpsc::channel::<anyhow::Result<serde_json::Value>>(100);
-
-            // Spawn a background task that yields queued notifications
-            tokio::spawn(async move {
-                loop {
-                    let line = {
-                        let mut q = queue.lock().await;
-                        q.pop_front()
-                    };
-
-                    match line {
-                        Some(s) => {
-                            let val: anyhow::Result<serde_json::Value> = serde_json::from_str(&s)
-                                .map_err(|e| anyhow::anyhow!("Mock parse error: {} (raw: {})", e, s));
-
-                            if tx.send(val).await.is_err() {
-                                break;
-                            }
-                        }
-                        None => {
-                            // Queue exhausted
-                            break;
-                        }
-                    }
-                }
-            });
-
-            Box::pin(ReceiverStream::new(rx))
-        }
-    }
-
     #[tokio::test]
-    async fn test_poll_notifications_routes_resource_updated() {
+    async fn test_process_notification_routes_resource_updated() {
         let notification = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "notifications/resources/updated",
             "params": { "uri": "file:///foo.txt" }
-        })
-        .to_string();
+        });
 
-        let client = client::McpClient::new_for_test(
-            "myserver",
-            MockTransport::with_lines(&[&notification]),
-        );
+        let client = client::McpClient::new_for_test("myserver");
 
         let subscriptions: DashMap<
             (String, String),
             tokio::sync::mpsc::Sender<ResourceChangedEvent>,
         > = DashMap::new();
-        let (tx, mut rx) = tokio_mpsc::channel::<ResourceChangedEvent>(4);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ResourceChangedEvent>(4);
         subscriptions.insert(("myserver".to_string(), "file:///foo.txt".to_string()), tx);
 
-        client.poll_notifications(&subscriptions).await;
+        client.process_notification(notification, &subscriptions).await;
 
         let event = rx.try_recv().expect("expected a ResourceChangedEvent");
         assert_eq!(event.server_name, "myserver");
@@ -1985,90 +1831,63 @@ mod notification_tests {
     }
 
     #[tokio::test]
-    async fn test_poll_notifications_no_subscriber_does_not_panic() {
+    async fn test_process_notification_no_subscriber_does_not_panic() {
         let notification = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "notifications/resources/updated",
             "params": { "uri": "file:///unsubscribed.txt" }
-        })
-        .to_string();
+        });
 
-        let client = client::McpClient::new_for_test(
-            "myserver",
-            MockTransport::with_lines(&[&notification]),
-        );
+        let client = client::McpClient::new_for_test("myserver");
         let subscriptions: DashMap<
             (String, String),
             tokio::sync::mpsc::Sender<ResourceChangedEvent>,
         > = DashMap::new();
-        // No subscriber registered — should silently skip without panicking.
-        client.poll_notifications(&subscriptions).await;
+        client.process_notification(notification, &subscriptions).await;
     }
 
     #[tokio::test]
-    async fn test_poll_notifications_tools_list_changed() {
+    async fn test_process_notification_tools_list_changed() {
         let notification = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "notifications/tools/list_changed",
             "params": {}
-        })
-        .to_string();
+        });
 
-        let client = client::McpClient::new_for_test(
-            "myserver",
-            MockTransport::with_lines(&[&notification]),
-        );
+        let client = client::McpClient::new_for_test("myserver");
         let subscriptions: DashMap<
             (String, String),
             tokio::sync::mpsc::Sender<ResourceChangedEvent>,
         > = DashMap::new();
-        client.poll_notifications(&subscriptions).await; // must not panic
+        client.process_notification(notification, &subscriptions).await;
     }
 
     #[tokio::test]
-    async fn test_poll_notifications_empty_queue_is_noop() {
-        let client = client::McpClient::new_for_test(
-            "myserver",
-            MockTransport::with_lines(&[]),
-        );
-        let subscriptions: DashMap<
-            (String, String),
-            tokio::sync::mpsc::Sender<ResourceChangedEvent>,
-        > = DashMap::new();
-        // Must return immediately without blocking or panicking.
-        client.poll_notifications(&subscriptions).await;
-    }
-
-    #[tokio::test]
-    async fn test_poll_notifications_multiple_events() {
+    async fn test_process_notification_multiple_events() {
         let n1 = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "notifications/resources/updated",
             "params": { "uri": "file:///a.txt" }
-        })
-        .to_string();
+        });
         let n2 = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "notifications/resources/updated",
             "params": { "uri": "file:///b.txt" }
-        })
-        .to_string();
+        });
 
-        let client = client::McpClient::new_for_test(
-            "s1",
-            MockTransport::with_lines(&[&n1, &n2]),
-        );
+        let client = client::McpClient::new_for_test("s1");
 
         let subscriptions: DashMap<
             (String, String),
             tokio::sync::mpsc::Sender<ResourceChangedEvent>,
         > = DashMap::new();
-        let (tx_a, mut rx_a) = tokio_mpsc::channel::<ResourceChangedEvent>(4);
-        let (tx_b, mut rx_b) = tokio_mpsc::channel::<ResourceChangedEvent>(4);
+        let (tx_a, mut rx_a) = tokio::sync::mpsc::channel::<ResourceChangedEvent>(4);
+        let (tx_b, mut rx_b) = tokio::sync::mpsc::channel::<ResourceChangedEvent>(4);
         subscriptions.insert(("s1".to_string(), "file:///a.txt".to_string()), tx_a);
         subscriptions.insert(("s1".to_string(), "file:///b.txt".to_string()), tx_b);
 
-        client.poll_notifications(&subscriptions).await;
+        client.process_notification(n1, &subscriptions).await;
+        client.process_notification(n2, &subscriptions).await;
 
         let ev_a = rx_a.try_recv().expect("expected event for a.txt");
         assert_eq!(ev_a.uri, "file:///a.txt");
@@ -2078,32 +1897,25 @@ mod notification_tests {
     }
 
     #[tokio::test]
-    async fn test_poll_notifications_skips_rpc_responses() {
-        // A message with a non-null "id" field is an RPC response — must not
-        // be dispatched as a notification even if it has a "method" field.
+    async fn test_process_notification_skips_rpc_responses() {
         let response = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 42,
             "method": "notifications/resources/updated",
             "params": { "uri": "file:///foo.txt" }
-        })
-        .to_string();
+        });
 
-        let client = client::McpClient::new_for_test(
-            "myserver",
-            MockTransport::with_lines(&[&response]),
-        );
+        let client = client::McpClient::new_for_test("myserver");
 
         let subscriptions: DashMap<
             (String, String),
             tokio::sync::mpsc::Sender<ResourceChangedEvent>,
         > = DashMap::new();
-        let (tx, mut rx) = tokio_mpsc::channel::<ResourceChangedEvent>(4);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ResourceChangedEvent>(4);
         subscriptions.insert(("myserver".to_string(), "file:///foo.txt".to_string()), tx);
 
-        client.poll_notifications(&subscriptions).await;
+        client.process_notification(response, &subscriptions).await;
 
-        // The event must NOT have been delivered because the message has an id.
         assert!(
             rx.try_recv().is_err(),
             "RPC response must not be dispatched as a notification"

@@ -36,7 +36,7 @@ use claurst_core::{
     constants::APP_VERSION,
     context::ContextBuilder,
     cost::CostTracker,
-    permissions::{AutoPermissionHandler, InteractivePermissionHandler},
+    permissions::{AutoPermissionHandler, InteractivePermissionHandler, PermissionManager},
 };
 use async_trait::async_trait;
 use claurst_core::types::ToolDefinition;
@@ -76,7 +76,12 @@ impl Tool for McpToolWrapper {
         self.tool_def.input_schema.clone()
     }
 
-    async fn execute(&self, input: serde_json::Value, _ctx: &ToolContext) -> ToolResult {
+    async fn execute(&self, input: serde_json::Value, ctx: &ToolContext) -> ToolResult {
+        let desc = format!("Run MCP tool {}", self.tool_def.name);
+        if let Err(e) = ctx.check_permission(self.name(), &desc, false) {
+            return ToolResult::error(e.to_string());
+        }
+
         // Strip the server-name prefix to get the bare tool name.
         let prefix = format!("{}_", self.server_name);
         let bare_name = self
@@ -397,6 +402,7 @@ async fn main() -> anyhow::Result<()> {
                     session_title: None,
                     remote_session_url: None,
                     mcp_manager: None,
+                    mcp_auth_runner: None,
                 };
                 // Collect remaining args after the command name
                 let rest: Vec<&str> = raw_args[2..].iter().map(|s| s.as_str()).collect();
@@ -425,11 +431,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Setup logging
     let log_level = if cli.verbose { "debug" } else { "warn" };
+    let base_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(log_level));
+    let log_filter = base_filter
+        .add_directive("rmcp::service::client=error".parse().expect("valid rmcp directive"));
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new(log_level)),
-        )
+        .with_env_filter(log_filter)
         .with_target(false)
         .without_time()
         .init();
@@ -586,18 +593,15 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Build tools
-    // Interactive mode uses InteractivePermissionHandler which allows writes in Default mode
-    // (the user is watching the TUI so they can intervene). Headless/print mode uses
-    // AutoPermissionHandler which denies writes in Default mode for safety.
+    let permission_manager = Arc::new(std::sync::Mutex::new(PermissionManager::new(
+        config.permission_mode.clone(),
+        &settings,
+    )));
+
     let permission_handler: Arc<dyn claurst_core::PermissionHandler> = if is_headless {
-        Arc::new(AutoPermissionHandler {
-            mode: config.permission_mode.clone(),
-        })
+        Arc::new(AutoPermissionHandler::with_manager(permission_manager.clone()))
     } else {
-        Arc::new(InteractivePermissionHandler {
-            mode: config.permission_mode.clone(),
-        })
+        Arc::new(InteractivePermissionHandler::with_manager(permission_manager.clone()))
     };
     let cost_tracker = CostTracker::new();
     // Use --session-id if provided, otherwise generate a fresh UUID.
@@ -613,6 +617,8 @@ async fn main() -> anyhow::Result<()> {
     // Initialize MCP servers first (needed for ToolContext.mcp_manager).
     let mcp_manager_arc = connect_mcp_manager_arc(&config).await;
 
+    let pending_permissions = Arc::new(ParkingMutex::new(claurst_tools::PendingPermissionStore::default()));
+
     let tool_ctx = ToolContext {
         working_dir: cwd.clone(),
         permission_mode: config.permission_mode.clone(),
@@ -626,6 +632,8 @@ async fn main() -> anyhow::Result<()> {
         config: config.clone(),
         managed_agent_config: config.managed_agents.clone(),
         completion_notifier: None,
+        pending_permissions: Some(pending_permissions.clone()),
+        permission_manager: Some(permission_manager.clone()),
     };
 
     // Register the cc-query-backed agent runner so TeamCreateTool can spawn real
@@ -784,8 +792,9 @@ async fn connect_mcp_manager_arc(
     }
 
     info!(count = config.mcp_servers.len(), "Connecting to MCP servers");
-    let mcp_manager = claurst_mcp::McpManager::connect_all(&config.mcp_servers).await;
-    Some(Arc::new(mcp_manager))
+    let mcp_manager = Arc::new(claurst_mcp::McpManager::connect_all(&config.mcp_servers).await);
+    mcp_manager.clone().spawn_notification_poll_loop();
+    Some(mcp_manager)
 }
 
 fn build_tools_with_mcp(
@@ -1242,6 +1251,53 @@ async fn run_headless(
 // Interactive REPL mode
 // ---------------------------------------------------------------------------
 
+fn permission_request_from_core(
+    pending: &claurst_tools::PendingPermissionRequest,
+) -> claurst_tui::dialogs::PermissionRequest {
+    let reason = pending.reason.clone();
+    let tool_name = pending.request.tool_name.clone();
+    let tool_use_id = pending.tool_use_id.clone();
+
+    match (tool_name.as_str(), pending.request.path.clone()) {
+        ("Bash", Some(command)) => {
+            let suggested_prefix = command
+                .split_whitespace()
+                .next()
+                .filter(|prefix| !prefix.is_empty())
+                .map(|prefix| format!("{} ", prefix));
+            claurst_tui::dialogs::PermissionRequest::bash(
+                tool_use_id,
+                tool_name,
+                reason,
+                command,
+                suggested_prefix,
+            )
+        },
+        ("PowerShell", Some(command)) => claurst_tui::dialogs::PermissionRequest::powershell(
+            tool_use_id,
+            tool_name,
+            reason,
+            command,
+        ),
+        ("Read", Some(path)) => claurst_tui::dialogs::PermissionRequest::file_read(
+            tool_use_id,
+            tool_name,
+            reason,
+            path,
+        ),
+        (_, Some(path)) if matches!(tool_name.as_str(), "Write" | "Edit" | "NotebookEdit") => {
+            claurst_tui::dialogs::PermissionRequest::file_write(tool_use_id, tool_name, reason, path)
+        }
+        _ => claurst_tui::dialogs::PermissionRequest::from_reason(
+            tool_use_id,
+            tool_name,
+            reason,
+            pending.request.path.clone(),
+        ),
+    }
+}
+
+
 async fn run_interactive(
     config: Config,
     settings: claurst_core::config::Settings,
@@ -1310,7 +1366,11 @@ async fn run_interactive(
     if !session.model.is_empty() {
         live_config.model = Some(session.model.clone());
     }
-    tool_ctx.config = live_config.clone();
+    let pending_permissions = tool_ctx
+        .pending_permissions
+        .clone()
+        .unwrap_or_else(|| Arc::new(ParkingMutex::new(claurst_tools::PendingPermissionStore::default())));
+
 
     // Set up terminal
     let mut terminal = setup_terminal()?;
@@ -1503,6 +1563,7 @@ async fn run_interactive(
         session_title: session.title.clone(),
         remote_session_url: session.remote_session_url.clone(),
         mcp_manager: tool_ctx.mcp_manager.clone(),
+        mcp_auth_runner: None,
     };
 
     // tools is already Arc<Vec<...>> — share it across spawned tasks without copying.
@@ -1532,6 +1593,31 @@ async fn run_interactive(
     // so the main loop can update the device_auth_dialog state.
     let (device_auth_tx, mut device_auth_rx) = mpsc::channel::<DeviceAuthEvent>(8);
 
+    // MCP OAuth auth channel — background tasks send events here so the main
+    // loop can update status and trigger a reconnect after browser auth finishes.
+    enum McpAuthEvent {
+        /// Browser auth completed and the token was persisted successfully.
+        Completed(claurst_mcp::oauth::McpAuthResult),
+        /// Browser auth or token exchange failed.
+        Failed(String),
+    }
+    let (mcp_auth_tx, mut mcp_auth_rx) = mpsc::channel::<McpAuthEvent>(8);
+    // Build a non-blocking runner so `/mcp auth` can return immediately while
+    // the browser flow continues in the background.
+    let mcp_auth_runner: Arc<dyn Fn(claurst_mcp::oauth::McpAuthSession) + Send + Sync> = {
+        let tx = mcp_auth_tx.clone();
+        Arc::new(move |session| {
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let event = match claurst_mcp::oauth::run_mcp_auth_session(session).await {
+                    Ok(result) => McpAuthEvent::Completed(result),
+                    Err(err) => McpAuthEvent::Failed(err.to_string()),
+                };
+                let _ = tx.send(event).await;
+            });
+        })
+    };
+    cmd_ctx.mcp_auth_runner = Some(mcp_auth_runner.clone());
     'main: loop {
         app.frame_count = app.frame_count.wrapping_add(1);
         app.tick_rustle_pose();
@@ -1659,7 +1745,7 @@ async fn run_interactive(
                             let handled_by_tui = if skip_tui_for_args {
                                 false
                             } else {
-                                app.intercept_slash_command(&cmd_name)
+                                app.intercept_slash_command_with_args(&cmd_name, &cmd_args)
                             };
 
                             // Sync effort level when TUI cycled the visual indicator
@@ -1839,6 +1925,16 @@ async fn run_interactive(
                                     app.set_speech_mode(mode.as_deref(), &level);
                                     cmd_ctx.config = app.config.clone();
                                     tool_ctx.config = app.config.clone();
+                                }
+                                Some(CommandResult::McpAuthFlow {
+                                    server_name,
+                                    auth_url,
+                                    redirect_uri,
+                                }) => {
+                                    app.status_message = Some(format!(
+                                        "MCP OAuth — '{}' started. Complete authentication in your browser.\nURL: {}\nCallback URL: {}",
+                                        server_name, auth_url, redirect_uri
+                                    ));
                                 }
                                 Some(CommandResult::Message(msg)) => {
                                     // Suppress text output when TUI already opened an
@@ -2103,10 +2199,84 @@ async fn run_interactive(
                         current_query = Some((handle, msgs_arc));
                         continue;
                     }
+                    if let Some(pr) = app.permission_request.as_mut() {
+                        if claurst_tui::dialogs::handle_permission_key(pr, key) {
+                            let tool_use_id = pr.tool_use_id.clone();
+                            let selected_option = pr.selected_option;
+                            let selected_key = pr.options.get(selected_option).map(|o| o.key);
+                            let should_record_bash_prefix = selected_key == Some('P');
+                            let selected_path = pending_permissions
+                                .lock()
+                                .waiting
+                                .get(&tool_use_id)
+                                .and_then(|p| p.request.path.clone());
+                            let bash_prefix = if should_record_bash_prefix {
+                                match &pr.kind {
+                                    claurst_tui::dialogs::PermissionDialogKind::Bash { command, .. } => {
+                                        let first_word = command.split_whitespace().next().unwrap_or("").to_string();
+                                        if first_word.is_empty() { None } else { Some(first_word) }
+                                    }
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            };
+                            app.permission_request = None;
+
+                            if let Some(prefix) = bash_prefix {
+                                app.bash_prefix_allowlist.insert(prefix);
+                            }
+
+                            if let Some(mut pending) = pending_permissions.lock().waiting.remove(&tool_use_id) {
+                                let decision = match selected_key {
+                                    Some('n') => claurst_core::permissions::PermissionDecision::Deny,
+                                    _ => claurst_core::permissions::PermissionDecision::Allow,
+                                };
+
+                                if let Some(manager) = tool_ctx.permission_manager.as_ref() {
+                                    if let Ok(mut manager) = manager.lock() {
+                                        match selected_key {
+                                            Some('Y') => {
+                                                if let Some(path) = selected_path.as_deref() {
+                                                    manager.add_session_allow_path(&pending.request.tool_name, path);
+                                                } else {
+                                                    manager.add_session_allow(&pending.request.tool_name);
+                                                }
+                                            }
+                                            Some('p') => {
+                                                let mut settings = match claurst_core::config::Settings::load_sync() {
+                                                    Ok(s) => s,
+                                                    Err(_) => claurst_core::config::Settings::default(),
+                                                };
+                                                if let Some(path) = selected_path.as_deref() {
+                                                    let pattern = format!("{}*", path);
+                                                    let _ = manager.add_persistent_allow_path(&pending.request.tool_name, &pattern, &mut settings);
+                                                } else {
+                                                    let _ = manager.add_persistent_allow(&pending.request.tool_name, &mut settings);
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+
+                                if let Some(tx) = pending.decision_tx.take() {
+                                    let _ = tx.send(decision);
+                                }
+                            }
+                            continue;
+                        }
+                        continue;
+                    }
 
                     app.handle_key_event(key);
                     cmd_ctx.config = app.config.clone();
                     tool_ctx.config = app.config.clone();
+                    if let Some(manager) = tool_ctx.permission_manager.as_ref() {
+                        if let Ok(mut manager) = manager.lock() {
+                            manager.mode = tool_ctx.config.permission_mode.clone();
+                        }
+                    }
                     if !app.model_name.is_empty() {
                         session.model = app.model_name.clone();
                     }
@@ -2143,6 +2313,55 @@ async fn run_interactive(
                     // Terminal resize - will be handled on next draw
                 }
                 _ => {}
+            }
+        }
+
+        if app.permission_request.is_none() {
+            loop {
+                let next_pending = pending_permissions.lock().queue.pop_front();
+                let Some(mut pending) = next_pending else {
+                    break;
+                };
+
+                let prefix_allowed = pending.request.tool_name == "Bash"
+                    && pending
+                        .request
+                        .path
+                        .as_deref()
+                        .map(|command| app.bash_command_allowed_by_prefix(command))
+                        .unwrap_or(false);
+
+                let reevaluated = if prefix_allowed {
+                    Some(claurst_core::permissions::PermissionDecision::Allow)
+                } else {
+                    tool_ctx
+                        .permission_manager
+                        .as_ref()
+                        .and_then(|manager| manager.lock().ok())
+                        .map(|manager| {
+                            manager.evaluate(
+                                &pending.request.tool_name,
+                                &pending.request.description,
+                                pending.request.path.as_deref(),
+                                pending.request.working_dir.as_deref(),
+                                &pending.request.allowed_roots,
+                            )
+                        })
+                };
+
+                match reevaluated {
+                    Some(claurst_core::permissions::PermissionDecision::Ask { .. }) | None => {
+                        let tool_use_id = pending.tool_use_id.clone();
+                        app.permission_request = Some(permission_request_from_core(&pending));
+                        pending_permissions.lock().waiting.insert(tool_use_id, pending);
+                        break;
+                    }
+                    Some(decision) => {
+                        if let Some(tx) = pending.decision_tx.take() {
+                            let _ = tx.send(decision);
+                        }
+                    }
+                }
             }
         }
 
@@ -2779,6 +2998,23 @@ async fn run_interactive(
             }
         }
 
+        while let Ok(evt) = mcp_auth_rx.try_recv() {
+            match evt {
+                McpAuthEvent::Completed(result) => {
+                    // Schedule a runtime rebuild so the newly persisted token is
+                    // picked up by the next MCP manager instance.
+                    app.pending_mcp_reconnect = true;
+                    app.status_message = Some(format!(
+                        "MCP OAuth — '{}' authentication completed; token saved to: {}",
+                        result.server_name,
+                        result.token_path.display()
+                    ));
+                }
+                McpAuthEvent::Failed(error) => {
+                    app.status_message = Some(format!("MCP OAuth failed: {}", error));
+                }
+            }
+        }
         // Check if query task is done; sync messages from the task
         let task_finished = current_query
             .as_ref()
@@ -2832,6 +3068,50 @@ async fn run_interactive(
                             let _ = store.save_message(&session.id, msg_id, role, &content_str, None);
                         }
                     }
+                }
+            }
+        }
+
+        if !app.is_streaming && current_query.is_none() {
+            if let Some(server_name) = app.take_pending_mcp_panel_auth() {
+                let server_config = cmd_ctx
+                    .config
+                    .mcp_servers
+                    .iter()
+                    .find(|server| server.name == server_name);
+                let supports_panel_auth = server_config.is_some_and(|server| {
+                    matches!(server.server_type.as_str(), "http" | "sse")
+                        && server.url.as_deref().is_some()
+                });
+
+                if !supports_panel_auth {
+                    app.status_message = Some(format!(
+                        "Selected MCP server '{}' does not support panel auth.",
+                        server_name
+                    ));
+                } else if let Some(manager) = app.mcp_manager.clone() {
+                    match manager.begin_auth(&server_name).await {
+                        Ok(session) => {
+                            let auth_url = session.auth_url.clone();
+                            let redirect_uri = session.redirect_uri.clone();
+                            mcp_auth_runner(session);
+                            app.status_message = Some(format!(
+                                "MCP auth — '{}' started. Complete authentication in your browser.\nURL: {}\nCallback URL: {}",
+                                server_name, auth_url, redirect_uri
+                            ));
+                        }
+                        Err(error) => {
+                            app.status_message = Some(format!(
+                                "MCP auth failed for '{}': {}",
+                                server_name, error
+                            ));
+                        }
+                    }
+                } else {
+                    app.status_message = Some(
+                        "MCP auth is unavailable because the MCP runtime is not connected."
+                            .to_string(),
+                    );
                 }
             }
         }

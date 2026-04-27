@@ -30,6 +30,8 @@ pub struct CommandContext {
     // Note: config already contains hooks, mcp_servers, etc.
     /// Live MCP manager — present when servers are connected.
     pub mcp_manager: Option<Arc<claurst_mcp::McpManager>>,
+    /// Optional callback for starting an MCP OAuth flow in the background.
+    pub mcp_auth_runner: Option<Arc<dyn Fn(claurst_mcp::oauth::McpAuthSession) + Send + Sync>>,
 }
 
 /// Result of running a slash command.
@@ -43,6 +45,15 @@ pub enum CommandResult {
     ConfigChange(Config),
     /// Modify the configuration and show a specific status message.
     ConfigChangeMessage(Config, String),
+    /// Trigger a background MCP OAuth flow and request runtime reconnect on success.
+    McpAuthFlow {
+        /// The configured MCP server name.
+        server_name: String,
+        /// The browser URL shown to the user while the background flow runs.
+        auth_url: String,
+        /// The local callback URL waiting for the OAuth redirect.
+        redirect_uri: String,
+    },
     /// Clear the conversation.
     ClearConversation,
     /// Replace the conversation with a specific message list (used by /rewind).
@@ -2876,7 +2887,8 @@ impl SlashCommand for McpCommand {
             for srv in &ctx.config.mcp_servers {
                 let kind = match srv.server_type.as_str() {
                     "stdio" => "stdio",
-                    "sse" | "http" => "HTTP/SSE",
+                    "sse" => "sse",
+                    "http" => "http",
                     other => other,
                 };
                 let endpoint = srv
@@ -2893,7 +2905,7 @@ impl SlashCommand for McpCommand {
                     .unwrap_or_else(|| "unknown (manager not active)".to_string());
 
                 output.push_str(&format!(
-                    "  {name:20} [{kind:8}] {status}\n    endpoint: {endpoint}\n",
+                    "  {name:20} [{kind:10}] {status}\n    endpoint: {endpoint}\n",
                     name = srv.name,
                     kind = kind,
                     status = live_status,
@@ -2953,9 +2965,8 @@ impl SlashCommand for McpCommand {
 impl McpCommand {
     /// Handle `/mcp auth <server>` — initiate OAuth or show auth instructions.
     ///
-    /// For HTTP/SSE servers: calls `McpManager::initiate_auth()` to fetch OAuth
-    /// metadata, constructs the PKCE authorization URL, attempts to open it in
-    /// the system browser, and displays the URL for manual use.
+    /// For HTTP/SSE servers: runs the browser-based OAuth flow, stores the
+    /// resulting token, and requests the runtime to reconnect.
     ///
     /// For stdio servers: shows env-var auth instructions.
     async fn handle_auth(server_name: &str, ctx: &CommandContext) -> CommandResult {
@@ -2972,30 +2983,7 @@ impl McpCommand {
             }
         };
 
-        // If already connected, nothing to do.
-        if let Some(manager) = &ctx.mcp_manager {
-            use claurst_mcp::McpServerStatus;
-            match manager.server_status(server_name) {
-                McpServerStatus::Connected { tool_count } => {
-                    return CommandResult::Message(format!(
-                        "MCP server '{}' is already connected ({} tool{} available).\n\
-                         No authentication needed.",
-                        server_name,
-                        tool_count,
-                        if tool_count == 1 { "" } else { "s" }
-                    ));
-                }
-                McpServerStatus::Connecting => {
-                    return CommandResult::Message(format!(
-                        "MCP server '{}' is currently connecting — try again shortly.",
-                        server_name
-                    ));
-                }
-                _ => {}
-            }
-        }
-
-        let is_http = matches!(srv.server_type.as_str(), "sse" | "http" | "sse+oauth");
+        let is_http = matches!(srv.server_type.as_str(), "http" | "sse");
 
         if !is_http {
             // stdio — env-var / API-key auth
@@ -3020,27 +3008,59 @@ impl McpCommand {
             ));
         }
 
-        // HTTP/SSE — use initiate_auth() when the manager is available.
         if let Some(manager) = &ctx.mcp_manager {
-            match manager.initiate_auth(server_name).await {
-                Ok(auth_url) => {
-                    // Best-effort browser open.
-                    let _ = open::that(&auth_url);
+            use claurst_mcp::McpServerStatus;
+            if matches!(manager.server_status(server_name), McpServerStatus::Connecting) {
+                return CommandResult::Message(format!(
+                    "MCP server '{}' is currently connecting — try again shortly.",
+                    server_name
+                ));
+            }
+
+            if let Some(run_auth) = &ctx.mcp_auth_runner {
+                // In the interactive CLI/TUI we start browser auth in the background
+                // so the event loop stays responsive while waiting for the callback.
+                match manager.begin_auth(server_name).await {
+                    Ok(session) => {
+                        let auth_url = session.auth_url.clone();
+                        let redirect_uri = session.redirect_uri.clone();
+                        run_auth(session);
+                        return CommandResult::McpAuthFlow {
+                            server_name: server_name.to_string(),
+                            auth_url,
+                            redirect_uri,
+                        };
+                    }
+                    Err(e) => {
+                        let server_url = srv.url.as_deref().unwrap_or("(URL not configured)");
+                        return CommandResult::Message(format!(
+                            "MCP OAuth — '{}'\n\
+                             Could not initiate OAuth flow: {}\n\n\
+                             Manual authentication fallback:\n  Open {} in your browser and complete the OAuth flow.\n\
+                             Then run /mcp connect {} to reconnect.",
+                            server_name, e, server_url, server_name
+                        ));
+                    }
+                }
+            }
+
+            match manager.authenticate(server_name).await {
+                Ok(result) => {
                     return CommandResult::Message(format!(
                         "MCP OAuth — '{}'\n\
-                         Opening browser for authentication...\n\
-                         If the browser did not open, visit:\n\n  {}\n\n\
-                         After authorizing, the token will be saved to:\n  ~/.claurst/mcp-tokens/{}.json\n\n\
-                         Then run /mcp connect {} to reconnect.",
-                        server_name, auth_url, server_name, server_name
+                         Browser authentication completed; token saved to:\n  {}\n\n\
+                         The runtime will attempt to reload the MCP connection; if it still does not reconnect, run /mcp connect {} manually.",
+                        server_name,
+                        result.token_path.display(),
+                        server_name
                     ));
                 }
                 Err(e) => {
                     let server_url = srv.url.as_deref().unwrap_or("(URL not configured)");
                     return CommandResult::Message(format!(
                         "MCP OAuth — '{}'\n\
-                         Could not fetch OAuth metadata: {}\n\n\
-                         Manual authentication:\n  Open {} in your browser and complete the OAuth flow.\n\
+                         Could not complete OAuth flow: {}\n\n\
+                         Manual authentication fallback:\n  Open {} in your browser and complete the OAuth flow.\n\
                          Then run /mcp connect {} to reconnect.",
                         server_name, e, server_url, server_name
                     ));
@@ -8329,6 +8349,7 @@ mod tests {
             session_title: None,
             remote_session_url: None,
             mcp_manager: None,
+            mcp_auth_runner: None,
         }
     }
 

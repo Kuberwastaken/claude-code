@@ -758,6 +758,8 @@ pub struct App {
     pub mcp_manager: Option<Arc<claurst_mcp::McpManager>>,
     /// Queued request for a real MCP reconnect from the interactive loop.
     pub pending_mcp_reconnect: bool,
+    /// Pending MCP panel-auth request for the interactive loop.
+    pub pending_mcp_panel_auth: Option<String>,
     /// Shared file-history service used for turn diff reconstruction.
     pub file_history: Option<Arc<parking_lot::Mutex<FileHistory>>>,
     /// Shared query-loop turn counter for turn-local diff reconstruction.
@@ -1207,6 +1209,7 @@ impl App {
             remote_session_url: None,
             mcp_manager: None,
             pending_mcp_reconnect: false,
+            pending_mcp_panel_auth: None,
             file_history: None,
             current_turn: None,
             plan_mode: false,
@@ -1845,6 +1848,7 @@ impl App {
         self.custom_provider_dialog = crate::custom_provider_dialog::CustomProviderDialogState::new();
         self.device_auth_dialog = crate::device_auth_dialog::DeviceAuthDialogState::new();
         self.device_auth_pending = None;
+        self.pending_mcp_panel_auth = None;
         self.model_picker_fetch_pending = false;
         self.has_credentials = has_credentials;
         self.fast_mode = false;
@@ -1856,6 +1860,13 @@ impl App {
 
     /// Handle slash commands that should open UI screens rather than execute
     /// as normal commands. Returns `true` if the command was intercepted.
+    pub fn intercept_slash_command_with_args(&mut self, cmd: &str, args: &str) -> bool {
+        if cmd == "mcp" && !args.trim().is_empty() {
+            return false;
+        }
+        self.intercept_slash_command(cmd)
+    }
+
     pub fn intercept_slash_command(&mut self, cmd: &str) -> bool {
         self.close_secondary_views();
         match cmd {
@@ -2583,6 +2594,10 @@ impl App {
         self.mcp_view.open(servers);
     }
 
+    pub fn take_pending_mcp_panel_auth(&mut self) -> Option<String> {
+        self.pending_mcp_panel_auth.take()
+    }
+
     pub fn take_pending_mcp_reconnect(&mut self) -> bool {
         let pending = self.pending_mcp_reconnect;
         self.pending_mcp_reconnect = false;
@@ -3257,8 +3272,7 @@ impl App {
         }
 
         if self.mcp_view.open {
-            self.handle_mcp_view_key(key);
-            return false;
+            return self.handle_mcp_view_key(key);
         }
 
         if self.stats_dialog.open {
@@ -3910,7 +3924,7 @@ impl App {
         }
     }
 
-    fn handle_mcp_view_key(&mut self, key: KeyEvent) {
+    fn handle_mcp_view_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => self.mcp_view.close(),
             KeyCode::Tab | KeyCode::Left | KeyCode::Right => self.mcp_view.switch_pane(),
@@ -3918,6 +3932,20 @@ impl App {
             KeyCode::Down => self.mcp_view.select_next(),
             KeyCode::Backspace => self.mcp_view.pop_search_char(),
             KeyCode::Char('e') => self.mcp_view.toggle_error_detail(),
+            KeyCode::Char('a')
+                if self.mcp_view.active_pane == crate::mcp_view::McpViewPane::ServerList =>
+            {
+                let selected_server = self
+                    .mcp_view
+                    .servers
+                    .get(self.mcp_view.selected_server)
+                    .map(|server| server.name.clone());
+                if let Some(server_name) = selected_server {
+                    self.pending_mcp_panel_auth = Some(server_name);
+                    self.mcp_view.close();
+                    self.status_message = Some("Starting MCP auth...".to_string());
+                }
+            }
             KeyCode::Char('r') => {
                 self.pending_mcp_reconnect = true;
                 self.status_message = Some("Reconnecting MCP runtime...".to_string());
@@ -3929,6 +3957,7 @@ impl App {
             }
             _ => {}
         }
+        false
     }
 
     fn handle_agents_menu_key(&mut self, key: KeyEvent) {
@@ -5432,12 +5461,10 @@ impl App {
                         if should_submit {
                             // Check if this is a slash command that should open a UI screen
                             if crate::input::is_slash_command(&self.prompt_input.text) {
-                                let cmd = {
-                                    let (c, _) =
-                                        crate::input::parse_slash_command(&self.prompt_input.text);
-                                    c.to_string()
-                                };
-                                if self.intercept_slash_command(&cmd) {
+                                let slash_input = self.prompt_input.text.clone();
+                                let (cmd, args) =
+                                        crate::input::parse_slash_command(&slash_input);
+                                if self.intercept_slash_command_with_args(cmd, args) {
                                     self.clear_prompt();
                                     continue;
                                 }
@@ -5543,6 +5570,13 @@ mod tests {
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
         }
+    }
+
+    #[test]
+    fn test_mcp_subcommand_is_not_intercepted() {
+        let mut app = make_app();
+        assert!(!app.intercept_slash_command_with_args("mcp", "auth mcphub"));
+        assert!(!app.mcp_view.open);
     }
 
     #[test]
@@ -5754,7 +5788,7 @@ mod tests {
         let pr = PermissionRequest::bash(
             "tu-1".to_string(),
             "Bash".to_string(),
-            "wants to run".to_string(),
+            "This will execute a shell command.".to_string(),
             "git status".to_string(),
             Some("git".to_string()),
         );
@@ -5786,7 +5820,7 @@ mod tests {
         let mut pr = PermissionRequest::bash(
             "tu-2".to_string(),
             "Bash".to_string(),
-            "wants to run".to_string(),
+            "This will execute a shell command.".to_string(),
             "cargo build".to_string(),
             Some("cargo".to_string()),
         );
@@ -5817,7 +5851,7 @@ mod tests {
         let pr = PermissionRequest::bash(
             "tu-3".to_string(),
             "Bash".to_string(),
-            "wants to run".to_string(),
+            "This will execute a shell command.".to_string(),
             "npm install".to_string(),
             Some("npm".to_string()),
         );

@@ -529,8 +529,20 @@ impl Tool for PtyBashTool {
         };
 
         // Permission check
-        let desc = params.description.as_deref().unwrap_or(&params.command);
-        if let Err(e) = ctx.check_permission(self.name(), desc, false) {
+        let reason = params
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("This will execute a shell command.")
+            .to_string();
+
+        if let Err(e) = ctx.check_permission_for_path(
+            self.name(),
+            &reason,
+            std::path::PathBuf::from(&params.command),
+            false,
+        ) {
             return ToolResult::error(e.to_string());
         }
 
