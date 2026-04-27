@@ -900,6 +900,7 @@ name = "claurst-tui"
 version = "0.0.9"
 dependencies = [
  "anyhow",
+ "arboard",
  "base64",
  "chrono",
  "claurst-api",
@@ -915,6 +916,7 @@ dependencies = [
  "hound",
  "icy_sixel",
  "image",
+ "libc",
  "once_cell",
  "parking_lot",
  "ratatui",

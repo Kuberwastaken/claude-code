@@ -6,6 +6,8 @@ edition.workspace = true
 [features]
 # Enable real microphone capture for voice PTT mode.
 voice = ["claurst-core/voice", "dep:cpal", "dep:hound"]
+# Native clipboard via arboard (no xclip/wl-paste/xsel needed).
+native-clipboard = ["dep:arboard"]
 
 # UI & Interaction features (pass-through from cc-core)
 token_budget = ["claurst-core/token_budget"]
@@ -75,6 +77,8 @@ dashmap = { workspace = true }
 icy_sixel = { workspace = true }
 image = { workspace = true }
 regex = { workspace = true }
+arboard = { version = "3", default-features = false, optional = true }
+libc = "0.2"
 # Optional audio capture for voice PTT (gated behind the `voice` feature)
 cpal = { version = "0.15", optional = true }
 hound = { version = "3.5", optional = true }
