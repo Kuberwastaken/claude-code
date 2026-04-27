@@ -241,6 +241,20 @@ impl OpenAiCompatProvider {
             Self::apply_fix_tool_user_sequence(&mut messages);
         }
 
+        // Ollama rejects assistant messages with `content: null` even when
+        // tool_calls are present. Replace null content with an empty string.
+        if self.quirks.no_api_key_required {
+            for msg in &mut messages {
+                if msg.get("role").and_then(|v| v.as_str()) == Some("assistant") {
+                    if msg.get("content") == Some(&Value::Null) {
+                        if let Some(obj) = msg.as_object_mut() {
+                            obj.insert("content".into(), json!(""));
+                        }
+                    }
+                }
+            }
+        }
+
         messages
     }
 
