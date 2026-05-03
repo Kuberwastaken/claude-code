@@ -1,15 +1,18 @@
-// WebSearch tool: search the web using Brave Search API or fallback to DuckDuckGo.
+// WebSearch tool: search the web using SearXNG (preferred), Brave Search API,
+// or DuckDuckGo Instant Answers as a fallback.
 //
-// Mirrors the TypeScript WebSearch tool behaviour:
-// - Accepts a query string
-// - Returns a list of results with title, url, and snippet
-// - Falls back to DuckDuckGo if no search API key is configured
+// Priority order:
+// 1. SearXNG (self-hosted meta-search, aggregates Google/Bing/DDG/Brave/etc.)
+// 2. Brave Search API (requires BRAVE_SEARCH_API_KEY)
+// 3. DuckDuckGo Instant Answer API (limited, no real search results)
 
 use crate::{PermissionLevel, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tracing::debug;
+use tracing::{debug, warn};
+
+const DEFAULT_SEARXNG_URL: &str = "http://localhost:8888";
 
 pub struct WebSearchTool;
 
@@ -51,7 +54,7 @@ impl Tool for WebSearchTool {
                 },
                 "num_results": {
                     "type": "number",
-                    "description": "Number of results to return (default: 5, max: 10)"
+                    "description": "Number of results to return (default: 5, max: 20)"
                 }
             },
             "required": ["query"]
@@ -64,19 +67,135 @@ impl Tool for WebSearchTool {
             Err(e) => return ToolResult::error(format!("Invalid input: {}", e)),
         };
 
-        let num_results = params.num_results.min(10).max(1);
+        let num_results = params.num_results.min(20).max(1);
         debug!(query = %params.query, num_results, "Web search");
 
-        // Try Brave Search API first, then fall back to DuckDuckGo
-        if let Some(api_key) = std::env::var("BRAVE_SEARCH_API_KEY").ok().filter(|k| !k.is_empty()) {
-            search_brave(&params.query, num_results, &api_key).await
-        } else {
-            search_duckduckgo(&params.query, num_results).await
+        // 1. Try SearXNG (self-hosted meta-search)
+        let searxng_url = std::env::var("SEARXNG_URL")
+            .unwrap_or_else(|_| DEFAULT_SEARXNG_URL.to_string());
+
+        match search_searxng(&params.query, num_results, &searxng_url).await {
+            Ok(result) => return result,
+            Err(e) => {
+                debug!(error = %e, "SearXNG unavailable, trying next backend");
+            }
         }
+
+        // 2. Try Brave Search API
+        if let Some(api_key) = std::env::var("BRAVE_SEARCH_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty())
+        {
+            return search_brave(&params.query, num_results, &api_key).await;
+        }
+
+        // 3. Fall back to DuckDuckGo Instant Answers
+        warn!("No search backend available (SearXNG down, no Brave API key) — using DuckDuckGo fallback");
+        search_duckduckgo(&params.query, num_results).await
     }
 }
 
-/// Search using the Brave Search API.
+// ---------------------------------------------------------------------------
+// SearXNG — self-hosted meta-search engine
+// ---------------------------------------------------------------------------
+
+async fn search_searxng(
+    query: &str,
+    num_results: usize,
+    base_url: &str,
+) -> Result<ToolResult, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let url = format!(
+        "{}/search?q={}&format=json&categories=general&pageno=1",
+        base_url.trim_end_matches('/'),
+        urlencoding_simple(query),
+    );
+
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("SearXNG request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("SearXNG returned status {}", resp.status()));
+    }
+
+    let data: Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse SearXNG response: {}", e))?;
+
+    Ok(format_searxng_results(&data, num_results))
+}
+
+fn format_searxng_results(data: &Value, max: usize) -> ToolResult {
+    let results = match data.get("results").and_then(|r| r.as_array()) {
+        Some(r) => r,
+        None => return ToolResult::success("No results found.".to_string()),
+    };
+
+    if results.is_empty() {
+        return ToolResult::success("No results found.".to_string());
+    }
+
+    let mut output = String::new();
+    let total = data
+        .get("number_of_results")
+        .and_then(|n| n.as_u64())
+        .unwrap_or(0);
+
+    if total > 0 {
+        output.push_str(&format!("About {} results found.\n\n", total));
+    }
+
+    for (i, item) in results.iter().take(max).enumerate() {
+        let title = item
+            .get("title")
+            .and_then(|t| t.as_str())
+            .unwrap_or("(No title)");
+        let url = item.get("url").and_then(|u| u.as_str()).unwrap_or("");
+        let content = item
+            .get("content")
+            .and_then(|c| c.as_str())
+            .unwrap_or("");
+        let engines: Vec<&str> = item
+            .get("engines")
+            .and_then(|e| e.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let score = item
+            .get("score")
+            .and_then(|s| s.as_f64())
+            .unwrap_or(0.0);
+
+        output.push_str(&format!(
+            "{}. **{}**\n   URL: {}\n   {}\n   [engines: {} | score: {:.1}]\n\n",
+            i + 1,
+            title,
+            url,
+            content,
+            engines.join(", "),
+            score
+        ));
+    }
+
+    ToolResult::success(output)
+}
+
+// ---------------------------------------------------------------------------
+// Brave Search API
+// ---------------------------------------------------------------------------
+
 async fn search_brave(query: &str, num_results: usize, api_key: &str) -> ToolResult {
     let client = reqwest::Client::new();
     let url = format!(
@@ -135,8 +254,10 @@ fn format_brave_results(data: &Value, max: usize) -> String {
     }
 }
 
-/// Fallback: DuckDuckGo Instant Answer API.
-/// Note: this doesn't return full search results, only instant answers.
+// ---------------------------------------------------------------------------
+// DuckDuckGo Instant Answer API (limited fallback)
+// ---------------------------------------------------------------------------
+
 async fn search_duckduckgo(query: &str, num_results: usize) -> ToolResult {
     let client = reqwest::Client::new();
     let url = format!(
@@ -196,8 +317,9 @@ fn format_ddg_results(data: &Value, max: usize) -> String {
 
     if output.is_empty() {
         format!(
-            "No instant answer found for '{}'. Try using the Brave Search API \
-             by setting the BRAVE_SEARCH_API_KEY environment variable for full web search.",
+            "No instant answer found for '{}'. Try running SearXNG \
+             (set SEARXNG_URL env var) for full web search, or set \
+             BRAVE_SEARCH_API_KEY for Brave Search.",
             data.get("QuerySearchQuery")
                 .and_then(|q| q.as_str())
                 .unwrap_or("your query")
@@ -206,6 +328,10 @@ fn format_ddg_results(data: &Value, max: usize) -> String {
         output
     }
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 /// Minimal percent-encoding for URL query parameters.
 fn urlencoding_simple(s: &str) -> String {
