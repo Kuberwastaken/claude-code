@@ -14,10 +14,14 @@ from source.
 | Linux    | x86_64      | glibc 2.17+ (most distros from 2014 onward) |
 | Linux    | aarch64     | glibc 2.17+ (Raspberry Pi 4, AWS Graviton, etc.) |
 | macOS    | x86_64      | macOS 11 Big Sur |
-| macOS    | aarch64     | macOS 11 Big Sur (Apple Silicon: M1/M2/M3) |
+| macOS    | aarch64     | macOS 11 Big Sur (Apple Silicon: M1/M2/M3/M4/M5 and all A-series chips) |
 
 There are no other runtime dependencies. The binary is statically linked where
 possible; on Linux it links against the system glibc.
+
+> **Apple Silicon note:** All Apple Silicon Macs — including M1, M2, M3, M4, M5,
+> and A-series chips used in MacBook Neo and other devices — use the `aarch64`
+> architecture and should use the `claurst-macos-aarch64` binary.
 
 ---
 
@@ -37,7 +41,7 @@ Each release ships five archives:
 | `claurst-linux-x86_64.tar.gz` | Linux x86_64 |
 | `claurst-linux-aarch64.tar.gz` | Linux ARM64 |
 | `claurst-macos-x86_64.tar.gz` | macOS Intel |
-| `claurst-macos-aarch64.tar.gz` | macOS Apple Silicon |
+| `claurst-macos-aarch64.tar.gz` | macOS Apple Silicon (M1–M5, A-series) |
 
 ### Windows
 
@@ -82,33 +86,81 @@ sudo mv claurst-linux-aarch64 /usr/local/bin/claurst
 ### macOS (Intel)
 
 ```bash
-curl -Lo claurst.tar.gz https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-macos-x86_64.tar.gz && tar xzf claurst.tar.gz && chmod +x claurst && xattr -rd com.apple.quarantine claurst
+curl -Lo claurst.tar.gz https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-macos-x86_64.tar.gz \
+  && tar xzf claurst.tar.gz \
+  && chmod +x claurst-macos-x86_64 \
+  && xattr -rd com.apple.quarantine claurst-macos-x86_64 \
+  && sudo mv claurst-macos-x86_64 /usr/local/bin/claurst
 ```
 
-### macOS (Apple Silicon)
+### macOS (Apple Silicon — M1, M2, M3, M4, M5, A-series)
+
+All Apple Silicon Macs use the same `aarch64` binary regardless of chip
+generation (M1 through M5, including A-series chips in MacBook Neo).
 
 ```bash
-curl -Lo claurst.tar.gz https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-macos-aarch64.tar.gz && tar xzf claurst.tar.gz && chmod +x claurst && xattr -rd com.apple.quarantine claurst
+curl -Lo claurst.tar.gz https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-macos-aarch64.tar.gz \
+  && tar xzf claurst.tar.gz \
+  && chmod +x claurst-macos-aarch64 \
+  && xattr -rd com.apple.quarantine claurst-macos-aarch64 \
+  && sudo mv claurst-macos-aarch64 /usr/local/bin/claurst
 ```
 
-> **macOS Gatekeeper note:** The `xattr -rd com.apple.quarantine claurst` step in the commands above clears the quarantine flag automatically, so macOS will not block the binary on first run.
+> **macOS Gatekeeper note:** The `xattr -rd com.apple.quarantine` step clears
+> the quarantine flag automatically, so macOS will not block the binary on
+> first run.
 
 ---
 
 ## Adding to PATH (general)
 
-If you prefer to install to a user-local directory without `sudo`:
+If you prefer to install to a user-local directory without `sudo`, move the
+binary to `~/.local/bin` instead:
 
 ```bash
 mkdir -p ~/.local/bin
-mv claurst ~/.local/bin/claurst
+mv claurst-macos-aarch64 ~/.local/bin/claurst   # adjust filename for your platform
+```
 
-# Add to your shell profile if not already present
+Then add `~/.local/bin` to your shell's PATH using the instructions for your
+shell below.
+
+### Bash
+
+```bash
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-For Zsh users, substitute `.zshrc` for `.bashrc`.
+### Zsh
+
+```zsh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### Fish
+
+Fish uses `fish_add_path` which permanently adds the directory to your PATH
+without duplicating it across sessions:
+
+```fish
+# Add to PATH for all future sessions (recommended)
+fish_add_path ~/.local/bin
+
+# Verify it is on the PATH
+echo $PATH
+```
+
+`fish_add_path` writes a universal variable that persists across all fish
+sessions. You do not need to restart your shell or source any file.
+
+If you prefer to add it via `config.fish` instead:
+
+```fish
+# Add to ~/.config/fish/config.fish
+echo 'fish_add_path $HOME/.local/bin' >> ~/.config/fish/config.fish
+```
 
 ---
 
@@ -127,7 +179,7 @@ claude 0.0.9
 To confirm the binary is the one you installed:
 
 ```bash
-which claurst          # Linux / macOS
+which claurst          # Linux / macOS / fish
 where claurst          # Windows (Command Prompt)
 ```
 
@@ -224,7 +276,7 @@ cross build --release --locked --package claurst --target aarch64-unknown-linux-
 
 Claurst does not currently ship a dedicated `completions` subcommand. All
 flags can be discovered via `claurst --help`. If you want basic tab completion
-in bash or zsh you can use the generic completion helper built into your shell:
+in your shell:
 
 ```bash
 # bash — add to ~/.bashrc
@@ -232,6 +284,11 @@ complete -C claurst claurst
 
 # zsh — add to ~/.zshrc (requires compinit)
 compdef _gnu_generic claurst
+```
+
+```fish
+# fish — add to ~/.config/fish/completions/claurst.fish
+complete -c claurst -f -a '(claurst --help 2>&1 | string match -r -- "--\S+")'
 ```
 
 Richer completion scripts may be added in a future release.
@@ -256,9 +313,9 @@ cargo install claurst --force
 Remove the binary:
 
 ```bash
-sudo rm /usr/local/bin/claurst          # Linux / macOS
+sudo rm /usr/local/bin/claurst          # Linux / macOS (system install)
 # or
-rm ~/.local/bin/claurst
+rm ~/.local/bin/claurst                 # user-local install
 ```
 
 To also remove all settings and session data:
