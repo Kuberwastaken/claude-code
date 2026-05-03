@@ -888,6 +888,7 @@ pub mod config {
 
     /// Top-level configuration values, merged from CLI args + settings file + env.
     #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+    #[serde(default)]
     pub struct Config {
         pub api_key: Option<String>,
         pub model: Option<String>,
@@ -3786,6 +3787,31 @@ mod tests {
     }
 
     // ---- Config tests -------------------------------------------------------
+
+    #[test]
+    fn test_settings_config_mcp_server_env_deserializes_with_defaults() {
+        let settings: crate::config::Settings = serde_json::from_str(
+            r#"{
+                "config": {
+                    "mcp_servers": [
+                        {
+                            "name": "mcp-router",
+                            "command": "pnpx",
+                            "args": ["@mcp_router/cli@latest", "connect"],
+                            "env": { "MCPR_TOKEN": "test-token" },
+                            "type": "stdio"
+                        }
+                    ]
+                }
+            }"#,
+        )
+        .expect("parse minimal mcp server config");
+
+        let config = settings.effective_config();
+        let server = config.mcp_servers.first().expect("mcp server loaded");
+        assert_eq!(server.name, "mcp-router");
+        assert_eq!(server.env.get("MCPR_TOKEN").map(String::as_str), Some("test-token"));
+    }
 
     #[test]
     fn test_config_effective_model_default() {

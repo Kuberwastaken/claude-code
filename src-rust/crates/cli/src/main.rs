@@ -604,6 +604,37 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(InteractivePermissionHandler::with_manager(permission_manager.clone()))
     };
     let cost_tracker = CostTracker::new();
+
+    // Load plugins and register any plugin-provided MCP servers into the
+    // in-memory config (does not modify the settings file on disk).
+    let plugin_registry = claurst_plugins::load_plugins(&cwd, &[]).await;
+    {
+        let plugin_cmd_count = plugin_registry.all_command_defs().len();
+        let plugin_hook_count = plugin_registry
+            .build_hook_registry()
+            .values()
+            .map(|v| v.len())
+            .sum::<usize>();
+        info!(
+            plugins = plugin_registry.enabled_count(),
+            commands = plugin_cmd_count,
+            hooks = plugin_hook_count,
+            "Plugins loaded"
+        );
+
+        // Register plugin MCP servers before constructing the MCP manager so they connect at startup.
+        let existing_names: std::collections::HashSet<String> = config
+            .mcp_servers
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+        for mcp_server in plugin_registry.all_mcp_servers() {
+            if !existing_names.contains(&mcp_server.name) {
+                config.mcp_servers.push(mcp_server);
+            }
+        }
+    }
+
     // Use --session-id if provided, otherwise generate a fresh UUID.
     let session_id = cli
         .session_id_flag
@@ -649,37 +680,6 @@ async fn main() -> anyhow::Result<()> {
     // (AgentTool lives in cc-query to avoid a circular cc-tools ↔ cc-query dependency).
     // Wrap in Arc so the list can be shared by the main loop AND the cron scheduler.
     let tools = build_tools_with_mcp(mcp_manager_arc.clone());
-
-    // Load plugins and register any plugin-provided MCP servers into the
-    // in-memory config (does not modify the settings file on disk).
-    let plugin_registry = claurst_plugins::load_plugins(&cwd, &[]).await;
-    {
-        let plugin_cmd_count = plugin_registry.all_command_defs().len();
-        let plugin_hook_count = plugin_registry
-            .build_hook_registry()
-            .values()
-            .map(|v| v.len())
-            .sum::<usize>();
-        info!(
-            plugins = plugin_registry.enabled_count(),
-            commands = plugin_cmd_count,
-            hooks = plugin_hook_count,
-            "Plugins loaded"
-        );
-
-        // Register plugin MCP servers into the in-memory config so they are
-        // picked up by any subsequent MCP manager construction.
-        let existing_names: std::collections::HashSet<String> = config
-            .mcp_servers
-            .iter()
-            .map(|s| s.name.clone())
-            .collect();
-        for mcp_server in plugin_registry.all_mcp_servers() {
-            if !existing_names.contains(&mcp_server.name) {
-                config.mcp_servers.push(mcp_server);
-            }
-        }
-    }
 
     // Build model registry for dynamic model/provider resolution.
     // The registry is pre-populated with a hardcoded snapshot and enriched
