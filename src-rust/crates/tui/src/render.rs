@@ -59,6 +59,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget, Wrap};
 use ratatui::Frame;
 use unicode_width::UnicodeWidthStr;
+use std::time::Instant;
 
 // Spinner frames matching the TypeScript SpinnerGlyph: platform-specific base
 // characters mirrored (forward + reverse) for a smooth pulse effect.
@@ -85,6 +86,12 @@ fn spinner_color(app: &App) -> Color {
         }
     }
     Color::Yellow
+}
+
+/// Global monotonic animation tick, capped to a fixed cadence.
+/// 100ms step = 10 animation updates/second, independent of render FPS.
+fn animation_tick_100ms(app: &App) -> u64 {
+    return (app.session_start.elapsed().as_millis() / 100) as u64;
 }
 
 fn is_modal_open(app: &App) -> bool {
@@ -1806,6 +1813,8 @@ fn render_status_row(frame: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )]
     } else if app.is_streaming {
+        // Spinner glyph (turns red on stall)
+        let frame_count = animation_tick_100ms(app);
         // Pick a label: use the status message if it has real content,
         // otherwise show a default "Thinking" shimmer so the user always
         // sees that the model is working.
@@ -1820,7 +1829,7 @@ fn render_status_row(frame: &mut Frame, app: &App, area: Rect) {
             .unwrap_or("Thinking");
 
         let mut s = vec![Span::styled(
-            spinner_char(app.frame_count).to_string(),
+            spinner_char(frame_count).to_string(),
             Style::default().fg(spinner_color(app)).add_modifier(Modifier::BOLD),
         )];
         let label = format!("{}…", raw_label.trim_end_matches('…'));
