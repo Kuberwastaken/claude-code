@@ -653,22 +653,39 @@
                 }
             };
 
+            function detectMacArch() {
+                // The macOS UA string lies — Apple Silicon browsers still report "Intel Mac OS X"
+                // for compat. Use the WebGL renderer instead: Apple Silicon GPUs identify as
+                // "Apple GPU" / "Apple M*" / "ANGLE (Apple, ...)", Intel Macs report Intel/AMD/NVIDIA.
+                try {
+                    const canvas = document.createElement('canvas');
+                    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                    if (gl) {
+                        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+                        const renderer = (dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) || '';
+                        if (/apple/i.test(renderer)) return 'arm';
+                        if (/(intel|amd|radeon|nvidia|geforce)/i.test(renderer)) return 'intel';
+                    }
+                } catch (_) {}
+                if (navigator.userAgentData && navigator.userAgentData.architecture) {
+                    return navigator.userAgentData.architecture === 'arm' ? 'arm' : 'intel';
+                }
+                return 'arm';
+            }
+
             function detectOS() {
                 const ua = navigator.userAgent || '';
                 const platform = navigator.platform || '';
-                
+
                 if (/Win/i.test(platform) || /Win/i.test(ua)) return 'windows';
                 if (/Mac/i.test(platform) || /Mac/i.test(ua)) {
-                    if (ua.indexOf('Intel') > -1 && !(navigator.userAgentData && navigator.userAgentData.architecture === 'arm')) {
-                        return 'mac-intel';
-                    }
-                    return 'mac-arm'; 
+                    return detectMacArch() === 'intel' ? 'mac-intel' : 'mac-arm';
                 }
                 if (/Linux/i.test(platform) || /Linux/i.test(ua)) {
                     if (/aarch64|arm/i.test(ua) || /aarch64|arm/i.test(platform)) return 'linux-arm';
                     return 'linux-x64';
                 }
-                return 'mac-arm'; 
+                return 'mac-arm';
             }
 
             let currentOsKey = detectOS();
