@@ -566,6 +566,9 @@ impl ProviderRegistry {
         if std::env::var("FIREWORKS_API_KEY").map(|v| !v.is_empty()).unwrap_or(false) {
             self.register(Arc::new(p::fireworks()));
         }
+        if std::env::var("OPENCODE_API_KEY").map(|v| !v.is_empty()).unwrap_or(false) {
+            self.register(Arc::new(p::opencode_go()));
+        }
         self
     }
 }

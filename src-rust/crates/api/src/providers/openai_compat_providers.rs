@@ -44,6 +44,7 @@ pub fn provider_for_id(provider_id: &str) -> Option<OpenAiCompatProvider> {
         "upstage" => Some(upstage()),
         "stepfun" => Some(stepfun()),
         "fireworks" => Some(fireworks()),
+        "opencode-go" | "opencode_go" => Some(opencode_go()),
         _ => None,
     }
 }
@@ -475,4 +476,21 @@ pub fn fireworks() -> OpenAiCompatProvider {
         "https://api.fireworks.ai/inference/v1",
     )
     .with_api_key(key)
+}
+
+/// OpenCode Go — flat-rate subscription endpoint hosted by opencode.ai.
+/// OpenAI-compatible chat completions surface; same key works for the Zen
+/// metered tier, hence the shared `OPENCODE_API_KEY` env var.
+pub fn opencode_go() -> OpenAiCompatProvider {
+    let key = std::env::var("OPENCODE_API_KEY").unwrap_or_default();
+    OpenAiCompatProvider::new(
+        ProviderId::OPENCODE_GO,
+        "OpenCode Go",
+        "https://opencode.ai/zen/go/v1",
+    )
+    .with_api_key(key)
+    .with_quirks(ProviderQuirks {
+        include_usage_in_stream: true,
+        ..Default::default()
+    })
 }
