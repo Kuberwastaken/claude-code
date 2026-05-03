@@ -529,6 +529,10 @@ pub fn try_copy_to_clipboard(text: &str) -> bool {
                 }
             }
         }
+        // Fall back to OSC 52 — works over SSH without any external tools.
+        if crate::image_paste::osc52_write(text) {
+            return true;
+        }
     }
     false
 }
@@ -3571,7 +3575,7 @@ impl App {
         // Only fires when NOT in vim Normal/Visual/VisualBlock mode (where \x16 is
         // already consumed by the vim handler above to enter VisualBlock mode).
         if key.code == KeyCode::Char('v')
-            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && key.modifiers == KeyModifiers::CONTROL
             && !matches!(
                 self.prompt_input.vim_mode,
                 crate::prompt_input::VimMode::Normal
@@ -3579,7 +3583,7 @@ impl App {
                     | crate::prompt_input::VimMode::VisualBlock
             )
         {
-            use crate::image_paste::{read_clipboard_image, read_clipboard_text, read_primary_text};
+            use crate::image_paste::{osc52_read, read_clipboard_image, read_clipboard_text, read_primary_text};
             if let Some(img) = read_clipboard_image() {
                 let label = img.label.clone();
                 let dims = img.dimensions;
@@ -3590,9 +3594,19 @@ impl App {
                     format!("Image attached: {}", label)
                 };
                 self.notifications.push(NotificationKind::Info, msg, Some(3));
-            } else if let Some(text) = read_clipboard_text().or_else(read_primary_text) {
+            } else if let Some(text) = read_clipboard_text()
+                .or_else(read_primary_text)
+                .or_else(osc52_read)
+            {
                 self.prompt_input.paste(&text);
                 self.refresh_prompt_input();
+            } else {
+                let msg = if std::env::var("SSH_TTY").is_ok() || std::env::var("SSH_CLIENT").is_ok() {
+                    "Clipboard unavailable via SSH. Right-click to paste using your terminal's context menu."
+                } else {
+                    "Clipboard unavailable. Install xclip or wl-clipboard, or use Ctrl+Shift+V."
+                };
+                self.notifications.push(NotificationKind::Info, msg.to_string(), Some(5));
             }
             return false;
         }
@@ -4983,7 +4997,7 @@ impl App {
                     }
                 }
             }
-            // ---- Right-click context menu ----------------------------------
+            // ---- Right-click context menu / paste --------------------------
             MouseEventKind::Down(MouseButton::Right) => {
                 let msg_area = self.last_msg_area.get();
                 let has_selection = !self.selection_text.borrow().trim().is_empty();
@@ -5008,7 +5022,21 @@ impl App {
                         ContextMenuKind::Selection,
                     );
                 } else {
-                    self.dismiss_context_menu();
+                    // Right-click outside the transcript / selection = paste into prompt.
+                    // This restores the behaviour that EnableMouseCapture takes away from
+                    // terminal emulators that normally use right-click for paste (e.g.
+                    // Windows Terminal, PuTTY).
+                    use crate::image_paste::{osc52_read, read_clipboard_text, read_primary_text};
+                    if let Some(text) = read_clipboard_text()
+                        .or_else(read_primary_text)
+                        .or_else(osc52_read)
+                    {
+                        self.focus = FocusTarget::Input;
+                        self.prompt_input.paste(&text);
+                        self.refresh_prompt_input();
+                    } else {
+                        self.dismiss_context_menu();
+                    }
                 }
             }
 
@@ -5530,6 +5558,7 @@ impl App {
                         self.prompt_input.paste(&data);
                         self.refresh_prompt_input();
                     }
+                    Event::Paste(_) => {}
                     Event::Mouse(mouse_event) => {
                         self.handle_mouse_event(mouse_event);
                     }

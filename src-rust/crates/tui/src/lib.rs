@@ -12,7 +12,7 @@
 // - Bridge connection status badge
 // - Plugin hint banners
 
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -173,23 +173,43 @@ pub fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
     // main render loop is still running.
     let main_thread_id = std::thread::current().id();
     let original_hook = std::panic::take_hook();
+    let is_ssh_hook = std::env::var("SSH_TTY").is_ok() || std::env::var("SSH_CLIENT").is_ok();
     std::panic::set_hook(Box::new(move |panic_info| {
         if std::thread::current().id() == main_thread_id {
             // Best-effort restore — ignore errors, we're already unwinding.
             let _ = disable_raw_mode();
-            let _ = execute!(
-                io::stdout(),
-                LeaveAlternateScreen,
-                DisableMouseCapture,
-                crossterm::cursor::Show,
-            );
+            if is_ssh_hook {
+                let _ = execute!(
+                    io::stdout(),
+                    LeaveAlternateScreen,
+                    DisableBracketedPaste,
+                    crossterm::cursor::Show,
+                );
+            } else {
+                let _ = execute!(
+                    io::stdout(),
+                    LeaveAlternateScreen,
+                    DisableMouseCapture,
+                    DisableBracketedPaste,
+                    crossterm::cursor::Show,
+                );
+            }
         }
         original_hook(panic_info);
     }));
 
+    // Over SSH, EnableMouseCapture prevents the terminal emulator's right-click
+    // context menu from appearing, which is the only reliable paste path when
+    // there is no X11/Wayland display available on the remote host.
+    let is_ssh = std::env::var("SSH_TTY").is_ok() || std::env::var("SSH_CLIENT").is_ok();
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    if is_ssh {
+        execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
+    } else {
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste)?;
+    }
     set_terminal_title("\u{1f980} Claurst");
     let backend = CrosstermBackend::new(stdout);
     let terminal = Terminal::new(backend)?;
@@ -204,7 +224,12 @@ pub fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io
         terminal.backend_mut(),
         crossterm::terminal::SetTitle(""),
     );
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    let is_ssh = std::env::var("SSH_TTY").is_ok() || std::env::var("SSH_CLIENT").is_ok();
+    if is_ssh {
+        execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableBracketedPaste)?;
+    } else {
+        execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture, DisableBracketedPaste)?;
+    }
     terminal.show_cursor()?;
     Ok(())
 }

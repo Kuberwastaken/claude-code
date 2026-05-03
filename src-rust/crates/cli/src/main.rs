@@ -1618,6 +1618,14 @@ async fn run_interactive(
         })
     };
     cmd_ctx.mcp_auth_runner = Some(mcp_auth_runner.clone());
+
+    // Rapid-input burst detection: when clipboard text is injected as raw key events
+    // (e.g. Windows Terminal right-click paste over SSH), characters arrive in
+    // sub-millisecond succession. Human typing is always >= ~30ms between keys.
+    // We track the burst count so Enter keys that arrive mid-burst are treated as
+    // newlines in the input rather than message submission triggers.
+    let mut last_key_instant = std::time::Instant::now();
+    let mut rapid_burst_count: u32 = 0;
     'main: loop {
         app.frame_count = app.frame_count.wrapping_add(1);
         app.tick_rustle_pose();
@@ -1635,6 +1643,31 @@ async fn run_interactive(
                     // Only process Press to avoid double-registering input.
                     if key.kind != crossterm::event::KeyEventKind::Press {
                         continue;
+                    }
+
+                    // Burst detection: measure time since the previous key event.
+                    // Paste injects chars in < 2ms intervals; human typing is > 30ms.
+                    {
+                        let now = std::time::Instant::now();
+                        if now.duration_since(last_key_instant) < Duration::from_millis(15) {
+                            rapid_burst_count = rapid_burst_count.saturating_add(1);
+                        } else {
+                            rapid_burst_count = 0;
+                        }
+                        last_key_instant = now;
+                    }
+
+                    // If Enter arrives mid-burst it's a newline from pasted text, not a
+                    // deliberate submit. Insert it as a literal newline so the text lands
+                    // in the prompt exactly as pasted.
+                    if key.code == KeyCode::Enter
+                        && key.modifiers == crossterm::event::KeyModifiers::NONE
+                        && rapid_burst_count >= 3
+                    {
+                        if !app.is_streaming {
+                            app.prompt_input.paste("\n");
+                        }
+                        continue 'main;
                     }
 
                     // Ctrl+C: copy selected text if there's a selection, otherwise cancel/quit
@@ -1704,6 +1737,8 @@ async fn run_interactive(
                         || app.permission_request.is_some()
                         || app.global_search.open;
                     if key.code == KeyCode::Enter && !app.is_streaming && !any_dialog_open {
+                        rapid_burst_count = 0;
+
                         // If a slash-command suggestion is active, accept and execute immediately.
                         if !app.prompt_input.suggestions.is_empty()
                             && app.prompt_input.suggestion_index.is_some()
@@ -2308,6 +2343,12 @@ async fn run_interactive(
                 }
                 Event::Mouse(mouse) => {
                     app.handle_mouse_event(mouse);
+                }
+                Event::Paste(data) => {
+                    // Bracketed paste from the terminal (e.g. Ctrl+Shift+V in Windows Terminal).
+                    if !app.is_streaming {
+                        app.prompt_input.paste(&data);
+                    }
                 }
                 Event::Resize(_, _) => {
                     // Terminal resize - will be handled on next draw
