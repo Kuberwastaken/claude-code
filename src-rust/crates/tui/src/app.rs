@@ -965,6 +965,8 @@ pub struct App {
     pub selection_focus: Option<(u16, u16)>,
     /// Text extracted from the current selection (updated each render frame).
     pub selection_text: RefCell<String>,
+    /// When true, releasing a drag selection automatically copies it to clipboard.
+    pub auto_copy_selection: bool,
 
     // ---- Advanced mouse interaction state --------------------------------
     /// Timestamp of the last left mouse click (for double/triple-click detection).
@@ -1161,6 +1163,9 @@ impl App {
         let config = config;
         let model_name = config.effective_model().to_string();
         let user_keybindings = UserKeybindings::load(&Settings::config_dir());
+        let auto_copy_on_highlight = Settings::load_sync()
+            .map(|s| s.auto_copy_on_highlight)
+            .unwrap_or(true);
         Self {
             config,
             cost_tracker,
@@ -1362,6 +1367,7 @@ impl App {
             selection_anchor: None,
             selection_focus: None,
             selection_text: RefCell::new(String::new()),
+            auto_copy_selection: auto_copy_on_highlight,
             last_click_time: None,
             last_click_position: None,
             click_count: 0,
@@ -5440,6 +5446,19 @@ impl App {
                 // Clear if no actual drag (single click = no selection)
                 if self.selection_anchor == self.selection_focus {
                     self.clear_selection();
+                } else if self.auto_copy_selection {
+                    // Auto-copy finalized selection to clipboard.
+                    let sel_text = self.selection_text.borrow().clone();
+                    if !sel_text.is_empty() {
+                        let copied = crate::image_paste::write_clipboard_text(&sel_text);
+                        if copied {
+                            self.notifications.push(
+                                NotificationKind::Info,
+                                "Copied to clipboard".to_string(),
+                                Some(1),
+                            );
+                        }
+                    }
                 }
             }
             _ => {}
