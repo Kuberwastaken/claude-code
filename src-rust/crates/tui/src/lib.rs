@@ -12,7 +12,10 @@
 // - Bridge connection status badge
 // - Plugin hint banners
 
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
 // EnableBracketedPaste is intentionally NOT used. On Windows, `EnableBracketedPaste` causes
 // Windows Terminal to wrap Ctrl+V content in VT escape sequences that crossterm's Windows
 // Console API backend doesn't decode as `Event::Paste` — the bytes land as raw key events,
@@ -194,6 +197,7 @@ pub fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
                 io::stdout(),
                 LeaveAlternateScreen,
                 DisableMouseCapture,
+                PopKeyboardEnhancementFlags,
                 crossterm::cursor::Show,
             );
         }
@@ -202,7 +206,15 @@ pub fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        EnableMouseCapture,
+        PushKeyboardEnhancementFlags(
+            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
+        ),
+    )?;
     set_terminal_title("\u{1f980} Claurst");
     let backend = CrosstermBackend::new(stdout);
     let terminal = Terminal::new(backend)?;
@@ -217,7 +229,12 @@ pub fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io
         terminal.backend_mut(),
         crossterm::terminal::SetTitle(""),
     );
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture,
+        PopKeyboardEnhancementFlags,
+    )?;
     terminal.show_cursor()?;
     Ok(())
 }

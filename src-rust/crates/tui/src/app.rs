@@ -3699,11 +3699,12 @@ impl App {
             return false;
         }
 
-        // ---- Ctrl+V — clipboard paste (image first, then text fallback) ----
+        // ---- Ctrl+V / Cmd+V — clipboard paste (image first, then text fallback) ----
         // Only fires when NOT in vim Normal/Visual/VisualBlock mode (where \x16 is
         // already consumed by the vim handler above to enter VisualBlock mode).
         if key.code == KeyCode::Char('v')
-            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && (key.modifiers.contains(KeyModifiers::CONTROL)
+                || key.modifiers.contains(KeyModifiers::SUPER))
             && !matches!(
                 self.prompt_input.vim_mode,
                 crate::prompt_input::VimMode::Normal
@@ -3843,6 +3844,19 @@ impl App {
                 self.show_help = !self.show_help;
                 self.help_overlay.toggle();
             }
+            // With the kitty keyboard protocol, Shift+/ is reported as Char('/') with
+            // SHIFT rather than Char('?'), so also accept that form for the help toggle.
+            KeyCode::Char('/')
+                if key.modifiers.contains(KeyModifiers::SHIFT)
+                    && !self.is_streaming
+                    && self.prompt_input.is_empty()
+                    && !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT)
+                    && !key.modifiers.contains(KeyModifiers::SUPER) =>
+            {
+                self.show_help = !self.show_help;
+                self.help_overlay.toggle();
+            }
 
             KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) && !self.is_streaming => {
                 self.prompt_input.kill_line_backward();
@@ -3885,6 +3899,14 @@ impl App {
 
             // ---- Text entry (blocked while streaming) ------------------
             KeyCode::Char(c) if !self.is_streaming => {
+                // With the kitty keyboard protocol, Shift+letter is reported as the base
+                // (lowercase) key with the SHIFT modifier.  Apply uppercase so the
+                // correct character is inserted.
+                let c = if key.modifiers.contains(KeyModifiers::SHIFT) && c.is_ascii_alphabetic() {
+                    c.to_ascii_uppercase()
+                } else {
+                    c
+                };
                 if self.prompt_input.vim_enabled && self.prompt_input.vim_mode != VimMode::Insert {
                     self.prompt_input.vim_command(&c.to_string());
                 } else {

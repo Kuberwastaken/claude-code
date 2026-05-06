@@ -154,6 +154,16 @@ pub fn default_bindings() -> Vec<ParsedBinding> {
         ("pagedown", "scrollDown", KeyContext::Chat),
         ("tab", "indent", KeyContext::Chat),
         ("shift+enter", "newline", KeyContext::Chat),
+        // Fallback for terminals that do not support the kitty keyboard protocol
+        // (e.g. Terminal.app, older iTerm2, Windows Terminal, or SSH sessions).
+        // Without the protocol, Shift+Enter is sent as a raw newline byte (0x0A,
+        // LF); crossterm reports that as KeyCode::Char('j') with CONTROL because
+        // Ctrl+J == 0x0A in ASCII. When the protocol is enabled (see
+        // PushKeyboardEnhancementFlags in tui/src/lib.rs), terminals like Ghostty
+        // send a proper CSI-u sequence with the Shift modifier instead, so this
+        // fallback is not needed there. Keep it as a compatibility belt-and-braces
+        // for terminals that do not support the protocol.
+        ("ctrl+j", "newline", KeyContext::Chat),
         ("home", "goLineStart", KeyContext::Chat),
         ("end", "goLineEnd", KeyContext::Chat),
 
@@ -636,6 +646,19 @@ mod tests {
         assert_eq!(user.bindings[0].action.as_deref(), Some("chat:externalEditor"));
         assert_eq!(user.bindings[1].chord, "space");
         assert_eq!(user.bindings[1].action, None);
+    }
+
+    #[test]
+    fn test_ctrl_j_maps_to_newline() {
+        let bindings = default_bindings();
+        let ctrl_j = bindings.iter().find(|b| {
+            b.chord.len() == 1
+                && b.chord[0].ctrl
+                && b.chord[0].key == "j"
+                && b.context == KeyContext::Chat
+        });
+        assert!(ctrl_j.is_some(), "ctrl+j binding not found");
+        assert_eq!(ctrl_j.unwrap().action.as_deref(), Some("newline"));
     }
 
     #[test]
