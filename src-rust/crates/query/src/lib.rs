@@ -739,6 +739,21 @@ pub async fn run_query_loop(
         .and_then(|a| a.max_turns)
         .unwrap_or(config.max_turns);
 
+    // Shadow-git snapshot: capture the worktree state before any tools run so we
+    // can produce a per-turn file-change patch when the turn ends.
+    let shadow_snap: Option<std::sync::Arc<claurst_core::snapshot::ShadowSnapshot>> =
+        if tool_ctx.config.auto_commits == Some(true) {
+            claurst_core::snapshot::get_or_create(&tool_ctx.working_dir)
+        } else {
+            None
+        };
+    // Pre-capture tree hash; refreshed at the start of each turn's tool phase.
+    let mut initial_snapshot: Option<String> = if let Some(ref s) = shadow_snap {
+        s.track().await
+    } else {
+        None
+    };
+
     loop {
         turn += 1;
         tool_ctx
@@ -1258,11 +1273,12 @@ pub async fn run_query_loop(
                         }
                     }
 
-                    let assistant_msg = Message {
+                    let mut assistant_msg = Message {
                         role: claurst_core::types::Role::Assistant,
                         content: claurst_core::types::MessageContent::Blocks(content_blocks.clone()),
                         uuid: Some(msg_id),
                         cost: None,
+                        snapshot_patch: None,
                     };
 
                     cost_tracker.add_usage(
@@ -1319,6 +1335,7 @@ pub async fn run_query_loop(
                             content: claurst_core::types::MessageContent::Blocks(tool_results),
                             uuid: None,
                             cost: None,
+                            snapshot_patch: None,
                         });
                         continue; // loop for next turn
                     }
@@ -1330,6 +1347,14 @@ pub async fn run_query_loop(
                             turn,
                             usage: Some(usage.clone()),
                         });
+                    }
+
+                    // Attach snapshot patch covering all file changes this query.
+                    if let (Some(ref snap), Some(ref hash)) = (&shadow_snap, &initial_snapshot) {
+                        let patch = snap.patch(hash).await;
+                        if !patch.files.is_empty() {
+                            assistant_msg.snapshot_patch = Some(patch);
+                        }
                     }
 
                     return QueryOutcome::EndTurn {
@@ -1455,7 +1480,7 @@ pub async fn run_query_loop(
             continue;
         }
 
-        let (assistant_msg, usage, stop_reason) = accumulator.finish();
+        let (mut assistant_msg, usage, stop_reason) = accumulator.finish();
 
         // Track costs
         cost_tracker.add_usage(
@@ -1762,6 +1787,14 @@ pub async fn run_query_loop(
                     }
                 }
 
+                // Attach snapshot patch covering all file changes this query.
+                if let (Some(ref snap), Some(ref hash)) = (&shadow_snap, &initial_snapshot) {
+                    let patch = snap.patch(hash).await;
+                    if !patch.files.is_empty() {
+                        assistant_msg.snapshot_patch = Some(patch);
+                    }
+                }
+
                 return QueryOutcome::EndTurn {
                     message: assistant_msg,
                     usage,
@@ -1980,6 +2013,12 @@ pub async fn run_query_loop(
                     &tool_ctx.config,
                     tool_ctx.working_dir.clone(),
                 );
+                if let (Some(ref snap), Some(ref hash)) = (&shadow_snap, &initial_snapshot) {
+                    let patch = snap.patch(hash).await;
+                    if !patch.files.is_empty() {
+                        assistant_msg.snapshot_patch = Some(patch);
+                    }
+                }
                 return QueryOutcome::EndTurn {
                     message: assistant_msg,
                     usage,
@@ -1993,6 +2032,12 @@ pub async fn run_query_loop(
                     &tool_ctx.config,
                     tool_ctx.working_dir.clone(),
                 );
+                if let (Some(ref snap), Some(ref hash)) = (&shadow_snap, &initial_snapshot) {
+                    let patch = snap.patch(hash).await;
+                    if !patch.files.is_empty() {
+                        assistant_msg.snapshot_patch = Some(patch);
+                    }
+                }
                 return QueryOutcome::EndTurn {
                     message: assistant_msg,
                     usage,

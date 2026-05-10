@@ -85,7 +85,6 @@ pub use skill_discovery::{DiscoveredSkill, discover_skills, parse_skill_file};
 pub use cost::CostTracker;
 pub use history::ConversationSession;
 pub use feature_flags::FeatureFlagManager;
-pub use snapshot::SnapshotManager;
 pub use permissions::{
     AutoPermissionHandler, InteractivePermissionHandler,
     ManagedAutoPermissionHandler, ManagedInteractivePermissionHandler,
@@ -317,6 +316,10 @@ pub mod types {
         pub uuid: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub cost: Option<MessageCost>,
+        /// Files changed during this assistant turn, captured by the shadow snapshot.
+        /// Populated by the query loop on `finish-step`; absent on user messages.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub snapshot_patch: Option<crate::snapshot::Patch>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -334,6 +337,7 @@ pub mod types {
                 content: MessageContent::Text(content.into()),
                 uuid: None,
                 cost: None,
+                snapshot_patch: None,
             }
         }
 
@@ -344,6 +348,7 @@ pub mod types {
                 content: MessageContent::Blocks(blocks),
                 uuid: None,
                 cost: None,
+                snapshot_patch: None,
             }
         }
 
@@ -354,6 +359,7 @@ pub mod types {
                 content: MessageContent::Text(content.into()),
                 uuid: None,
                 cost: None,
+                snapshot_patch: None,
             }
         }
 
@@ -364,6 +370,7 @@ pub mod types {
                 content: MessageContent::Blocks(blocks),
                 uuid: None,
                 cost: None,
+                snapshot_patch: None,
             }
         }
 
@@ -455,6 +462,7 @@ pub mod types {
                 }]),
                 uuid: None,
                 cost: None,
+                snapshot_patch: None,
             }
         }
 
@@ -468,6 +476,7 @@ pub mod types {
                 }]),
                 uuid: None,
                 cost: None,
+                snapshot_patch: None,
             }
         }
 
@@ -481,6 +490,7 @@ pub mod types {
                 }]),
                 uuid: None,
                 cost: None,
+                snapshot_patch: None,
             }
         }
 
@@ -494,6 +504,7 @@ pub mod types {
                 }]),
                 uuid: None,
                 cost: None,
+                snapshot_patch: None,
             }
         }
 
@@ -512,6 +523,7 @@ pub mod types {
                 }]),
                 uuid: None,
                 cost: None,
+                snapshot_patch: None,
             }
         }
 
@@ -530,6 +542,7 @@ pub mod types {
                 }]),
                 uuid: None,
                 cost: None,
+                snapshot_patch: None,
             }
         }
     }
@@ -945,6 +958,10 @@ pub mod config {
         /// Managed agent (manager-executor) configuration.
         #[serde(default)]
         pub managed_agents: Option<ManagedAgentConfig>,
+        /// Shadow-git auto-commit snapshot system.  `Some(true)` = enabled.  `None` or `Some(false)` = disabled (default).
+        /// Set via `--auto-commits` flag or `"autoCommits": true` in settings.json.
+        #[serde(default, rename = "autoCommits", skip_serializing_if = "Option::is_none")]
+        pub auto_commits: Option<bool>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -1559,6 +1576,7 @@ pub mod config {
                     SkillsConfig { paths, urls }
                 },
                 managed_agents: over.config.managed_agents.or(base.config.managed_agents),
+                auto_commits: over.config.auto_commits.or(base.config.auto_commits),
             };
             Self {
                 config: merged_config,

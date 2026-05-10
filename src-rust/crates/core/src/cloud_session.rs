@@ -115,6 +115,7 @@ pub fn cloud_to_message(cloud: &CloudMessage) -> Message {
         content,
         uuid: None,
         cost: None,
+        snapshot_patch: None,
     }
 }
 

@@ -206,11 +206,6 @@ impl ShellState {
 static SHELL_STATE_REGISTRY: once_cell::sync::Lazy<dashmap::DashMap<String, Arc<parking_lot::Mutex<ShellState>>>> =
     once_cell::sync::Lazy::new(dashmap::DashMap::new);
 
-/// Process-global registry of `SnapshotManager` instances keyed by session_id.
-/// Used by tools to record pre-write snapshots and by `/undo` to revert them.
-static SNAPSHOT_REGISTRY: once_cell::sync::Lazy<dashmap::DashMap<String, Arc<parking_lot::Mutex<claurst_core::SnapshotManager>>>> =
-    once_cell::sync::Lazy::new(dashmap::DashMap::new);
-
 /// Return the persistent `ShellState` for the given session, creating one if needed.
 pub fn session_shell_state(session_id: &str) -> Arc<parking_lot::Mutex<ShellState>> {
     SHELL_STATE_REGISTRY
@@ -224,18 +219,17 @@ pub fn clear_session_shell_state(session_id: &str) {
     SHELL_STATE_REGISTRY.remove(session_id);
 }
 
-/// Return the persistent `SnapshotManager` for the given session, creating one if needed.
-pub fn session_snapshot(session_id: &str) -> Arc<parking_lot::Mutex<claurst_core::SnapshotManager>> {
-    SNAPSHOT_REGISTRY
-        .entry(session_id.to_string())
-        .or_insert_with(|| Arc::new(parking_lot::Mutex::new(claurst_core::SnapshotManager::new())))
-        .clone()
+/// Return the `ShadowSnapshot` for `working_dir`, creating it on first call.
+/// Returns `None` when git is unavailable or the directory is not in a git repo.
+pub fn session_shadow(working_dir: &std::path::Path) -> Option<Arc<claurst_core::snapshot::ShadowSnapshot>> {
+    claurst_core::snapshot::get_or_create(working_dir)
 }
 
-/// Remove the snapshot manager for a session (e.g. when the session ends).
-pub fn clear_session_snapshot(session_id: &str) {
-    SNAPSHOT_REGISTRY.remove(session_id);
+/// Drop the cached shadow snapshot for `working_dir` (e.g. when a session ends).
+pub fn clear_session_shadow(working_dir: &std::path::Path) {
+    claurst_core::snapshot::remove(working_dir);
 }
+
 
 /// A cloneable handle for injecting notification messages into the next agent turn.
 /// Used by background tasks with `notify_on_complete` to signal completion without polling.

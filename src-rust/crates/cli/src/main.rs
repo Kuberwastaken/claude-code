@@ -190,6 +190,10 @@ struct Cli {
     #[arg(long = "no-auto-compact", action = ArgAction::SetTrue)]
     no_auto_compact: bool,
 
+    /// Enable shadow-git auto-commit snapshots (enables /revert, /checkpoints, /snapshot)
+    #[arg(long = "auto-commits", action = ArgAction::SetTrue)]
+    auto_commits: bool,
+
     /// Grant Claurst access to an additional directory (can be repeated)
     #[arg(long = "add-dir", value_name = "DIR", action = ArgAction::Append)]
     add_dir: Vec<PathBuf>,
@@ -476,6 +480,9 @@ async fn main() -> anyhow::Result<()> {
     if cli.no_auto_compact {
         config.auto_compact = false;
     }
+    if cli.auto_commits {
+        config.auto_commits = Some(true);
+    }
     config.project_dir = Some(cwd.clone());
     if let Some(p) = &cli.provider {
         config.provider = Some(p.clone());
@@ -632,6 +639,20 @@ async fn main() -> anyhow::Result<()> {
         permission_manager: Some(permission_manager.clone()),
         user_question_tx: if is_non_interactive { None } else { Some(user_question_tx) },
     };
+
+    // Hourly shadow-snapshot GC loop: only runs when snapshot is explicitly enabled.
+    if config.auto_commits == Some(true) {
+        let gc_dir = cwd.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            loop {
+                if let Some(snap) = claurst_core::snapshot::get_or_create(&gc_dir) {
+                    snap.cleanup().await;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        });
+    }
 
     // Register the cc-query-backed agent runner so TeamCreateTool can spawn real
     // sub-agents.  Must be called before any tool execution begins.

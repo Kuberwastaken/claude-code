@@ -95,6 +95,8 @@ schemars = { workspace = true }
 reqwest = { workspace = true }
 urlencoding = { workspace = true }
 glob = { workspace = true }
+similar = { workspace = true }
+which = { workspace = true }
 tokio-util = { workspace = true }
 tokio-tungstenite = { workspace = true }
 futures = { workspace = true }

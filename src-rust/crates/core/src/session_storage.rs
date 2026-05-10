@@ -428,6 +428,38 @@ pub async fn tombstone_entry(path: &Path, uuid: &str) -> crate::Result<()> {
     write_transcript_entry(path, &entry).await
 }
 
+/// Truncate a session transcript at the entry whose `uuid` matches `from_uuid`,
+/// removing that entry and all subsequent entries.
+///
+/// Used by `/revert` to discard assistant turns after a given message.
+/// Rewrites the file atomically (load → filter → overwrite).
+pub async fn truncate_after(path: &Path, from_uuid: &str) -> crate::Result<()> {
+    let entries = load_transcript(path).await?;
+    let mut keep = Vec::new();
+    let mut found = false;
+    for entry in entries {
+        if found { continue; }
+        match &entry {
+            TranscriptEntry::User(m) | TranscriptEntry::Assistant(m) => {
+                if m.message.uuid.as_deref() == Some(from_uuid) {
+                    found = true;
+                    continue; // drop this entry and everything after
+                }
+            }
+            _ => {}
+        }
+        keep.push(entry);
+    }
+    // Rewrite the file with only the kept entries.
+    let mut lines = String::new();
+    for e in &keep {
+        lines.push_str(&serde_json::to_string(e).map_err(crate::error::ClaudeError::from)?);
+        lines.push('\n');
+    }
+    tokio::fs::write(path, lines).await?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Internal helper: read tail metadata without a full parse
 // ---------------------------------------------------------------------------
@@ -614,6 +646,7 @@ mod tests {
             content: MessageContent::Text("hello".to_string()),
             uuid: Some(uuid::Uuid::new_v4().to_string()),
             cost: None,
+            snapshot_patch: None,
         }
     }
 

@@ -146,7 +146,7 @@ mod tests {
     use crate::types::{ContentBlock, Message, MessageContent, Role};
 
     fn user_msg(text: &str) -> Message {
-        Message { role: Role::User, content: MessageContent::Text(text.to_string()), uuid: None, cost: None }
+        Message { role: Role::User, content: MessageContent::Text(text.to_string()), uuid: None, cost: None, snapshot_patch: None }
     }
 
     #[test]
