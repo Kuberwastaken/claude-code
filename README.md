@@ -2,7 +2,7 @@
 
 <h1>CLAURST</h1>
 <h2><em>Agentic coding for builders who ship</em></h2>
-<img src="public/Ship.png" alt="Rustle on the ship" />
+<img src="public/Ship.png" alt="Rustle on the ship" width="350" />
 
 <p>
     <a href="https://github.com/kuberwastaken/claurst"><img src="https://img.shields.io/badge/Built_with-Rust-CE4D2B?style=for-the-badge&logo=rust&logoColor=white" alt="Built with Rust"></a>
