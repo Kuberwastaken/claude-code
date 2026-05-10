@@ -917,6 +917,9 @@ pub struct App {
     pub worktree_branch: Option<String>,
     /// Agent type badge: "agent" | "coordinator" | "subagent".
     pub agent_type_badge: Option<String>,
+    /// Goal badge string shown in the footer, e.g. "active · 5m · 3 turns".
+    /// None when no goal is active. Updated by the REPL after each turn.
+    pub active_goal_badge: Option<String>,
 
     // ---- Thinking block expansion state ----------------------------------
     /// Set of thinking block content hashes that are expanded.
@@ -1324,6 +1327,7 @@ impl App {
             worktree_name: None,
             worktree_branch: None,
             agent_type_badge: None,
+            active_goal_badge: None,
             thinking_expanded: std::collections::HashSet::new(),
             last_msg_area: Cell::new(ratatui::layout::Rect::default()),
             last_selectable_area: Cell::new(ratatui::layout::Rect::default()),

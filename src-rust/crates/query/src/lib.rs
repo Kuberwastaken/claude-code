@@ -12,6 +12,7 @@ pub mod agent_tool;
 pub mod auto_dream;
 pub mod away_summary;
 pub mod command_queue;
+pub mod goal_loop;
 pub mod managed_orchestrator;
 pub mod compact;
 pub mod context_analyzer;
@@ -22,6 +23,7 @@ pub mod skill_prefetch;
 pub use agent_tool::{AgentTool, init_team_swarm_runner};
 pub use command_queue::{CommandPriority, CommandQueue, QueuedCommand, drain_command_queue};
 pub use cron_scheduler::start_cron_scheduler;
+pub use goal_loop::{GoalContinuation, StopReason, check_and_continue_goal, mark_goal_complete};
 pub use skill_prefetch::{
     SkillDefinition, SkillIndex, SharedSkillIndex, prefetch_skills, format_skill_listing,
 };

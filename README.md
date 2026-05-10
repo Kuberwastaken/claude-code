@@ -25,11 +25,11 @@ It's fast, it's memory-efficient, it's yours to run however you want, and there'
 
 > [!NOTE]
 > **Recent Updates:**
+> - **/goal support:** Try out /goal <objective> to see claurst keep working an objective, spanning multiple turns instead of stopping after one normal turn.
+>
 > - **Managed Agents Preview:** Run `/managed-agents` to create a better agentic loop with a Manager-Executor relation and dramatically improved performance for fractions of the cost from running a larger model. Choose from 6 pre-built templates or build your own.`[EXPERIMENTAL]`
 >
 > - Speech modes: Try `/rocky` and `/caveman` to hear the difference! `/normal` to go back.
->
-> - Multi-Provider Support is here! Run `/connect` to connect to the AI provider of your choice - Anthropic, OpenAI, Google, GitHub Copilot, Ollama, DeepSeek, Groq, Mistral, and [30+ more](#supported-providers).
 
 ---
 

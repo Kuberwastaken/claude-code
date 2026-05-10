@@ -1580,6 +1580,8 @@ async fn run_interactive(
     // Active effort level (None = use model default / High).
     // Tracks the user's /effort selection; flows into qcfg each turn.
     let mut current_effort: Option<claurst_core::effort::EffortLevel> = None;
+    // Timestamp of when the most recent query turn was dispatched (for goal elapsed tracking).
+    let mut goal_turn_start: std::time::Instant = std::time::Instant::now();
 
     // Background update check: spawned once at startup; result delivered via channel.
     let (update_tx, mut update_rx) = tokio::sync::mpsc::channel::<Option<String>>(1);
@@ -2158,6 +2160,16 @@ async fn run_interactive(
                         qcfg.output_style = cmd_ctx.config.effective_output_style();
                         qcfg.output_style_prompt = cmd_ctx.config.resolve_output_style_prompt();
                         qcfg.working_directory = Some(tool_ctx.working_dir.display().to_string());
+                        // Inject active goal addendum into system prompt (if goals enabled).
+                        if let Some(goal) = claurst_core::GoalStore::open_default()
+                            .and_then(|s| s.get_active_goal(&session.id))
+                        {
+                            let addendum = claurst_core::goal_system_prompt_addendum(&goal);
+                            qcfg.append_system_prompt = Some(match qcfg.append_system_prompt {
+                                Some(existing) => format!("{}\n{}", existing, addendum),
+                                None => addendum,
+                            });
+                        }
                         // Apply active effort level (set via /effort command).
                         if let Some(level) = current_effort {
                             qcfg.effort_level = Some(level);
@@ -2175,6 +2187,7 @@ async fn run_interactive(
                         let tracker = cost_tracker.clone();
                         let tx = event_tx.clone();
                         let client_clone = client.clone();
+                        goal_turn_start = std::time::Instant::now();
 
                         let handle = tokio::spawn(async move {
                             let mut msgs = msgs_arc_clone.lock().await.clone();
@@ -3066,6 +3079,116 @@ async fn run_interactive(
                             };
                             let msg_id = msg.uuid.as_deref().unwrap_or("unknown");
                             let _ = store.save_message(&session.id, msg_id, role, &content_str, None);
+                        }
+                    }
+                }
+
+                // --- Goal continuation ---
+                // After every completed turn check if there is an active goal.
+                // If so, inject a continuation user message and dispatch another turn
+                // without waiting for user input.
+                if !app.auto_compact_running && claurst_core::goals_enabled() {
+                    let elapsed_secs = goal_turn_start.elapsed().as_secs();
+                    let total_tokens = cost_tracker.total_tokens();
+                    match claurst_query::check_and_continue_goal(
+                        &session.id,
+                        total_tokens,
+                        elapsed_secs,
+                    ) {
+                        claurst_query::GoalContinuation::Continue { message } => {
+                            // Show a subtle status notice.
+                            app.status_message = Some(
+                                "Goal: continuing autonomously… (use /goal pause to stop)".to_string()
+                            );
+                            // Update the footer badge.
+                            if let Some(goal) = claurst_core::GoalStore::open_default()
+                                .and_then(|s| s.get_active_goal(&session.id))
+                            {
+                                app.active_goal_badge = Some(format!(
+                                    "active · {} · {} turns",
+                                    goal.elapsed_display(),
+                                    goal.turns_used
+                                ));
+                            }
+
+                            // Inject the continuation message into the conversation.
+                            let cont_msg = claurst_core::types::Message::user(message);
+                            messages.push(cont_msg.clone());
+                            app.push_message(cont_msg);
+                            session.messages = messages.clone();
+                            session.updated_at = chrono::Utc::now();
+                            app.is_streaming = true;
+                            app.streaming_text.clear();
+
+                            let ct = CancellationToken::new();
+                            cancel = Some(ct.clone());
+
+                            let msgs_arc = Arc::new(tokio::sync::Mutex::new(messages.clone()));
+                            let msgs_arc_clone = msgs_arc.clone();
+                            let tools_arc_clone = tools_arc.clone();
+                            let mut ctx_clone = tool_ctx.clone();
+                            let mut qcfg = base_query_config.clone();
+                            qcfg.model = claurst_api::effective_model_for_config(&cmd_ctx.config, &model_registry);
+                            qcfg.max_tokens = cmd_ctx.config.effective_max_tokens();
+                            qcfg.append_system_prompt = cmd_ctx.config.append_system_prompt.clone();
+                            qcfg.system_prompt = base_query_config.system_prompt.clone();
+                            qcfg.output_style = cmd_ctx.config.effective_output_style();
+                            qcfg.output_style_prompt = cmd_ctx.config.resolve_output_style_prompt();
+                            qcfg.working_directory = Some(tool_ctx.working_dir.display().to_string());
+                            // Re-inject the goal addendum for this continuation turn.
+                            if let Some(goal) = claurst_core::GoalStore::open_default()
+                                .and_then(|s| s.get_active_goal(&session.id))
+                            {
+                                let addendum = claurst_core::goal_system_prompt_addendum(&goal);
+                                qcfg.append_system_prompt = Some(match qcfg.append_system_prompt {
+                                    Some(existing) => format!("{}\n{}", existing, addendum),
+                                    None => addendum,
+                                });
+                            }
+                            if let Some(level) = current_effort {
+                                qcfg.effort_level = Some(level);
+                            }
+                            if let Some(ref cq) = qcfg.command_queue {
+                                let cq = cq.clone();
+                                ctx_clone.completion_notifier = Some(claurst_tools::CompletionNotifier::new(move |msg| {
+                                    cq.push(
+                                        claurst_query::QueuedCommand::InjectSystemMessage(msg),
+                                        claurst_query::CommandPriority::Normal,
+                                    );
+                                }));
+                            }
+                            let tracker = cost_tracker.clone();
+                            let tx = event_tx.clone();
+                            let client_clone = client.clone();
+                            goal_turn_start = std::time::Instant::now();
+
+                            let handle = tokio::spawn(async move {
+                                let mut msgs = msgs_arc_clone.lock().await.clone();
+                                let outcome = claurst_query::run_query_loop(
+                                    client_clone.as_ref(),
+                                    &mut msgs,
+                                    tools_arc_clone.as_slice(),
+                                    &ctx_clone,
+                                    &qcfg,
+                                    tracker,
+                                    Some(tx),
+                                    ct,
+                                    None,
+                                )
+                                .await;
+                                *msgs_arc_clone.lock().await = msgs;
+                                outcome
+                            });
+                            current_query = Some((handle, msgs_arc));
+                        }
+                        claurst_query::GoalContinuation::Stop { reason } => {
+                            app.active_goal_badge = None;
+                            if let Some(msg) = reason.user_message() {
+                                app.status_message = Some(msg);
+                            }
+                        }
+                        claurst_query::GoalContinuation::NoGoal => {
+                            app.active_goal_badge = None;
                         }
                     }
                 }

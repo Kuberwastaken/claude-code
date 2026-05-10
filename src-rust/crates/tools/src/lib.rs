@@ -52,6 +52,7 @@ pub mod team_tool;
 pub mod remote_trigger;
 pub mod formatter;
 pub mod monitor_tool;
+pub mod goal_complete;
 
 // Re-exports for convenience.
 pub use formatter::try_format_file;
@@ -90,6 +91,7 @@ pub use synthetic_output::SyntheticOutputTool;
 pub use team_tool::{TeamCreateTool, TeamDeleteTool, register_agent_runner, AgentRunFn};
 pub use remote_trigger::RemoteTriggerTool;
 pub use monitor_tool::MonitorTool;
+pub use goal_complete::GoalCompleteTool;
 
 // ---------------------------------------------------------------------------
 // Core trait & types
@@ -525,6 +527,7 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
         Box::new(McpAuthTool),
         Box::new(RemoteTriggerTool),
         Box::new(MonitorTool),
+        Box::new(GoalCompleteTool),
         // Computer Use is only available when compiled with the feature flag.
         #[cfg(feature = "computer-use")]
         Box::new(computer_use::ComputerUseTool),

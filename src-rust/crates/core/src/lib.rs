@@ -51,6 +51,11 @@ pub mod file_history;
 // Snapshot/undo system — tracks file changes per session for /undo support.
 pub mod snapshot;
 
+// Per-session durable objectives (/goal feature).
+pub mod goal;
+pub use goal::{Goal, GoalError, GoalStatus, GoalStore, MAX_GOAL_TURNS, MAX_OBJECTIVE_CHARS,
+               goal_continuation_message, goal_system_prompt_addendum, goals_enabled};
+
 // Feature flag management via GrowthBook.
 pub mod feature_flags;
 

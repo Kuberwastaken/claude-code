@@ -2173,6 +2173,17 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 
         // 5. Vim mode — displayed on the left side as "-- MODE --"; nothing extra on right.
 
+        // 5b. Goal badge — shown when a goal is active for this session.
+        if let Some(ref badge) = app.active_goal_badge {
+            if !parts.is_empty() {
+                parts.push(Span::raw("  "));
+            }
+            parts.push(Span::styled(
+                format!("[goal: {}]", badge),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ));
+        }
+
         // 6. Agent type badge
         if let Some(ref badge) = app.agent_type_badge {
             if !parts.is_empty() {
@@ -2533,6 +2544,8 @@ pub struct StatusLineData {
     pub agent_badge: Option<String>,
     pub rate_limit_pct_5h: Option<f64>,
     pub rate_limit_pct_7d: Option<f64>,
+    /// Goal badge: Some("active · 5m · 3 turns") when a goal is running.
+    pub goal_badge: Option<String>,
 }
 
 pub fn render_full_status_line(data: &StatusLineData, area: Rect, buf: &mut ratatui::buffer::Buffer) {
@@ -2606,6 +2619,15 @@ pub fn render_full_status_line(data: &StatusLineData, area: Rect, buf: &mut rata
         spans.push(Span::styled(
             format!("[{}]", badge),
             Style::default().fg(Color::Magenta),
+        ));
+        spans.push(Span::styled(" ", Style::default()));
+    }
+
+    // Goal badge
+    if let Some(goal) = &data.goal_badge {
+        spans.push(Span::styled(
+            format!("[goal: {}]", goal),
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         ));
         spans.push(Span::styled(" ", Style::default()));
     }

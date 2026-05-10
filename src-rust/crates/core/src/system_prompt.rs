@@ -220,6 +220,8 @@ pub struct SystemPromptOptions {
     pub coordinator_mode: bool,
     /// Skip auto-injecting platform/shell/date env info (set true only in tests).
     pub skip_env_info: bool,
+    /// Active goal addendum (injected in dynamic section when a goal is running).
+    pub active_goal_addendum: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +323,12 @@ pub fn build_system_prompt(opts: &SystemPromptOptions) -> String {
         ));
     }
 
-    // 13. Appended system prompt (--append-system-prompt)
+    // 13. Active goal addendum (dynamic — changes each session)
+    if let Some(goal_text) = &opts.active_goal_addendum {
+        parts.push(goal_text.clone());
+    }
+
+    // 14. Appended system prompt (--append-system-prompt)
     if let Some(append) = &opts.append_system_prompt {
         parts.push(format!("\n{}", append));
     }
