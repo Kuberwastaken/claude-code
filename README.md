@@ -1,8 +1,8 @@
 <div align="center">
 
 <h1>CLAURST</h1>
-<h3><em>Your Favorite Terminal Coding Agent, now in Rust</em></h3>
-<img src="public/Rustle.png" alt="Rustle the Crab" width="150" />
+<h2><em>Agentic coding for builders who ship</em></h2>
+<img src="public/Ship.png" alt="Rustle on the ship" />
 
 <p>
     <a href="https://github.com/kuberwastaken/claurst"><img src="https://img.shields.io/badge/Built_with-Rust-CE4D2B?style=for-the-badge&logo=rust&logoColor=white" alt="Built with Rust"></a>
