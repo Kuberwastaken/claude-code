@@ -121,6 +121,8 @@ pub mod tasks_overlay;
 pub mod import_config_dialog;
 /// Session branching overlay (Ctrl+B) — create and switch between conversation branches.
 pub mod session_branching;
+/// Model-initiated question dialog (AskUserQuestion tool).
+pub mod ask_user_dialog;
 
 // ---------------------------------------------------------------------------
 // Public re-exports

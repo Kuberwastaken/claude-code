@@ -900,6 +900,12 @@ pub struct App {
     /// the fetch completes.
     pub model_fetch_rx:
         Option<tokio::sync::mpsc::Receiver<Result<Vec<crate::model_picker::ModelEntry>, ()>>>,
+    /// Receiver for `UserQuestionEvent`s produced by the AskUserQuestion tool.
+    /// When a question arrives, `ask_user_dialog` is populated and shown.
+    pub user_question_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<claurst_tools::UserQuestionEvent>>,
+    /// State for the model-initiated ask-user question dialog.
+    pub ask_user_dialog: crate::ask_user_dialog::AskUserDialogState,
 
     // ---- Context window & rate limit info ----------------------------------
 
@@ -1320,6 +1326,8 @@ impl App {
             voice_recording: false,
             voice_event_rx: None,
             model_fetch_rx: None,
+            user_question_rx: None,
+            ask_user_dialog: crate::ask_user_dialog::AskUserDialogState::new(),
             context_window_size: 0,
             context_used_tokens: 0,
             rate_limit_5h_pct: None,
@@ -1543,15 +1551,7 @@ impl App {
     }
 
     fn display_default_model_for_provider(&self, provider_id: &str) -> String {
-        if let Some(best) = self.model_registry.best_model_for_provider(provider_id) {
-            if provider_id == "anthropic" {
-                best
-            } else {
-                format!("{}/{}", provider_id, best)
-            }
-        } else {
-            crate::model_picker::default_model_for_provider(provider_id)
-        }
+        crate::model_picker::default_model_for_provider(provider_id, &self.model_registry)
     }
 
     fn open_model_picker_for_provider(&mut self, provider_id: &str, title: Option<String>) {
@@ -2834,6 +2834,38 @@ impl App {
         }
 
         // API key input dialog (opened from /connect for key-based providers)
+        // Ask-user question dialog (AskUserQuestion tool)
+        if self.ask_user_dialog.visible {
+            match key.code {
+                KeyCode::Esc => {
+                    self.ask_user_dialog.dismiss();
+                }
+                KeyCode::Enter => {
+                    self.ask_user_dialog.confirm();
+                }
+                KeyCode::Up | KeyCode::BackTab => {
+                    self.ask_user_dialog.select_prev();
+                }
+                KeyCode::Down | KeyCode::Tab => {
+                    self.ask_user_dialog.select_next();
+                }
+                KeyCode::Char(c) if c.is_ascii_digit() && self.ask_user_dialog.options.is_some() => {
+                    let n = (c as u8 - b'0') as usize;
+                    if n >= 1 {
+                        self.ask_user_dialog.select_by_number(n);
+                    }
+                }
+                KeyCode::Char(c) => {
+                    self.ask_user_dialog.push_char(c);
+                }
+                KeyCode::Backspace => {
+                    self.ask_user_dialog.pop_char();
+                }
+                _ => {}
+            }
+            return false;
+        }
+
         if self.key_input_dialog.visible {
             match key.code {
                 KeyCode::Esc => {

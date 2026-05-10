@@ -43,6 +43,7 @@ base64 = "0.22"
 sha2 = "0.10"
 open = "5"
 urlencoding = "2"
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
 
 [build-dependencies]
 chrono = { workspace = true }

@@ -21,6 +21,7 @@ use crate::memory_update_notification::render_memory_update_notification;
 use crate::import_config_dialog::render_import_config_dialog;
 use crate::invalid_config_dialog::render_invalid_config_dialog;
 use crate::bypass_permissions_dialog::render_bypass_permissions_dialog;
+use crate::ask_user_dialog::render_ask_user_dialog;
 use crate::onboarding_dialog::render_onboarding_dialog;
 use crate::dialog_select::render_dialog_select;
 use crate::key_input_dialog::render_key_input_dialog;
@@ -113,6 +114,7 @@ fn is_modal_open(app: &App) -> bool {
         || app.import_config_dialog.visible
         || app.invalid_config_dialog.visible
         || app.bypass_permissions_dialog.visible
+        || app.ask_user_dialog.visible
         || app.onboarding_dialog.visible
         || app.import_config_picker.visible
         || app.import_config_dialog.visible
@@ -587,6 +589,12 @@ pub fn render_app(frame: &mut Frame, app: &App) {
     // Bypass-permissions confirmation dialog (topmost — rendered last so it sits above all)
     if app.bypass_permissions_dialog.visible {
         render_bypass_permissions_dialog(frame, &app.bypass_permissions_dialog, size);
+    }
+
+    // AskUserQuestion dialog — renders above bypass-permissions so the model's
+    // question is never obscured by the startup confirmation prompt.
+    if app.ask_user_dialog.visible {
+        render_ask_user_dialog(&app.ask_user_dialog, size, frame.buffer_mut());
     }
 
     // First-launch onboarding dialog (shown after bypass dialog, below elicitation)

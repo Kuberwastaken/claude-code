@@ -94,6 +94,21 @@ pub use monitor_tool::MonitorTool;
 pub use goal_complete::GoalCompleteTool;
 
 // ---------------------------------------------------------------------------
+// AskUser question channel
+// ---------------------------------------------------------------------------
+
+/// Event sent through the TUI side-channel when the `AskUserQuestion` tool
+/// needs to pause the query loop and collect a response from the user.
+pub struct UserQuestionEvent {
+    /// The question text to display.
+    pub question: String,
+    /// Optional predefined choices (for multiple-choice questions).
+    pub options: Option<Vec<String>>,
+    /// Send the user's answer back through this channel to resume execution.
+    pub reply_tx: tokio::sync::oneshot::Sender<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Core trait & types
 // ---------------------------------------------------------------------------
 
@@ -261,6 +276,9 @@ pub struct ToolContext {
     pub pending_permissions: Option<Arc<parking_lot::Mutex<PendingPermissionStore>>>,
     /// Shared permission manager so the interactive loop can record session/persistent approvals.
     pub permission_manager: Option<Arc<std::sync::Mutex<claurst_core::permissions::PermissionManager>>>,
+    /// Channel for the `AskUserQuestion` tool to send questions to the TUI and
+    /// receive the user's typed answer.  `None` in headless / non-interactive mode.
+    pub user_question_tx: Option<tokio::sync::mpsc::UnboundedSender<UserQuestionEvent>>,
 }
 
 impl ToolContext {
@@ -591,6 +609,7 @@ mod tests {
             completion_notifier: None,
             pending_permissions: None,
             permission_manager: None,
+            user_question_tx: None,
         }
     }
 

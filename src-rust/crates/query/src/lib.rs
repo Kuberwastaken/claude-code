@@ -1056,7 +1056,7 @@ pub async fn run_query_loop(
                         .as_ref()
                         .and_then(|model_registry| model_registry.get(&provider_id_str, &model_id_str))
                     {
-                        caps.image_input = model_entry.vision;
+                        caps.image_input = model_entry.vision();
                         caps.tool_calling = model_entry.tool_calling;
                         caps.thinking = model_entry.reasoning;
                     }
