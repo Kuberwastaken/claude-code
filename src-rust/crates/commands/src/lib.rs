@@ -1453,7 +1453,7 @@ impl SlashCommand for GoalCommand {
     async fn execute(&self, args: &str, ctx: &mut CommandContext) -> CommandResult {
         if !claurst_core::goals_enabled() {
             return CommandResult::Message(
-                "Goals are disabled. Set CLAURST_GOALS=1 to enable.".to_string(),
+                "Goals are disabled. Unset CLAURST_GOALS=0 (or remove it) to re-enable.".to_string(),
             );
         }
 
@@ -1582,20 +1582,10 @@ impl SlashCommand for GoalCommand {
             }
             Err(e) => CommandResult::Error(format!("Failed to set goal: {}", e)),
             Ok(goal) => {
-                let budget_note = goal
-                    .budget_display()
-                    .map(|b| format!("\nSoft token budget: {}", b))
-                    .unwrap_or_default();
-                CommandResult::Message(format!(
-                    "Goal set! Claurst will work autonomously toward:\n\
-                     <objective>\n{}\n</objective>\n\
-                     {}\n\
-                     Use /goal to check status, /goal pause to pause, /goal clear to cancel.\n\
-                     Claurst will call GoalComplete when finished — you can also use /goal complete\n\
-                     to request a completion audit at any time.",
-                    objective,
-                    budget_note,
-                ))
+                // Return UserMessage so the query loop fires immediately and the
+                // model begins working toward the goal without user needing to
+                // send another message.
+                CommandResult::UserMessage(claurst_core::goal_kickoff_message(&goal))
             }
         }
     }

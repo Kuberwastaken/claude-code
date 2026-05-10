@@ -378,6 +378,24 @@ pub fn goal_system_prompt_addendum(goal: &Goal) -> String {
     )
 }
 
+/// Build the first-turn user message that kicks off autonomous goal work.
+///
+/// Injected immediately after `/goal <objective>` is set so the model starts
+/// working without the user having to send another message.
+pub fn goal_kickoff_message(goal: &Goal) -> String {
+    format!(
+        "[Goal started]\n\
+         Your objective:\n\
+         <objective>\n{}\n</objective>\n\n\
+         Begin by outlining your plan, then implement step by step using all \
+         available tools. Work autonomously — do not wait for the user between \
+         steps. When you have fully achieved every part of the objective, call \
+         `GoalComplete` with an `audit_summary` and `evidence` (test output, \
+         build results, file contents, etc.).",
+        goal.objective,
+    )
+}
+
 /// Build the continuation user message injected at the start of each goal turn.
 pub fn goal_continuation_message(goal: &Goal) -> String {
     format!(

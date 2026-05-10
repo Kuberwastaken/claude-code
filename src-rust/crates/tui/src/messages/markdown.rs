@@ -243,7 +243,12 @@ fn parse_inline_spans(text: String) -> Vec<Span<'static>> {
                     ));
                     remaining = &after_stars[end + 2..];
                 } else {
-                    spans.push(Span::raw(remaining[b..].to_string()));
+                    // Unmatched opening `**` — skip the markers and render the
+                    // rest as plain text.  This prevents literal `**` appearing
+                    // at the end of reasoning blocks when the model ends a
+                    // thought mid-bold, or when word-wrap splits a bold span
+                    // across lines.
+                    spans.extend(split_and_style_links(after_stars));
                     break;
                 }
             }

@@ -62,6 +62,7 @@ const PROMPT_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("fast", "Toggle fast mode"),
     ("feedback", "Open session feedback survey"),
     ("fork", "Fork session into a new branch"),
+    ("goal", "Set or view the current session goal"),
     ("heapdump", "Show process memory and diagnostic information"),
     ("help", "Show help"),
     ("hooks", "Browse configured hooks (read-only)"),
