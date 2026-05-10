@@ -5828,7 +5828,7 @@ impl SlashCommand for UpgradeCommand {
 
                 if tag == current || tag == "unknown" {
                     CommandResult::Message(format!(
-                        "Claurst v{current} — you are up to date.\n\
+                        "Claurst v{current} - you are up to date.\n\
                          Release page: {url}"
                     ))
                 } else {
@@ -5837,8 +5837,8 @@ impl SlashCommand for UpgradeCommand {
                          Current version:  v{current}\n\
                          Latest version:   v{tag}\n\
                          Release page:     {url}\n\n\
-                         Download the latest release:\n\
-                           {url}\n\n\
+                         Upgrade in place (recommended):\n\
+                           claurst upgrade\n\n\
                          Or build from source:\n\
                            cargo install claurst --force"
                     ))

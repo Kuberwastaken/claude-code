@@ -600,10 +600,10 @@
                             <button class="cmd-copy" id="cmd-copy-btn" title="Copy to clipboard">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                             </button>
-                            <span class="cmd-comment" id="cmd-comment-text"># macOS (Apple Silicon). Download and extract.</span>
+                            <span class="cmd-comment" id="cmd-comment-text"># macOS. One-liner installer.</span>
                             <div class="cmd-line">
                                 <span class="cmd-prompt">$</span>
-                                <span class="cmd-code" id="cmd-code-text">curl -Lo claurst.tar.gz https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-macos-aarch64.tar.gz && tar xzf claurst.tar.gz && chmod +x claurst && xattr -rd com.apple.quarantine claurst</span>
+                                <span class="cmd-code" id="cmd-code-text">curl -fsSL https://github.com/Kuberwastaken/claurst/releases/latest/download/install.sh | bash</span>
                             </div>
                         </div>
                     </div>
@@ -629,27 +629,29 @@
                     }
                 })
                 .catch(err => console.error(err));
-            // OS Detection and Command UI Setup
+            // OS Detection and Command UI Setup.
+            // The installer auto-detects architecture (Apple Silicon vs Intel,
+            // x86_64 vs aarch64) so each OS only needs one one-liner.
             const commands = {
                 'mac-arm': {
-                    comment: '# macOS (Apple Silicon). Download and extract.',
-                    code: 'curl -Lo claurst.tar.gz https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-macos-aarch64.tar.gz && tar xzf claurst.tar.gz && chmod +x claurst && xattr -rd com.apple.quarantine claurst'
+                    comment: '# macOS. One-liner installer.',
+                    code: 'curl -fsSL https://github.com/Kuberwastaken/claurst/releases/latest/download/install.sh | bash'
                 },
                 'mac-intel': {
-                    comment: '# macOS (Intel). Download and extract.',
-                    code: 'curl -Lo claurst.tar.gz https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-macos-x86_64.tar.gz && tar xzf claurst.tar.gz && chmod +x claurst && xattr -rd com.apple.quarantine claurst'
+                    comment: '# macOS. One-liner installer.',
+                    code: 'curl -fsSL https://github.com/Kuberwastaken/claurst/releases/latest/download/install.sh | bash'
                 },
                 'linux-x64': {
-                    comment: '# Linux (x86_64). Download and extract.',
-                    code: 'curl -Lo claurst.tar.gz https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-linux-x86_64.tar.gz && tar xzf claurst.tar.gz && chmod +x claurst'
+                    comment: '# Linux. One-liner installer.',
+                    code: 'curl -fsSL https://github.com/Kuberwastaken/claurst/releases/latest/download/install.sh | bash'
                 },
                 'linux-arm': {
-                    comment: '# Linux (aarch64). Download and extract.',
-                    code: 'curl -Lo claurst.tar.gz https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-linux-aarch64.tar.gz && tar xzf claurst.tar.gz && chmod +x claurst'
+                    comment: '# Linux. One-liner installer.',
+                    code: 'curl -fsSL https://github.com/Kuberwastaken/claurst/releases/latest/download/install.sh | bash'
                 },
                 'windows': {
-                    comment: '# Windows. Download and extract.',
-                    code: 'Invoke-WebRequest -Uri "https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-windows-x86_64.zip" -OutFile "claurst.zip"; Expand-Archive claurst.zip -DestinationPath .'
+                    comment: '# Windows (PowerShell). One-liner installer.',
+                    code: 'irm https://github.com/Kuberwastaken/claurst/releases/latest/download/install.ps1 | iex'
                 }
             };
 

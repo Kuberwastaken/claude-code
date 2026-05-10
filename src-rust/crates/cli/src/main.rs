@@ -10,6 +10,7 @@
 
 mod oauth_flow;
 mod codex_oauth_flow;
+mod upgrade;
 
 // ---------------------------------------------------------------------------
 // Build-time metadata (embedded via build.rs)
@@ -351,6 +352,11 @@ async fn main() -> anyhow::Result<()> {
     // Fast-path: `claude auth <login|logout|status>` — mirrors TypeScript cli.tsx pattern
     if raw_args.get(1).map(|s| s.as_str()) == Some("auth") {
         return handle_auth_command(&raw_args[2..]).await;
+    }
+
+    // Fast-path: `claurst upgrade [--version <v>] [--force]` — self-update.
+    if raw_args.get(1).map(|s| s.as_str()) == Some("upgrade") {
+        return upgrade::run_upgrade(&raw_args[2..]).await;
     }
 
     // Fast-path: `claude acp` — start the Agent Client Protocol stdio server.

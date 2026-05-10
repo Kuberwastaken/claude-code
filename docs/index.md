@@ -48,16 +48,21 @@ Run named agents (`build`, `plan`, `explore`) or spawn parallel sub-agents in co
 
 ## Quick start
 
-**1. Download and install**
+**1. Install**
 
 ```bash
-# macOS (Apple Silicon)
-curl -Lo claurst.tar.gz \
-  https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-macos-aarch64.tar.gz
-tar xzf claurst.tar.gz && chmod +x claurst && sudo mv claurst /usr/local/bin/
+# Linux / macOS
+curl -fsSL https://github.com/Kuberwastaken/claurst/releases/latest/download/install.sh | bash
 ```
 
-See [Installation](installation) for all platforms.
+```powershell
+# Windows (PowerShell)
+irm https://github.com/Kuberwastaken/claurst/releases/latest/download/install.ps1 | iex
+```
+
+The installer auto-detects your platform/arch, drops `claurst` into
+`~/.claurst/bin/`, and adds it to your `PATH`. See
+[Installation](installation) for flags, manual download, and uninstall steps.
 
 **2. Set your API key**
 

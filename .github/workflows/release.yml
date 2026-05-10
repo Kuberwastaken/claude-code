@@ -150,18 +150,22 @@ jobs:
           fi
           ls -lh "$BINARY"
 
-      - name: Package binary
+      # Stage the binary into a per-archive directory using the canonical
+      # name "claurst" (or "claurst.exe").  The install scripts assume this
+      # name inside the archive — do not change without updating install.sh
+      # and install.ps1.
+      - name: Stage binary for packaging
         shell: bash
         run: |
-          mkdir -p dist
+          mkdir -p "stage/${{ matrix.artifact }}"
           cp "src-rust/target/${{ matrix.target }}/release/claurst${{ matrix.ext }}" \
-             "dist/${{ matrix.artifact }}${{ matrix.ext }}"
+             "stage/${{ matrix.artifact }}/claurst${{ matrix.ext }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}${{ matrix.ext }}
+          path: stage/${{ matrix.artifact }}/claurst${{ matrix.ext }}
 
   # ── Create GitHub release ───────────────────────────────────────────
   release:
@@ -217,6 +221,17 @@ jobs:
               tar -czf "release/${name}.tar.gz" -C "$dir" "$(basename "$binary")"
             fi
           done
+
+          # Stage install scripts as release assets so users can run:
+          #   curl -fsSL https://github.com/<repo>/releases/latest/download/install.sh | bash
+          #   irm https://github.com/<repo>/releases/latest/download/install.ps1 | iex
+          if [[ -f install.sh ]]; then
+            cp install.sh release/install.sh
+          fi
+          if [[ -f install.ps1 ]]; then
+            cp install.ps1 release/install.ps1
+          fi
+
           echo "Release assets:"
           ls -lh release/
 

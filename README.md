@@ -35,19 +35,43 @@ It's fast, it's memory-efficient, it's yours to run however you want, and there'
 
 # Getting Started
 
-## Download a release binary
+## Quick install (one-liner)
 
-Grab the latest binary for your platform from [**GitHub Releases**](https://github.com/kuberwastaken/claurst/releases):
+**Linux / macOS:**
 
-| Platform | Binary |
-|----------|--------|
+```bash
+curl -fsSL https://github.com/kuberwastaken/claurst/releases/latest/download/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://github.com/kuberwastaken/claurst/releases/latest/download/install.ps1 | iex
+```
+
+This drops `claurst` into `~/.claurst/bin` (or `%USERPROFILE%\.claurst\bin` on Windows) and adds it to your `PATH` automatically. Open a new terminal and run `claurst`.
+
+To upgrade later, run:
+
+```bash
+claurst upgrade
+```
+
+> Pin a specific version with `--version 0.0.9` on either installer, or `claurst upgrade --version 0.0.9`.
+
+## Manual download
+
+If you'd rather grab the binary yourself, the latest archives are on [**GitHub Releases**](https://github.com/kuberwastaken/claurst/releases):
+
+| Platform | Archive |
+|----------|---------|
 | **Windows** x86_64 | `claurst-windows-x86_64.zip` |
 | **Linux** x86_64 | `claurst-linux-x86_64.tar.gz` |
 | **Linux** aarch64 | `claurst-linux-aarch64.tar.gz` |
 | **macOS** Intel | `claurst-macos-x86_64.tar.gz` |
 | **macOS** Apple Silicon | `claurst-macos-aarch64.tar.gz` |
 
-### And you're done.
+Each archive contains a single `claurst` (or `claurst.exe`) binary. Extract it and put it on your `PATH`.
 
 ## Build from source
 
@@ -66,22 +90,12 @@ cargo build --release --package claurst
 cargo build --release --package claurst --no-default-features
 ```
 
-### First run
+## First run
 
 ```bash
 # Set your API key (or use /connect inside Claurst to configure)
 export ANTHROPIC_API_KEY=sk-ant-...
 
-# Start Claurst
-claurst
-
-# Or run a one-shot headless query
-claurst -p "explain this codebase"
-```
-
-Just install and run this from anywhere, that easy.
-
-```bash
 # Start Claurst
 claurst
 

@@ -1,8 +1,9 @@
 # Claurst Installation Guide
 
-Claurst is a Rust reimplementation of the Claude Code CLI. This guide covers
-installing from pre-built binaries, verifying the installation, and building
-from source.
+Claurst is a Rust reimplementation of the Claude Code CLI. The fastest way
+to install it is via the one-liner installers below. They drop the binary
+into `~/.claurst/bin` (or `%USERPROFILE%\.claurst\bin` on Windows) and add
+that directory to your `PATH` automatically.
 
 ---
 
@@ -21,15 +22,69 @@ possible; on Linux it links against the system glibc.
 
 ---
 
-## Installing from GitHub Releases
+## Quick install (recommended)
 
-Pre-built binaries are published to the GitHub Releases page:
+### Linux / macOS
 
+```bash
+curl -fsSL https://github.com/Kuberwastaken/claurst/releases/latest/download/install.sh | bash
 ```
-https://github.com/Kuberwastaken/claurst/releases
+
+### Windows (PowerShell)
+
+```powershell
+irm https://github.com/Kuberwastaken/claurst/releases/latest/download/install.ps1 | iex
 ```
 
-Each release ships five archives:
+Both installers:
+
+1. Detect your platform and architecture.
+2. Download the matching archive from the latest GitHub release.
+3. Extract `claurst` into `~/.claurst/bin/` (Windows: `%USERPROFILE%\.claurst\bin\`).
+4. Append that directory to your shell config (`.bashrc`, `.zshrc`,
+   `.config/fish/config.fish`) or to your Windows user `PATH`.
+5. On macOS, strip the quarantine attribute so Gatekeeper does not block the
+   unsigned binary.
+
+Open a new terminal afterwards (or `source` the modified shell config) so
+the updated `PATH` takes effect, then run `claurst --version` to verify.
+
+### Installer flags
+
+Both scripts accept the same flags:
+
+| Flag (sh) | Flag (ps1) | Effect |
+|---|---|---|
+| `--version 0.0.9` | `-Version 0.0.9` | Install a specific version |
+| `--binary <path>` | `-Binary <path>` | Install from a local file (skip download) |
+| `--install-dir <path>` | `-InstallDir <path>` | Override the install directory |
+| `--no-modify-path` | `-NoModifyPath` | Don't touch shell config / user PATH |
+| `--help` | `-Help` | Show usage |
+
+Example: `curl -fsSL https://.../install.sh | bash -s -- --version 0.0.9`
+
+---
+
+## Upgrading
+
+Once installed, upgrade in place at any time:
+
+```bash
+claurst upgrade               # to the latest release
+claurst upgrade --version 0.0.9   # pin to a specific version
+claurst upgrade --force       # reinstall the same version
+```
+
+The upgrade command downloads the matching archive from GitHub, extracts the
+new binary, and replaces the running executable atomically. Settings in
+`~/.claurst/` are preserved.
+
+---
+
+## Manual install from GitHub Releases
+
+If you'd rather not run an install script, grab archives directly from
+[**GitHub Releases**](https://github.com/Kuberwastaken/claurst/releases):
 
 | Archive | Platform |
 |---------|----------|
@@ -39,71 +94,32 @@ Each release ships five archives:
 | `claurst-macos-x86_64.tar.gz` | macOS Intel |
 | `claurst-macos-aarch64.tar.gz` | macOS Apple Silicon |
 
-### Windows
-
-1. Download `claurst-windows-x86_64.zip` from the latest release.
-2. Extract the archive. It contains a single binary: `claurst-windows-x86_64.exe`.
-3. Rename it to `claurst.exe` (optional but recommended).
-4. Move `claurst.exe` to a directory that is on your `PATH`, for example
-   `C:\Users\<you>\bin\` or `C:\Program Files\Claurst\`.
-5. Add that directory to your `PATH` if it is not already:
-   - Open **Settings > System > About > Advanced system settings > Environment Variables**.
-   - Under **User variables**, select `Path` and click **Edit**.
-   - Click **New** and enter the directory path.
-   - Click **OK** to save.
-6. Open a new terminal and verify:
-
-```cmd
-claurst --version
-```
-
-### Linux (x86_64)
+Every archive contains a single binary named `claurst` (or `claurst.exe`).
+Extract it and put it somewhere on your `PATH`. For example on Linux:
 
 ```bash
-# Download and extract
 curl -L https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-linux-x86_64.tar.gz \
   | tar -xz
-
-# Make executable and move to a PATH location
-chmod +x claurst-linux-x86_64
-sudo mv claurst-linux-x86_64 /usr/local/bin/claurst
+chmod +x claurst
+sudo mv claurst /usr/local/bin/
 ```
 
-### Linux (aarch64)
+On macOS, also strip the quarantine flag so Gatekeeper allows the unsigned
+binary:
 
 ```bash
-curl -L https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-linux-aarch64.tar.gz \
-  | tar -xz
-
-chmod +x claurst-linux-aarch64
-sudo mv claurst-linux-aarch64 /usr/local/bin/claurst
+xattr -rd com.apple.quarantine /usr/local/bin/claurst
 ```
 
-### macOS (Intel)
+On Windows, extract the zip and add the folder containing `claurst.exe`
+to your user `PATH` via **Settings → System → Advanced system settings →
+Environment Variables**.
 
-```bash
-curl -Lo claurst.tar.gz https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-macos-x86_64.tar.gz && tar xzf claurst.tar.gz && chmod +x claurst && xattr -rd com.apple.quarantine claurst
-```
-
-### macOS (Apple Silicon)
-
-```bash
-curl -Lo claurst.tar.gz https://github.com/Kuberwastaken/claurst/releases/latest/download/claurst-macos-aarch64.tar.gz && tar xzf claurst.tar.gz && chmod +x claurst && xattr -rd com.apple.quarantine claurst
-```
-
-> **macOS Gatekeeper note:** The `xattr -rd com.apple.quarantine claurst` step in the commands above clears the quarantine flag automatically, so macOS will not block the binary on first run.
-
----
-
-## Adding to PATH (general)
-
-If you prefer to install to a user-local directory without `sudo`:
+### User-local install without sudo
 
 ```bash
 mkdir -p ~/.local/bin
 mv claurst ~/.local/bin/claurst
-
-# Add to your shell profile if not already present
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
@@ -238,27 +254,32 @@ Richer completion scripts may be added in a future release.
 
 ---
 
-## Upgrading
-
-To upgrade to a newer release, repeat the download and replace steps above.
-Settings stored in `~/.claurst/` are preserved across upgrades.
-
-To upgrade a source install:
+## Upgrading a source install
 
 ```bash
 cargo install claurst --force
 ```
 
+For binary installs (the recommended path), use `claurst upgrade` — see
+the [Upgrading](#upgrading) section above.
+
 ---
 
 ## Uninstalling
 
-Remove the binary:
+If you used the install script, remove the install directory:
 
 ```bash
-sudo rm /usr/local/bin/claurst          # Linux / macOS
-# or
-rm ~/.local/bin/claurst
+rm -rf ~/.claurst/bin                    # Linux / macOS
+# Windows (PowerShell):
+Remove-Item -Recurse -Force "$env:USERPROFILE\.claurst\bin"
+```
+
+For manual installs:
+
+```bash
+sudo rm /usr/local/bin/claurst           # if installed system-wide
+rm ~/.local/bin/claurst                  # if installed user-local
 ```
 
 To also remove all settings and session data:
@@ -266,3 +287,6 @@ To also remove all settings and session data:
 ```bash
 rm -rf ~/.claurst
 ```
+
+You may also want to remove the `# claurst` PATH line that the installer
+appended to your shell config (`.bashrc`, `.zshrc`, etc.).
