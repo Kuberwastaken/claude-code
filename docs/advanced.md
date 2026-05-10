@@ -191,6 +191,174 @@ The `EnterPlanModeTool` and `ExitPlanModeTool` internal tools manage transitions
 
 ---
 
+## Goal system
+
+The goal system lets Claurst work autonomously across multiple turns toward a single, verifiable objective. Instead of prompting repeatedly, you set the goal once and Claurst iterates until the goal is complete, paused, or the built-in runaway guard fires.
+
+### Setting a goal
+
+```
+/goal <objective>
+/goal --tokens 250K Refactor the auth module to use JWT tokens
+```
+
+Once a goal is set, Claurst begins working immediately. It continues across turns without waiting for user input until one of these conditions is met:
+
+- The model calls `GoalCompleteTool` with an audit summary and evidence
+- You run `/goal pause` or `/goal clear`
+- The runaway guard fires (200-turn hard limit)
+- A token budget is set and exhausted
+
+### Monitoring and controlling goals
+
+```
+/goal                  — show current goal status
+/goal status           — show current goal status
+/goal pause            — pause the active goal (you can resume it later)
+/goal resume           — resume a paused goal
+/goal clear            — delete the current goal entirely
+/goal complete         — manually request a completion audit
+```
+
+### How completion works
+
+When the model believes the objective has been met, it calls `GoalCompleteTool` rather than simply responding. This tool requires two arguments:
+
+- `audit_summary` — a concise description of what was accomplished
+- `evidence` — specific, verifiable evidence (files changed, tests passing, output produced)
+
+Claurst displays both to the user before marking the goal complete. The model is expected to genuinely audit the outcome before calling; calling without real evidence is rejected.
+
+### Goal status lifecycle
+
+| Status | Meaning |
+|--------|---------|
+| `Active` | Goal is set and work is ongoing |
+| `Paused` | Work paused by user; goal is preserved |
+| `Completed` | Model called `GoalCompleteTool` with accepted audit |
+| `Failed` | Runaway guard fired or budget exhausted |
+
+### Disabling the goal system
+
+```bash
+CLAURST_GOALS=0 claurst
+```
+
+Set `CLAURST_GOALS=0` in the environment to completely disable goal-related commands and the `GoalCompleteTool`. Useful in environments where autonomous multi-turn execution is undesirable.
+
+---
+
+## Managed agents
+
+Managed agents enable a **manager-executor** architecture where a manager model delegates subtasks to one or more executor agents running in parallel. The manager reasons about the high-level plan; executors carry out individual tasks.
+
+### Enabling managed agents
+
+```
+/managed-agents enable
+```
+
+Or apply a built-in preset:
+
+```
+/managed-agents presets               — list available presets
+/managed-agents preset <name>         — apply a preset (configures all parameters)
+```
+
+### Architecture
+
+```
+User → Manager model
+         ├─ Executor 1 (e.g., implementing feature A)
+         ├─ Executor 2 (e.g., writing tests for A)
+         └─ Executor 3 (e.g., updating docs)
+```
+
+The manager model does not execute tools itself — it delegates to executor agents and synthesizes their outputs. Executors can run concurrently up to the `concurrent` limit.
+
+### Configuration
+
+```
+/managed-agents configure manager-model  anthropic/claude-opus-4-6
+/managed-agents configure executor-model anthropic/claude-sonnet-4-6
+/managed-agents configure executor-turns 20
+/managed-agents configure concurrent     3
+/managed-agents configure isolation      on
+```
+
+Model format: `provider/model` (e.g., `anthropic/claude-opus-4-6`, `openai/gpt-4o`).
+
+### Budget split policies
+
+Control how the total token/cost budget is divided between the manager and executors:
+
+| Policy | Command | Description |
+|--------|---------|-------------|
+| `shared` | `budget-split shared` | All agents draw from a single shared pool |
+| `percentage` | `budget-split percentage:20` | Manager gets 20%, executors share the rest |
+| `fixed` | `budget-split fixed:0.50:2.00` | Manager capped at $0.50, each executor at $2.00 |
+
+```
+/managed-agents budget 5.00           — set a total $5 budget (0 to clear)
+```
+
+### Viewing configuration
+
+```
+/managed-agents status
+```
+
+Configuration persists to `~/.claurst/settings.json` under `managed_agents`.
+
+> **Preview feature.** The managed-agents API is under active development and may change in future releases.
+
+---
+
+## Speech modes
+
+Speech modes change how the model structures its responses, trading naturalness for brevity. Useful in long sessions where verbose responses consume too many tokens or take too long to read.
+
+### Caveman mode
+
+Strips pleasantries, hedging phrases, transitional sentences, and articles. Output is dense and telegraphic.
+
+```
+/caveman             — full caveman mode (~75% token reduction)
+/caveman lite        — remove pleasantries only (~40% reduction)
+/caveman full        — compress sentences, drop articles (~75% reduction, default)
+/caveman ultra       — maximum compression, imperative only (~85% reduction)
+```
+
+**Example (normal mode):**
+> "I'd be happy to help with that. Let me take a look at the file and see what changes might be appropriate here."
+
+**Example (caveman full):**
+> "Look at file. Make changes."
+
+### Rocky mode
+
+The model adopts the communication style of Rocky from *Project Hail Mary* — an Eridian alien engineer with a distinctive grammar, heavy emphasis, and alien perspective on human tasks.
+
+```
+/rocky             — full Rocky mode (~75% token reduction)
+/rocky lite        — grammar rules only, minimal emphasis (~40% reduction)
+/rocky full        — full grammar + regular emphasis (~75% reduction, default)
+/rocky ultra       — maximum personality, frequent emphasis, alien observations
+```
+
+**Example (rocky full):**
+> "Read file. *Yes!* Change function. Return value wrong! Fix now. *Eridians not make this mistake.*"
+
+### Deactivating speech modes
+
+```
+/normal
+```
+
+Resets to the model's standard response style. Any active mode (caveman or rocky) is immediately deactivated.
+
+---
+
 ## Headless mode
 
 Headless mode runs Claurst non-interactively, suitable for scripts, CI pipelines, and programmatic orchestration.
@@ -494,27 +662,49 @@ The `LspTool` provides code intelligence by communicating with a Language Server
 
 | Operation | Description |
 |---|---|
-| `goToDefinition` | Jump to the symbol's declaration |
-| `findReferences` | Find all usages of a symbol |
-| `hover` | Get type information and documentation |
-| `documentSymbol` | List all symbols in the current file |
-| `workspaceSymbol` | Search for symbols across the workspace |
-| `goToImplementation` | Navigate to the implementation of an interface |
-| `prepareCallHierarchy` | Set up a call hierarchy at a position |
-| `incomingCalls` | Find callers of a function |
-| `outgoingCalls` | Find functions called by a function |
+| `hover` | Get type information and documentation for the symbol at a position |
+| `definition` | Find where a symbol is defined |
+| `references` | Find all references to a symbol |
+| `symbols` | List all symbols (functions, classes, variables) in the file |
+| `diagnostics` | Get errors and warnings reported by the language server |
 
 ### Input schema
 
-```typescript
+```json
 {
-  operation: "goToDefinition" | "findReferences" | "hover" | ...,
-  filePath: string,   // Absolute or relative path to the file
-  line: number,       // 1-based line number
-  character: number   // 1-based character offset
+  "action": "hover",
+  "file": "src/main.rs",
+  "line": 42,
+  "column": 15
 }
 ```
 
-The LSP tool requires an LSP server to be running for the language in question. Claurst integrates with IDE-provided LSP connections (VS Code, JetBrains) when running as an IDE extension, and can connect to standalone language servers otherwise.
+- `action` — required, one of the operations above
+- `file` — required, absolute or working-directory-relative path
+- `line` — 1-based line number (required for `hover`, `definition`, `references`)
+- `column` — 1-based column number (required for `hover`, `definition`, `references`)
 
-The `useLspPluginRecommendation` hook in the UI surfaces installation suggestions when an LSP server is not detected for the file's language.
+The `symbols` and `diagnostics` actions only require `action` and `file`.
+
+### Configuration
+
+LSP servers must be configured in `settings.json`:
+
+```json
+{
+  "lsp_servers": [
+    {
+      "language": "rust",
+      "command": "rust-analyzer",
+      "args": []
+    },
+    {
+      "language": "typescript",
+      "command": "typescript-language-server",
+      "args": ["--stdio"]
+    }
+  ]
+}
+```
+
+If no LSP server is configured for the file's language, the tool returns an informative error. Path resolution is relative to the current working directory.

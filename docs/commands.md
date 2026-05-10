@@ -8,19 +8,19 @@ This document is the complete reference for every slash command available in Cla
 
 1. [Command System Overview](#command-system-overview)
 2. [Session & Navigation](#session--navigation)
-3. [Model & Provider](#model--provider)
-4. [Configuration & Settings](#configuration--settings)
-5. [Code & Git](#code--git)
-6. [Search & Files](#search--files)
-7. [Memory & Context](#memory--context)
-8. [Agents & Tasks](#agents--tasks)
-9. [Planning & Review](#planning--review)
-10. [MCP & Integrations](#mcp--integrations)
-11. [Authentication](#authentication)
-12. [Display & Terminal](#display--terminal)
-13. [Diagnostics & Info](#diagnostics--info)
-14. [Export & Sharing](#export--sharing)
-15. [Advanced & Internal](#advanced--internal)
+3. [Model & Provider](#model--provider) — `/model`, `/providers`, `/connect`, `/thinking`, `/effort`, `/advisor`, `/fast`
+4. [Configuration & Settings](#configuration--settings) — `/config`, `/keybindings`, `/permissions`, `/hooks`, `/privacy-settings`, `/mcp`, `/output-style`, `/theme`, `/statusline`, `/vim`, `/voice`, `/terminal-setup`
+5. [Code & Git](#code--git) — `/commit`, `/diff`, `/undo`, `/review`, `/security-review`, `/init`, `/search`
+6. [Search & Files](#search--files) — `/files`, `/context`
+7. [Memory & Context](#memory--context) — `/memory`, `/usage`, `/cost`, `/stats`, `/status`, `/insights`
+8. [Agents & Tasks](#agents--tasks) — `/agents`, `/tasks`, `/goal`, `/managed-agents`, `/agent`
+9. [Planning & Review](#planning--review) — `/plan`, `/ultraplan`, `/ultrareview`
+10. [MCP & Integrations](#mcp--integrations) — `/mcp`, `/skills`, `/plugin`, `/chrome`
+11. [Authentication](#authentication) — `/login`, `/logout`, `/refresh`
+12. [Display & Terminal](#display--terminal) — `/theme`, `/output-style`, `/statusline`, `/vim`, `/terminal-setup`, `/caveman`, `/rocky`, `/normal`, `/mobile`, `/color`, `/stickers`
+13. [Diagnostics & Info](#diagnostics--info) — `/doctor`, `/version`, `/update`
+14. [Export & Sharing](#export--sharing) — `/export`, `/copy`
+15. [Advanced & Internal](#advanced--internal) — `/thinking`, `/connect`, `/fork`, `/effort`, `/summary`, `/brief`, `/sandbox-toggle`, `/think-back`, `/thinkback-play`
 16. [Command Availability](#command-availability)
 
 ---
@@ -231,6 +231,37 @@ Set the thinking effort level. This is a convenience wrapper over `/thinking` th
 
 ---
 
+### /advisor
+
+Set or unset a secondary advisor model that provides supplementary suggestions alongside the main model. When set, the advisor model's context is available to improve main-model responses.
+
+```
+/advisor                          — show current advisor setting
+/advisor claude-opus-4-6          — set advisor model by name
+/advisor provider/model           — set advisor using provider/model format
+/advisor off                      — disable the advisor
+/advisor unset                    — disable the advisor
+```
+
+The advisor model persists to `~/.claurst/settings.json` under `advisorModel`. Model IDs must start with `claude-` or contain a `/` (provider/model format).
+
+---
+
+### /fast
+**Aliases:** `speed`
+
+Toggle fast mode. In fast mode, Claurst switches to the active provider's smaller, faster model for quick responses. Useful when you want rapid answers and deep reasoning is not required.
+
+```
+/fast          — toggle fast mode on/off
+/fast on       — enable fast mode
+/fast off      — disable fast mode
+```
+
+Setting persists to `~/.claurst/ui-settings.json`.
+
+---
+
 ## Configuration & Settings
 
 ### /config
@@ -296,6 +327,16 @@ Manage event hooks. Hooks are shell commands or scripts that execute when lifecy
 ```
 
 Available events: `pre-tool`, `post-tool`, `session-start`, `session-end`, `message-send`, `message-receive`.
+
+---
+
+### /privacy-settings
+
+Open Claurst privacy settings. Launches a browser to the Anthropic privacy portal where you can review data usage preferences, conversation retention, and account privacy options.
+
+```
+/privacy-settings
+```
 
 ---
 
@@ -546,6 +587,39 @@ Show the current session status. Includes active model, permission mode, thinkin
 
 ---
 
+### /insights
+
+Generate an analytical report of the current session. Prints a structured breakdown of conversation statistics including turn count, token usage (input/output/total), average tokens per exchange, estimated cost, total tool calls, and the most frequently invoked tool.
+
+```
+/insights
+```
+
+Sample output:
+```
+Session Insights
+──────────────────────────────────────
+Conversation
+├─ User turns          : 12
+├─ Assistant turns     : 12
+└─ Completed exchanges : 12
+
+Tokens
+├─ Input               : 48320
+├─ Output              : 9140
+├─ Total               : 57460
+└─ Avg per exchange    : 4788
+
+Cost
+└─ Estimated USD       : $0.1823
+
+Tools
+├─ Total calls         : 34
+└─ Most used           : Bash (18 calls)
+```
+
+---
+
 ## Agents & Tasks
 
 ### /agents
@@ -575,6 +649,72 @@ Manage tracked background tasks. Tasks are shell commands or model invocations r
 
 ---
 
+### /goal
+
+Set a durable multi-turn autonomous goal. When a goal is active, Claurst continues working across turns until the goal is marked complete, paused, or a 200-turn runaway guard fires. Designed for complex, sustained tasks that would otherwise require repeated manual re-prompting.
+
+```
+/goal <objective>                    — set a new goal and begin working autonomously
+/goal --tokens 250K <objective>      — set a goal with a soft token budget cap
+/goal                                — show current goal status
+/goal status                         — show current goal status
+/goal pause                          — pause the active goal
+/goal resume                         — resume a paused goal
+/goal clear                          — delete the current goal
+/goal complete                       — request a completion audit
+```
+
+When the model believes the goal has been achieved, it calls the `GoalComplete` tool with an audit summary and evidence. Goals can be disabled globally by setting `CLAURST_GOALS=0` in your environment.
+
+See [Goal System](./advanced.md#goal-system) in the advanced guide.
+
+---
+
+### /managed-agents
+
+Configure the manager-executor agent architecture, where a manager model delegates subtasks to one or more executor agents working in parallel. Includes budget controls and isolation options.
+
+```
+/managed-agents                                       — show current configuration
+/managed-agents status                                — show current configuration
+/managed-agents presets                               — list built-in presets
+/managed-agents preset <name>                         — apply a named preset
+/managed-agents setup                                 — show setup instructions
+/managed-agents enable                                — enable managed agents
+/managed-agents disable                               — disable managed agents
+/managed-agents reset                                 — remove all managed-agent configuration
+/managed-agents configure manager-model <model>       — set the manager model
+/managed-agents configure executor-model <model>      — set the executor model
+/managed-agents configure executor-turns <n>          — set executor max turns
+/managed-agents configure concurrent <n>              — set max concurrent executors
+/managed-agents configure isolation on|off            — toggle executor isolation
+/managed-agents configure budget-split shared         — shared token pool
+/managed-agents configure budget-split percentage:<n> — percentage split (manager gets n%)
+/managed-agents configure budget-split fixed:<m>:<e>  — fixed USD caps (manager / executor)
+/managed-agents budget <amount>                       — set total budget in USD (0 to clear)
+```
+
+Model format: `provider/model` (e.g., `anthropic/claude-opus-4-6`, `openai/gpt-4o`). Configuration persists to `~/.claurst/settings.json` under `managed_agents`.
+
+> **Preview feature.** Behaviour may change across releases.
+
+See [Managed Agents](./advanced.md#managed-agents) in the advanced guide.
+
+---
+
+### /agent
+
+List all available named agents, or show details for a specific agent. Named agents are predefined configurations with their own system prompts, model bindings, and access levels. Useful for discovering what agents are available before starting a session.
+
+```
+/agent             — list all visible named agents with access levels
+/agent <name>      — show full details for a specific named agent
+```
+
+To activate an agent, start Claurst with `--agent <name>`. See [agents.md](./agents.md) for defining custom agents.
+
+---
+
 ## Planning & Review
 
 ### /plan
@@ -595,6 +735,27 @@ Extended planning mode with deeper reasoning. Like `/plan` but with an elevated 
 
 ```
 /ultraplan
+```
+
+---
+
+### /ultrareview
+
+Run an exhaustive multi-dimensional code review over the current working directory or a specified path. Goes significantly beyond `/review` and `/security-review`, covering:
+
+- **Security** — OWASP Top 10, injection vulnerabilities, cryptographic weaknesses, path traversal, race conditions, dependency risks
+- **Performance** — algorithmic complexity, allocations, N+1 queries, blocking I/O, memory leaks
+- **Maintainability** — function length, nesting depth, DRY violations, naming, dead code
+- **Error handling** — swallowed errors, panic paths, missing input validation
+- **Test coverage** — missing tests, brittle tests, missing edge cases
+- **API design, documentation, accessibility, and architecture**
+
+Each finding is tagged by category and severity.
+
+```
+/ultrareview
+/ultrareview <path>
+/ultrareview <PR-number>
 ```
 
 ---
@@ -634,6 +795,32 @@ Manage plugins. Plugins are loadable modules that can register new commands, too
 /plugin remove <name>
 /plugin reload
 ```
+
+---
+
+### /chrome
+
+Browser automation via Chrome DevTools Protocol (CDP). Connects to a running Chrome or Chromium instance and lets Claurst control it — navigate pages, click elements, fill forms, evaluate JavaScript, and take screenshots.
+
+First, launch Chrome with remote debugging enabled:
+
+```bash
+chrome --remote-debugging-port=9222 --no-first-run
+```
+
+Then:
+
+```
+/chrome connect [--port 9222]      — connect to Chrome on the given port (default: 9222)
+/chrome navigate <url>             — navigate to a URL
+/chrome screenshot                 — take a screenshot, saved to a temp file
+/chrome click <selector>           — click a CSS selector
+/chrome fill <selector> <text>     — fill an input field
+/chrome eval <js>                  — evaluate JavaScript and return the result
+/chrome disconnect                 — disconnect from Chrome
+```
+
+Useful for testing web applications, scraping, or automating browser-based workflows without a separate browser-automation tool.
 
 ---
 
@@ -701,6 +888,82 @@ Documented above under [Code & Git](#code--git).
 
 ---
 
+### /caveman
+
+Activate caveman speech mode. In caveman mode the model strips pleasantries, hedging, articles, and transitional phrases from its responses, producing dense, telegraphic output. Useful for reducing verbosity and saving tokens on long sessions.
+
+```
+/caveman             — activate full caveman mode (~75% token reduction)
+/caveman lite        — remove pleasantries only (~40% reduction)
+/caveman full        — compress sentences and drop articles (default, ~75% reduction)
+/caveman ultra       — maximum compression, imperative phrases only (~85% reduction)
+```
+
+Deactivate with `/normal`.
+
+---
+
+### /rocky
+
+Activate Rocky speech mode. Rocky is the Eridian alien engineer from *Project Hail Mary* who communicates in a distinctive pidgin English with specific grammar rules and expressive emphasis. In rocky mode the model adopts Rocky's communication style.
+
+```
+/rocky             — activate full Rocky mode (~75% token reduction)
+/rocky lite        — grammar rules only, minimal emphasis (~40% reduction)
+/rocky full        — full Rocky grammar + regular emphasis (default, ~75% reduction)
+/rocky ultra       — maximum Rocky personality, frequent emphasis, alien observations
+```
+
+Deactivate with `/normal`.
+
+---
+
+### /normal
+
+Deactivate any active speech mode (caveman or rocky) and return the model to its standard response style.
+
+```
+/normal
+```
+
+---
+
+### /mobile
+
+Display a QR code and download links for the Claude mobile app. Supports a `session` subcommand that generates a QR code linking directly to an active remote Claurst session.
+
+```
+/mobile             — show QR code for claude.ai/mobile (works for both platforms)
+/mobile ios         — show QR code for the iOS App Store
+/mobile android     — show QR code for Google Play
+/mobile session     — show QR code linking to the active remote session (requires --remote)
+```
+
+---
+
+### /color
+
+Set the prompt bar color for the current session. Accepts standard color names or hex values. The color resets when the session ends unless saved via `/config`.
+
+```
+/color               — open the interactive color picker
+/color <name>        — set to a named color (e.g., blue, red, green)
+/color #ff6b6b       — set to a hex color value
+/color default       — reset to the theme default
+```
+
+---
+
+### /stickers
+
+Opens the Claurst sticker page (`stickermule.com/claudecode`) in your default browser. Falls back to printing the URL if no browser can be launched.
+
+```
+/stickers
+```
+
+---
+
 ## Diagnostics & Info
 
 ### /doctor
@@ -748,6 +1011,18 @@ Export the current session transcript. Supported formats include Markdown, JSON,
 /export --format markdown
 /export --format json --output session.json
 /export --stdout
+```
+
+---
+
+### /copy
+
+Copy the most recent assistant response to the system clipboard. Pass a number to copy the Nth most-recent response. On Linux a `wl-clipboard` or `xclip` backend is used; on macOS and Windows the native clipboard API is used.
+
+```
+/copy         — copy the most recent response
+/copy 2       — copy the second most recent response
+/copy N       — copy the Nth most recent response
 ```
 
 ---
@@ -804,6 +1079,49 @@ Documented above under [Search & Files](#search--files).
 
 ---
 
+### /sandbox-toggle
+**Aliases:** `sandbox`
+
+Enable or disable sandboxed execution of shell commands. When sandbox mode is on, bash/shell commands run in an isolated environment to limit unintended side effects. Supported on macOS, Linux, and WSL2.
+
+```
+/sandbox-toggle                          — toggle sandbox mode on/off
+/sandbox-toggle on                       — enable sandbox mode
+/sandbox-toggle off                      — disable sandbox mode
+/sandbox-toggle status                   — show current state and excluded patterns
+/sandbox-toggle exclude <pattern>        — add a command pattern to the exclusion list
+```
+
+> A restart is recommended after toggling for full effect. On Windows (non-WSL), sandbox mode is not supported.
+
+---
+
+### /think-back
+**Aliases:** `thinkback`
+
+Display the extended-thinking traces from previous model responses in the current session. Only available when extended thinking was used for those responses. Pass a number to view the Nth most-recent trace.
+
+```
+/think-back         — show the most recent thinking trace
+/think-back 2       — show the second most recent thinking trace
+/thinkback          — alias
+```
+
+Thinking traces appear when the model uses extended thinking mode (see `/thinking`). If no traces are found, Claurst suggests enabling extended thinking.
+
+---
+
+### /thinkback-play
+
+Replay a previous extended-thinking trace as a formatted, step-numbered walkthrough. Useful for reviewing the model’s reasoning path in detail.
+
+```
+/thinkback-play         — replay the most recent thinking trace
+/thinkback-play 2       — replay the second most recent thinking trace
+```
+
+---
+
 ## Command Availability
 
 Not all commands are available in all contexts.
@@ -825,6 +1143,16 @@ Over the Remote Control bridge (used by IDE integrations), only `local`-type com
 The following commands are only available when the `USER_TYPE` environment variable is set to `ant` (Anthropic internal builds):
 
 `commit-push-pr`, `ctx_viz`, `good-claude`, `issue`, `init-verifiers`, `mock-limits`, `bridge-kick`, `ultraplan`, `summary`, `teleport`, `ant-trace`, `perf-issue`, `env`, `oauth-refresh`, `debug-tool-call`, `autofix-pr`, `bughunter`, `backfill-sessions`, `break-cache`
+
+### Availability-Restricted Commands
+
+Some commands are available only under certain account or platform conditions:
+
+| Command | Restriction |
+|---------|-------------|
+| `/fast` | Available when a fast-mode model is configured for the active provider |
+| `/privacy-settings` | Opens Anthropic privacy portal (useful for claude.ai accounts) |
+| `/sandbox-toggle` | Functional on macOS, Linux, WSL2 only; no-op on native Windows |
 
 ### Feature-Flagged Commands
 

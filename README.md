@@ -1,7 +1,7 @@
 <div align="center">
 
 <h1>CLAURST</h1>
-<h2><em>Agentic coding for builders who ship</em></h2>
+<h2><em>Agentic Coding for Builders who Ship</em></h2>
 <img src="public/Ship.png" alt="Rustle on the ship" width="350" />
 
 <p>

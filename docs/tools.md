@@ -20,8 +20,9 @@ This document is the complete reference for every tool available to the Claurst 
 12. [Worktree Tools](#worktree-tools)
 13. [Utility Tools](#utility-tools)
 14. [Cron Tools](#cron-tools)
-15. [Advanced Tools](#advanced-tools)
-16. [Tool Framework Internals](#tool-framework-internals)
+15. [Code Intelligence Tools](#code-intelligence-tools)
+16. [Advanced Tools](#advanced-tools)
+17. [Tool Framework Internals](#tool-framework-internals)
 
 ---
 
@@ -190,6 +191,32 @@ Execute a shell command in a bash subprocess. The working directory persists bet
 Output (stdout + stderr) is returned as a string. Commands that produce more than `maxResultSizeChars` of output are truncated.
 
 Always quote file paths containing spaces. Use Unix shell syntax regardless of host OS.
+
+When `run_in_background` is `true`, the task ID is returned immediately. Use `MonitorTool` to check status, retrieve output, or cancel the task.
+
+---
+
+### MonitorTool
+
+**Permission level:** ReadOnly
+
+Monitor background tasks started with `BashTool`'s `run_in_background=true`. Supports listing all tasks, checking the status or output of a specific task, and cancelling a running task.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | no | `list` (default), `status`, `output`, or `cancel` |
+| `task_id` | string | no | Task ID to inspect or cancel. Required for `status`, `output`, `cancel` |
+
+**Actions:**
+
+| Action | Effect |
+|--------|--------|
+| `list` | Lists all background tasks with their IDs, status, and names |
+| `status` | Shows the status and metadata for a specific task |
+| `output` | Retrieves the stdout/stderr output collected so far |
+| `cancel` | Sends a termination signal to a running task |
+
+Task statuses: `running`, `completed`, `failed: <reason>`, `cancelled`.
 
 ---
 
@@ -527,6 +554,23 @@ Invoke a named skill (bundled prompt-command) programmatically from within a too
 
 ---
 
+### GoalCompleteTool
+
+**Permission level:** None
+
+Mark the active goal as complete. This tool is surfaced to the model when a `/goal` is active. The model calls it only after performing a genuine completion audit — verifying the goal has been fully met rather than partially addressed.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `audit_summary` | string | yes | Concise summary of the goal-completion audit |
+| `evidence` | string | yes | Specific evidence demonstrating the goal was achieved (files changed, tests passed, output produced, etc.) |
+
+Calling this tool triggers the goal system to mark the goal as `Completed` and surfaces the audit results to the user. The model is expected to verify the goal thoroughly before calling — calling without genuine evidence is treated as an error.
+
+See also: `/goal complete` command.
+
+---
+
 ## Notebook Tools
 
 ### NotebookEditTool
@@ -692,6 +736,58 @@ No parameters.
 
 ---
 
+## Code Intelligence Tools
+
+Code intelligence tools query language servers for semantic information about source code.
+
+### LspTool
+
+**Tool name:** `LSP`
+
+**Permission level:** ReadOnly
+
+Query a language server for code intelligence actions. Supports hover documentation, go-to-definition, find-references, document symbols, and diagnostics. Language servers must be configured in `settings.json` under the `lsp_servers` key.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | yes | `hover`, `definition`, `references`, `symbols`, or `diagnostics` |
+| `file` | string | yes | Absolute or working-directory-relative path to the source file |
+| `line` | integer | no | 1-based line number (required for `hover`, `definition`, `references`) |
+| `column` | integer | no | 1-based column number (required for `hover`, `definition`, `references`) |
+
+**Actions:**
+
+| Action | Description |
+|--------|-------------|
+| `hover` | Returns documentation/type info for the symbol at `line`:`column` |
+| `definition` | Returns the file and position where the symbol is defined |
+| `references` | Lists all references to the symbol at `line`:`column` |
+| `symbols` | Returns all symbols (functions, classes, variables) in the file |
+| `diagnostics` | Returns LSP diagnostics (errors, warnings) for the file |
+
+**Configuration** (`settings.json`):
+
+```json
+{
+  "lsp_servers": [
+    {
+      "language": "rust",
+      "command": "rust-analyzer",
+      "args": []
+    },
+    {
+      "language": "typescript",
+      "command": "typescript-language-server",
+      "args": ["--stdio"]
+    }
+  ]
+}
+```
+
+If no LSP server is configured for a file's language, the tool returns an informative error. The tool resolves relative paths against the current working directory.
+
+---
+
 ## Advanced Tools
 
 ### ComputerUseTool
@@ -711,6 +807,40 @@ Control the desktop GUI — move the mouse, click, type, take screenshots, and i
 This tool has the highest blast radius of any tool in Claurst. It requires explicit permission and should only be enabled in controlled environments. All actions are logged in detail.
 
 Requires a display server (X11, Wayland, or Windows Desktop). Not available in headless environments.
+
+---
+
+### StructuredOutput
+
+**Tool name:** `StructuredOutput` (SyntheticOutputTool)
+
+**Permission level:** None
+
+Return structured JSON output as the agent's final response. This tool is surfaced only in non-interactive (SDK/headless) sessions and in hook handlers. The model must call it exactly once at the end of its response to deliver structured data to the caller.
+
+The input schema is open — it accepts any JSON object. The specific expected schema is communicated via the system prompt for each session type.
+
+**Example usage in a hook handler:**
+
+```json
+{
+  "ok": true,
+  "reason": "All tests passed."
+}
+```
+
+**Example in an SDK session returning structured analysis:**
+
+```json
+{
+  "summary": "Three security issues found.",
+  "issues": [
+    { "severity": "high", "description": "SQL injection in login handler" }
+  ]
+}
+```
+
+Calling this tool in an interactive session has no effect; the confirmation string is returned but the structured output is not surfaced to the TUI.
 
 ---
 

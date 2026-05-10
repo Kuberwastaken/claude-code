@@ -387,6 +387,7 @@ and `api_base` override the corresponding environment variables.
 | `ANTHROPIC_BASE_URL` | Override the Anthropic API base URL. |
 | `CLAURST_PROVIDER` | Active provider. Equivalent to `--provider`. |
 | `CLAURST_API_BASE` | Override the API base URL for the active provider. Equivalent to `--api_base`. |
+| `CLAURST_GOALS` | Set to `0` to disable the goal system (`/goal` command and `GoalCompleteTool`). |
 | `OPENAI_API_KEY` | API key for the `openai` provider. |
 | `GOOGLE_API_KEY` | API key for the `google` provider. |
 | `GROQ_API_KEY` | API key for the `groq` provider. |
@@ -477,6 +478,38 @@ You can define custom agents in `settings.json`:
 | `color` | string \| null | ANSI display color: `"cyan"`, `"magenta"`, `"green"`, `"yellow"`, etc. |
 
 Invoke an agent with `@agentname` in the TUI or `--agent agentname` on the CLI.
+
+---
+
+## Managed Agents Configuration
+
+The `managed_agents` key stores the managed-agents architecture configuration set via `/managed-agents configure`. It is written automatically by the command and rarely needs to be edited manually.
+
+```json
+"managed_agents": {
+  "enabled": true,
+  "manager_model": "anthropic/claude-opus-4-6",
+  "executor_model": "anthropic/claude-sonnet-4-6",
+  "executor_max_turns": 20,
+  "max_concurrent": 3,
+  "executor_isolation": true,
+  "budget_split": {
+    "type": "Percentage",
+    "manager_pct": 20
+  },
+  "total_budget_usd": 5.00
+}
+```
+
+`budget_split` types:
+
+| Type | JSON | Description |
+|------|------|-------------|
+| `SharedPool` | `{ "type": "SharedPool" }` | All agents draw from a single pool |
+| `Percentage` | `{ "type": "Percentage", "manager_pct": 20 }` | Manager gets N% of total budget |
+| `FixedCaps` | `{ "type": "FixedCaps", "manager_usd": 0.50, "executor_usd": 2.00 }` | Hard USD caps per role |
+
+Configure via `/managed-agents configure` or `/managed-agents preset <name>`. Set `enabled: false` to disable without removing the configuration.
 
 ---
 

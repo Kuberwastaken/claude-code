@@ -315,3 +315,33 @@ CLAURST_COORDINATOR_MODE=1 claurst \
 ## Session Continuity and Mode Matching
 
 When resuming a saved session, Claurst detects whether the original session used coordinator mode and automatically sets `CLAURST_COORDINATOR_MODE` to match. A warning is printed when the environment is changed to prevent mode confusion in long-running workflows.
+
+---
+
+## Managed Agents (Preview)
+
+Managed agents provide a formal **manager-executor** architecture that is distinct from coordinator mode. In coordinator mode, the orchestrator and workers all share the same configuration. With managed agents, you explicitly configure separate models, turn budgets, concurrency limits, and budget splits for the manager and for executors.
+
+### When to use managed agents vs coordinator mode
+
+| | Coordinator mode | Managed agents |
+|---|---|---|
+| **Setup** | `CLAURST_COORDINATOR_MODE=1` | `/managed-agents enable` |
+| **Model selection** | All agents use the same model | Manager and executors can use different models |
+| **Budget control** | Global session limits | Per-role USD caps or percentage splits |
+| **Presets** | None | Several built-in presets available |
+| **Use case** | Homogeneous parallel workers | Heterogeneous manager/worker separation |
+
+### Enabling and configuring
+
+```
+/managed-agents presets                               — list presets
+/managed-agents preset <name>                         — apply a preset
+/managed-agents configure manager-model  anthropic/claude-opus-4-6
+/managed-agents configure executor-model anthropic/claude-sonnet-4-6
+/managed-agents configure concurrent     3
+/managed-agents budget 5.00
+/managed-agents enable
+```
+
+See [Managed Agents](./advanced.md#managed-agents) in the advanced guide for the full configuration reference.
