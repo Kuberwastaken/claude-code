@@ -59,7 +59,8 @@ pub fn reasoning_heading(text: &str) -> Option<String> {
     let cleaned = first
         .trim_start_matches(['#', '*', '-', '>', ' '])
         .trim_start_matches("Thinking:")
-        .trim();
+        .trim()
+        .trim_end_matches(['*', '#', ' ', ':']);  // strip trailing ** ** etc.
     if cleaned.is_empty() {
         return None;
     }

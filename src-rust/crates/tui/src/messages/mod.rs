@@ -70,6 +70,13 @@ const TRANSCRIPT_SUBTLE: Color = Color::Rgb(112, 112, 126);
 
 const TOOL_RESULT_MAX_LINES: usize = 30;
 
+/// Accent color for goal-event blocks (warm amber/gold).
+const GOAL_ACCENT: Color = Color::Rgb(255, 170, 50);
+/// Body text color for goal-event objective display.
+const GOAL_BODY: Color = Color::Rgb(215, 180, 110);
+/// Muted color for goal continuation turn markers.
+const GOAL_MUTED: Color = Color::Rgb(130, 115, 75);
+
 /// Render a code block with optional language label. Uses basic styling
 /// since full syntect integration is behind a feature flag.
 pub fn render_code_block(lang: Option<&str>, code: &str, width: u16) -> Vec<Line<'static>> {
@@ -283,6 +290,14 @@ pub fn render_transcript_user_message(
     meta: Option<&TurnMetadata>,
     width: u16,
 ) -> Vec<Line<'static>> {
+    // Goal-event messages injected by the /goal machinery render as a compact
+    // event block, not as a user input bubble.
+    if let Some(ContentBlock::Text { text }) = msg.content_blocks().into_iter().next() {
+        if is_goal_event_message(&text) {
+            return render_goal_event(&text, width);
+        }
+    }
+
     let inner_width = width.saturating_sub(4).max(10);
     let mut lines = Vec::new();
     let mut pending_text = String::new();
@@ -1765,6 +1780,118 @@ pub fn render_grouped_tool_use(names: &[&str], expanded: bool) -> Vec<Line<'stat
         ]));
     }
     lines
+}
+
+// ---------------------------------------------------------------------------
+// Goal event rendering
+// ---------------------------------------------------------------------------
+
+/// Returns `true` when a user message was injected by the goal machinery
+/// (i.e. it should NOT render as a regular user message bubble).
+pub fn is_goal_event_message(text: &str) -> bool {
+    text.starts_with("[Goal started]")
+        || text.starts_with("[Goal continuation \u{2014}")  // em dash
+        || text.starts_with("[Goal continuation -")         // fallback
+}
+
+/// Extract the objective text between `<objective>` and `</objective>` tags.
+fn extract_goal_objective(text: &str) -> Option<String> {
+    let tag = "<objective>";
+    let start = text.find(tag)? + tag.len();
+    let end = text.find("</objective>")?;
+    if end > start {
+        Some(text[start..end].trim().to_string())
+    } else {
+        None
+    }
+}
+
+/// Extract the turn number from a "[Goal continuation — turn N]" header.
+fn extract_goal_turn(text: &str) -> Option<u32> {
+    // Find the first [...] bracket, search inside for "turn <N>"
+    let open = text.find('[')?;
+    let close = text.find(']')?;
+    if close <= open { return None; }
+    let segment = &text[open..close];
+    let tag = "turn ";
+    let idx = segment.rfind(tag)? + tag.len();
+    segment[idx..].trim().parse().ok()
+}
+
+/// Render a goal-event message block.
+///
+/// `[Goal started]` shows the ◎ badge and the objective text.
+/// `[Goal continuation — turn N]` shows a compact inline turn marker.
+pub fn render_goal_event(text: &str, width: u16) -> Vec<Line<'static>> {
+    if text.starts_with("[Goal continuation —") {
+        let turn = extract_goal_turn(text).unwrap_or(0);
+        return vec![Line::from(vec![
+            Span::styled(
+                "  \u{21ba} ".to_string(),  // ↺
+                Style::default().fg(GOAL_MUTED),
+            ),
+            Span::styled(
+                format!("goal \u{00b7} turn {}", turn),  // ·
+                Style::default().fg(GOAL_MUTED).add_modifier(Modifier::ITALIC),
+            ),
+        ])];
+    }
+
+    // [Goal started] — header + wrapped objective
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled(
+            "  \u{25ce} ".to_string(),  // ◎
+            Style::default().fg(GOAL_ACCENT).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "goal started".to_string(),
+            Style::default().fg(GOAL_ACCENT).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
+    let objective = extract_goal_objective(text).unwrap_or_default();
+    if !objective.is_empty() {
+        let usable = (width as usize).saturating_sub(6).max(20);
+        for line in wrap_plain_text(&objective, usable) {
+            lines.push(Line::from(vec![
+                Span::styled("    ".to_string(), Style::default()),
+                Span::styled(line, Style::default().fg(GOAL_BODY)),
+            ]));
+        }
+    }
+
+    lines
+}
+
+/// Simple plain-text word-wrap (no markdown, no indent prefix).
+fn wrap_plain_text(text: &str, max_width: usize) -> Vec<String> {
+    if max_width == 0 {
+        return vec![text.to_string()];
+    }
+    let mut out = Vec::new();
+    for para in text.lines() {
+        if para.is_empty() {
+            out.push(String::new());
+            continue;
+        }
+        let mut current = String::new();
+        for word in para.split_whitespace() {
+            if current.is_empty() {
+                current.push_str(word);
+            } else if current.len() + 1 + word.len() <= max_width {
+                current.push(' ');
+                current.push_str(word);
+            } else {
+                out.push(current.clone());
+                current = word.to_string();
+            }
+        }
+        if !current.is_empty() {
+            out.push(current);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
