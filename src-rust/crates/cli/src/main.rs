@@ -175,7 +175,7 @@ struct Cli {
     cwd: Option<PathBuf>,
 
     /// Bypass all permission checks (danger!)
-    #[arg(long = "dangerously-skip-permissions", action = ArgAction::SetTrue)]
+    #[arg(long = "dangerously-skip-permissions", visible_alias = "yolo", action = ArgAction::SetTrue)]
     dangerously_skip_permissions: bool,
 
     /// Dump the system prompt to stdout and exit
