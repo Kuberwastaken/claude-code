@@ -239,6 +239,7 @@ fn import_config_picker_items() -> Vec<SelectItem> {
 
 fn provider_picker_items() -> Vec<SelectItem> {
     vec![
+        SelectItem { id: "free".into(), title: "Free Mode".into(), description: "OpenCode Zen → OpenRouter free fallback (no spend)".into(), category: "Popular".into(), badge: Some("FREE".into()) },
         SelectItem { id: "openai".into(), title: "OpenAI".into(), description: "(API key)".into(), category: "Popular".into(), badge: None },
         SelectItem { id: "openai-codex".into(), title: "OpenAI Codex".into(), description: "(ChatGPT Plus/Pro — browser login)".into(), category: "Popular".into(), badge: None },
         SelectItem { id: "github-copilot".into(), title: "GitHub Copilot".into(), description: "(GitHub subscription or token)".into(), category: "Popular".into(), badge: None },
@@ -836,6 +837,8 @@ pub struct App {
     pub key_input_dialog: crate::key_input_dialog::KeyInputDialogState,
     /// Custom provider dialog for URL + API key input.
     pub custom_provider_dialog: crate::custom_provider_dialog::CustomProviderDialogState,
+    /// "Free" composite-provider setup dialog (warning + 2 API keys).
+    pub free_mode_dialog: crate::free_mode_dialog::FreeModeDialogState,
     /// Device code / browser auth dialog (GitHub Copilot device flow, Anthropic OAuth).
     pub device_auth_dialog: crate::device_auth_dialog::DeviceAuthDialogState,
     /// When set, the main loop should spawn the async auth task for this provider.
@@ -1258,6 +1261,7 @@ impl App {
             onboarding_dialog: crate::onboarding_dialog::OnboardingDialogState::new(),
             key_input_dialog: crate::key_input_dialog::KeyInputDialogState::new(),
             custom_provider_dialog: crate::custom_provider_dialog::CustomProviderDialogState::new(),
+            free_mode_dialog: crate::free_mode_dialog::FreeModeDialogState::new(),
             device_auth_dialog: crate::device_auth_dialog::DeviceAuthDialogState::new(),
             device_auth_pending: None,
             provider_registry: None,
@@ -1625,6 +1629,15 @@ impl App {
     }
 
     fn infer_provider_from_model(model: &str) -> Option<String> {
+        // Free-mode synthetic IDs always route back through the "free"
+        // composite provider so the Zen → OpenRouter fallback kicks in.
+        if model == "free/auto"
+            || model.starts_with("free/")
+            || model.starts_with("zen/")
+            || model.starts_with("opencode-zen/")
+        {
+            return Some("free".to_string());
+        }
         if let Some((provider, _)) = model.split_once('/') {
             let known = [
                 "anthropic",
@@ -1650,6 +1663,8 @@ impl App {
                 "llamacpp",
                 "azure",
                 "amazon-bedrock",
+                "free",
+                "opencode-zen",
             ];
             if known.contains(&provider) {
                 return Some(provider.to_string());
@@ -1857,6 +1872,7 @@ impl App {
         self.model_picker = ModelPickerState::new();
         self.key_input_dialog = crate::key_input_dialog::KeyInputDialogState::new();
         self.custom_provider_dialog = crate::custom_provider_dialog::CustomProviderDialogState::new();
+        self.free_mode_dialog = crate::free_mode_dialog::FreeModeDialogState::new();
         self.device_auth_dialog = crate::device_auth_dialog::DeviceAuthDialogState::new();
         self.device_auth_pending = None;
         self.pending_mcp_panel_auth = None;
@@ -2174,6 +2190,7 @@ impl App {
         self.command_palette.close();
         self.key_input_dialog.close();
         self.custom_provider_dialog.close();
+        self.free_mode_dialog.close();
         self.device_auth_dialog.close();
         self.settings_screen.close();
         self.theme_screen.close();
@@ -2907,6 +2924,50 @@ impl App {
             return false;
         }
 
+        // "Free" composite-provider setup dialog (collects Zen + OpenRouter keys)
+        if self.free_mode_dialog.visible {
+            match key.code {
+                KeyCode::Esc => {
+                    self.free_mode_dialog.close();
+                }
+                KeyCode::Tab | KeyCode::Down | KeyCode::Up => {
+                    self.free_mode_dialog.switch_field();
+                }
+                KeyCode::Enter => {
+                    if self.free_mode_dialog.can_submit() {
+                        let (zen_key, or_key) = self.free_mode_dialog.take_values();
+                        if !zen_key.is_empty() {
+                            self.auth_store.set(
+                                claurst_core::ProviderId::OPENCODE_ZEN,
+                                claurst_core::StoredCredential::ApiKey { key: zen_key },
+                            );
+                        }
+                        if !or_key.is_empty() {
+                            self.auth_store.set(
+                                claurst_core::ProviderId::OPENROUTER,
+                                claurst_core::StoredCredential::ApiKey { key: or_key },
+                            );
+                        }
+                        self.activate_provider(
+                            "free".to_string(),
+                            "Free Mode".to_string(),
+                            "Connected to",
+                        );
+                    } else {
+                        self.free_mode_dialog.switch_field();
+                    }
+                }
+                KeyCode::Backspace => {
+                    self.free_mode_dialog.backspace();
+                }
+                KeyCode::Char(c) => {
+                    self.free_mode_dialog.insert_char(c);
+                }
+                _ => {}
+            }
+            return false;
+        }
+
         // Custom provider dialog (URL + API key for OpenAI-compatible providers)
         if self.custom_provider_dialog.visible {
             match key.code {
@@ -2965,6 +3026,21 @@ impl App {
                             // Local providers — activate immediately, no key needed
                             "ollama" | "lmstudio" | "llamacpp" => {
                                 self.activate_provider(selected.id.clone(), selected.title.clone(), "Switched to");
+                            }
+                            // "Free" composite mode — collects two keys (Zen + OpenRouter)
+                            // with a warning about context-management caveats.
+                            "free" => {
+                                let zen_existing = self
+                                    .auth_store
+                                    .api_key_for(claurst_core::ProviderId::OPENCODE_ZEN)
+                                    .or_else(|| {
+                                        self.auth_store
+                                            .api_key_for(claurst_core::ProviderId::OPENCODE_GO)
+                                    });
+                                let or_existing = self
+                                    .auth_store
+                                    .api_key_for(claurst_core::ProviderId::OPENROUTER);
+                                self.free_mode_dialog.open(zen_existing, or_existing);
                             }
                             "anthropic" => {
                                 // Anthropic: use API key from console.anthropic.com
@@ -3107,8 +3183,14 @@ impl App {
                         }
                         // Store explicit selections in the canonical
                         // "provider/model" form for non-Anthropic providers.
+                        // The "free" composite's picker entries already carry
+                        // a routing prefix (`free/…`, `zen/…`, `openrouter/…`)
+                        // so re-prefixing would produce nonsense like
+                        // `free/free/auto`.
                         let provider = self.config.provider.as_deref().unwrap_or("anthropic");
                         let full_model = if provider == "anthropic" {
+                            model_id.clone()
+                        } else if provider == "free" {
                             model_id.clone()
                         } else {
                             format!("{}/{}", provider, model_id)

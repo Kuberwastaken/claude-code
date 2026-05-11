@@ -255,6 +255,14 @@ pub fn models_for_provider_from_registry(
     provider_id: &str,
     registry: &claurst_api::ModelRegistry,
 ) -> Vec<ModelEntry> {
+    // "free" is the composite Zen → OpenRouter provider; the upstream
+    // models.dev catalog has nothing under this id, so serve a curated list
+    // directly.  `free/auto` is the default routing entry; the rest pin a
+    // specific upstream model for users who care.
+    if provider_id == "free" {
+        return free_provider_models();
+    }
+
     let mut entries = registry.list_visible_by_provider(provider_id);
 
     // Fall back to all entries (including alpha/deprecated) if the visible
@@ -309,10 +317,16 @@ pub fn models_for_provider_from_registry(
 /// **Anthropic exception** — anthropic models are emitted bare (no
 /// `anthropic/` prefix) for backward-compatibility with config files that
 /// pre-date the multi-provider era.
+///
+/// **Free exception** — the composite Zen → OpenRouter provider ships with
+/// a synthetic `free/auto` default that the wrapper translates per upstream.
 pub fn default_model_for_provider(
     provider_id: &str,
     registry: &claurst_api::ModelRegistry,
 ) -> String {
+    if provider_id == "free" {
+        return "free/auto".to_string();
+    }
     if let Some(best) = registry.best_model_for_provider(provider_id) {
         if provider_id == "anthropic" {
             best
@@ -322,6 +336,48 @@ pub fn default_model_for_provider(
     } else {
         format!("{}/default", provider_id)
     }
+}
+
+/// Curated free-mode model list used by `models_for_provider_from_registry`.
+fn free_provider_models() -> Vec<ModelEntry> {
+    vec![
+        ModelEntry {
+            id: "free/auto".to_string(),
+            display_name: "Auto (Zen \u{2192} OpenRouter)".to_string(),
+            description: "200K ctx | $0.00/$0.00 per M".to_string(),
+            is_current: false,
+        },
+        ModelEntry {
+            id: "zen/minimax-m2.5-free".to_string(),
+            display_name: "MiniMax M2.5 (Free, via Zen)".to_string(),
+            description: "200K ctx | $0.00 per M".to_string(),
+            is_current: false,
+        },
+        ModelEntry {
+            id: "zen/big-pickle".to_string(),
+            display_name: "Big Pickle (Free, via Zen)".to_string(),
+            description: "128K ctx | $0.00 per M".to_string(),
+            is_current: false,
+        },
+        ModelEntry {
+            id: "zen/ring-2.6-1t-free".to_string(),
+            display_name: "Ring 2.6 1T (Free, via Zen)".to_string(),
+            description: "128K ctx | $0.00 per M".to_string(),
+            is_current: false,
+        },
+        ModelEntry {
+            id: "zen/nemotron-3-super-free".to_string(),
+            display_name: "Nemotron 3 Super (Free, via Zen)".to_string(),
+            description: "128K ctx | $0.00 per M".to_string(),
+            is_current: false,
+        },
+        ModelEntry {
+            id: "openrouter/free".to_string(),
+            display_name: "OpenRouter Free Router".to_string(),
+            description: "200K ctx | random free model · $0.00 per M".to_string(),
+            is_current: false,
+        },
+    ]
 }
 
 /// State for the /model picker overlay.

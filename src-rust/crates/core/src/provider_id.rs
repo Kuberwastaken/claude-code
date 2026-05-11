@@ -73,6 +73,8 @@ impl ProviderId {
     pub const MINIMAX: &'static str = "minimax";
     pub const CODEX: &'static str = "codex";
     pub const OPENCODE_GO: &'static str = "opencode-go";
+    pub const OPENCODE_ZEN: &'static str = "opencode-zen";
+    pub const FREE: &'static str = "free";
 }
 
 impl fmt::Display for ProviderId {

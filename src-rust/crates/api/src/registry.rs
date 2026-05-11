@@ -13,7 +13,7 @@ use crate::provider::LlmProvider;
 use crate::provider_types::ProviderStatus;
 use crate::providers::{
     AnthropicProvider, AzureProvider, BedrockProvider, CodexProvider, CohereProvider,
-    CopilotProvider, GoogleProvider, MinimaxProvider, OpenAiProvider,
+    CopilotProvider, FreeProvider, GoogleProvider, MinimaxProvider, OpenAiProvider,
 };
 
 fn normalize_openai_compat_base(override_base: &str) -> String {
@@ -77,8 +77,32 @@ fn provider_from_key(provider_id: &str, key: String) -> Option<Arc<dyn LlmProvid
         }
         "cohere" => Some(Arc::new(CohereProvider::new(key))),
         "custom-openai" => Some(Arc::new(p::custom_openai().with_api_key(key))),
+        // "free" needs two keys (Zen + OpenRouter) — single-key path doesn't
+        // apply.  The auth-store-aware path `runtime_provider_for` handles it.
+        "free" => build_free_provider(),
         _ => None,
     }
+}
+
+/// Build a [`FreeProvider`] by reading both upstream keys from the auth store.
+///
+/// Returns `None` only if *both* keys are missing — a single key is enough to
+/// run (one upstream just stays unauthenticated and will hand off via the
+/// internal fallback).
+pub fn build_free_provider() -> Option<Arc<dyn LlmProvider>> {
+    let auth_store = claurst_core::AuthStore::load();
+    let zen_key = auth_store
+        .api_key_for(claurst_core::ProviderId::OPENCODE_ZEN)
+        .or_else(|| auth_store.api_key_for(claurst_core::ProviderId::OPENCODE_GO))
+        .unwrap_or_default();
+    let or_key = auth_store
+        .api_key_for(claurst_core::ProviderId::OPENROUTER)
+        .unwrap_or_default();
+
+    if zen_key.is_empty() && or_key.is_empty() {
+        return None;
+    }
+    Some(Arc::new(FreeProvider::with_keys(zen_key, or_key)) as Arc<dyn LlmProvider>)
 }
 
 pub fn provider_from_config(
@@ -97,6 +121,9 @@ pub fn provider_from_config(
 
     match provider_id {
         "anthropic" => None,
+        // Composite "Free" provider — two keys are pulled internally from the
+        // auth store; the `api_key` resolved above is ignored.
+        "free" => build_free_provider(),
         "openai" => {
             let mut provider = OpenAiProvider::new(api_key.unwrap_or_default());
             if let Some(base) = api_base {
@@ -215,6 +242,10 @@ pub fn runtime_provider_for(provider_id: &str) -> Option<Arc<dyn LlmProvider>> {
         "codex" | "openai-codex" => {
             return CodexProvider::from_stored().map(|p| Arc::new(p) as Arc<dyn LlmProvider>);
         }
+        // "free" pulls two keys (Zen + OpenRouter) from the auth store and
+        // wraps them in a fallback composite — handled here so the generic
+        // single-key path below doesn't short-circuit on a missing key.
+        "free" => return build_free_provider(),
         _ => {}
     }
 

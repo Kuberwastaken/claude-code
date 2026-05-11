@@ -121,6 +121,7 @@ fn is_modal_open(app: &App) -> bool {
         || app.connect_dialog.visible
         || app.key_input_dialog.visible
         || app.custom_provider_dialog.visible
+        || app.free_mode_dialog.visible
         || app.device_auth_dialog.visible
         || app.command_palette.visible
         || app.elicitation.visible
@@ -620,6 +621,11 @@ pub fn render_app(frame: &mut Frame, app: &App) {
     // Custom provider URL + API key dialog.
     if app.custom_provider_dialog.visible {
         render_custom_provider_dialog(frame, &app.custom_provider_dialog, size);
+    }
+
+    // "Free" composite-provider setup dialog (Zen + OpenRouter).
+    if app.free_mode_dialog.visible {
+        crate::free_mode_dialog::render_free_mode_dialog(frame, &app.free_mode_dialog, size);
     }
 
     // Device code / browser auth dialog (GitHub Copilot, Anthropic OAuth)

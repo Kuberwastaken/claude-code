@@ -45,6 +45,7 @@ pub fn provider_for_id(provider_id: &str) -> Option<OpenAiCompatProvider> {
         "stepfun" => Some(stepfun()),
         "fireworks" => Some(fireworks()),
         "opencode-go" | "opencode_go" => Some(opencode_go()),
+        "opencode-zen" | "opencode_zen" => Some(opencode_zen()),
         _ => None,
     }
 }
@@ -487,6 +488,24 @@ pub fn opencode_go() -> OpenAiCompatProvider {
         ProviderId::OPENCODE_GO,
         "OpenCode Go",
         "https://opencode.ai/zen/go/v1",
+    )
+    .with_api_key(key)
+    .with_quirks(ProviderQuirks {
+        include_usage_in_stream: true,
+        ..Default::default()
+    })
+}
+
+/// OpenCode Zen — pay-as-you-go metered endpoint hosted by opencode.ai.
+/// Exposes the free pool (Big Pickle, MiniMax M2.5 Free, Ring 2.6 1T Free,
+/// Nemotron 3 Super Free) alongside paid models.  Same `OPENCODE_API_KEY` as
+/// OpenCode Go.
+pub fn opencode_zen() -> OpenAiCompatProvider {
+    let key = std::env::var("OPENCODE_API_KEY").unwrap_or_default();
+    OpenAiCompatProvider::new(
+        ProviderId::OPENCODE_ZEN,
+        "OpenCode Zen",
+        "https://opencode.ai/zen/v1",
     )
     .with_api_key(key)
     .with_quirks(ProviderQuirks {

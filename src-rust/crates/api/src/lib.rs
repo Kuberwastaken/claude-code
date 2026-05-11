@@ -94,8 +94,11 @@ pub use providers::CopilotProvider;
 // Phase 2B re-exports — OpenAI-compatible generic adapter + common factories.
 pub use providers::{
     OpenAiCompatProvider,
-    ollama, lm_studio, deepseek, groq, xai, openrouter, mistral,
+    ollama, lm_studio, deepseek, groq, xai, openrouter, mistral, opencode_zen,
 };
+
+// Composite "Free" provider (Zen primary + OpenRouter free fallback).
+pub use providers::FreeProvider;
 
 // Phase 2D re-exports — Cohere native provider.
 pub use providers::CohereProvider;
