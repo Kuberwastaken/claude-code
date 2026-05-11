@@ -1087,23 +1087,63 @@ pub fn compute_typeahead(
 // Paste handling
 // ---------------------------------------------------------------------------
 
-/// Handle a paste event. If the content is > 1024 bytes, returns a placeholder
-/// string `[Pasted text #N (+X lines)]` and the original content (for storage).
+/// Handle a paste event.
+///
+/// Large pastes (≥3 lines or >150 chars) are replaced with a compact
+/// placeholder like `[Pasted ~12 lines #3]` while the real content is stored
+/// in `paste_contents` for retrieval at submit time.  This mirrors opencode's
+/// behaviour and prevents the input box from flooding with multi-hundred-line
+/// pastes.  Single-line short strings are inserted verbatim.
 pub fn handle_paste(
     content: &str,
     paste_counter: &mut u32,
 ) -> (String, Option<String>) {
-    if content.len() <= 1024 {
+    let line_count = content.lines().count();
+    let is_large = line_count >= 3 || content.len() > 150;
+    if !is_large {
         return (content.to_string(), None);
     }
     *paste_counter += 1;
-    let line_count = content.lines().count();
-    let placeholder = if line_count > 1 {
-        format!("[Pasted text #{} (+{} lines)]", paste_counter, line_count)
-    } else {
-        format!("[Pasted text #{}]", paste_counter)
-    };
+    let placeholder = format!("[Pasted ~{} lines #{}]", line_count, paste_counter);
     (placeholder, Some(content.to_string()))
+}
+
+/// Normalize a pasted string into a filesystem path if it looks like one.
+///
+/// Handles:
+/// - `file:///path/to/file` — URL-encoded paths
+/// - `"C:\path"` / `'/path'` — quoted paths (strips quotes)
+/// - Bare absolute paths (`/home/...`, `C:\...`)
+///
+/// Returns `None` if the text is multiline, not path-shaped, or the resolved
+/// path does not exist on the filesystem.  Callers can use the returned
+/// `PathBuf` to decide whether to treat the paste as a file attachment.
+pub fn detect_pasted_path(text: &str) -> Option<std::path::PathBuf> {
+    let trimmed = text.trim();
+    // Multiline content is never a bare path.
+    if trimmed.contains('\n') {
+        return None;
+    }
+    // Strip outer matching quotes.
+    let unquoted = trimmed
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| trimmed.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .unwrap_or(trimmed);
+
+    // file:// URL — strip the scheme (skip the leading //).
+    let candidate = if let Some(rest) = unquoted.strip_prefix("file://") {
+        rest
+    } else {
+        unquoted
+    };
+
+    let path = std::path::Path::new(candidate);
+    if path.is_absolute() && path.exists() {
+        Some(path.to_path_buf())
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2455,7 +2495,16 @@ pub fn render_prompt_input(
     let prompt_prefix = format!("{PROMPT_POINTER} ");
     let prefix_width = prompt_prefix.chars().count() as u16;
     let available_width = area.width.saturating_sub(prefix_width) as usize;
-    let cursor = if focused { "\u{2588}" } else { "" };
+    // Blink the cursor at ~1 Hz (530 ms on, 530 ms off).  We use wall-clock
+    // time so the period is stable regardless of frame rate.
+    let cursor_blink_on = {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        (ms / 530) % 2 == 0
+    };
+    let cursor = if focused && cursor_blink_on { "\u{2588}" } else { "" };
 
     // Build the full content string (with cursor embedded).
     let full_content: String = if state.text.is_empty() {
@@ -2883,9 +2932,11 @@ mod tests {
     #[test]
     fn paste_large_content_placeholder() {
         let mut counter = 0u32;
-        let big = "x".repeat(2000);
+        // >150 chars → triggers placeholder
+        let big = "x".repeat(200);
         let (result, stored) = handle_paste(&big, &mut counter);
-        assert!(result.starts_with("[Pasted text #1"));
+        assert!(result.starts_with("[Pasted ~"), "expected placeholder, got: {result}");
+        assert!(result.contains("#1"), "expected counter in placeholder, got: {result}");
         assert!(stored.is_some());
         assert_eq!(counter, 1);
     }
@@ -2893,10 +2944,32 @@ mod tests {
     #[test]
     fn paste_large_multiline_placeholder() {
         let mut counter = 0u32;
-        let big = "line\n".repeat(300); // 1500 bytes, >1024
+        // ≥3 lines → triggers placeholder regardless of length
+        let big = "line\n".repeat(300);
         let (result, stored) = handle_paste(&big, &mut counter);
-        assert!(result.contains("+300 lines") || result.contains("lines"));
+        assert!(result.starts_with("[Pasted ~"), "expected placeholder, got: {result}");
+        assert!(result.contains("lines"), "expected line count in placeholder, got: {result}");
         assert!(stored.is_some());
+    }
+
+    #[test]
+    fn paste_three_lines_triggers_placeholder() {
+        let mut counter = 0u32;
+        // Exactly 3 lines (the threshold) should use a placeholder.
+        let three_lines = "a\nb\nc";
+        let (result, stored) = handle_paste(three_lines, &mut counter);
+        assert!(result.starts_with("[Pasted ~"), "3-line paste should be placeholder, got: {result}");
+        assert!(stored.is_some());
+    }
+
+    #[test]
+    fn paste_two_lines_inline() {
+        let mut counter = 0u32;
+        // 2 lines, ≤150 chars → inserted verbatim
+        let two_lines = "hello\nworld";
+        let (result, stored) = handle_paste(two_lines, &mut counter);
+        assert_eq!(result, two_lines);
+        assert!(stored.is_none());
     }
 
     #[test]

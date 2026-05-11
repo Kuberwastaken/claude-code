@@ -13,6 +13,14 @@
 // - Plugin hint banners
 
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+// EnableBracketedPaste is intentionally NOT used. On Windows, `EnableBracketedPaste` causes
+// Windows Terminal to wrap Ctrl+V content in VT escape sequences that crossterm's Windows
+// Console API backend doesn't decode as `Event::Paste` — the bytes land as raw key events,
+// turning every `\n` into a prompt submit and triggering PTT on any `v` in the text.
+// Paste is handled cleanly via the Ctrl+V clipboard-reader instead (PowerShell / pbpaste /
+// xclip), which works on all platforms without needing bracketed paste mode.
+#[allow(unused_imports)]
+use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,

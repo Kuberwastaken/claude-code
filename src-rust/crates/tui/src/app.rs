@@ -896,6 +896,10 @@ pub struct App {
     pub voice_recording: bool,
     /// Receiver for VoiceEvent messages produced by the recorder task.
     pub voice_event_rx: Option<tokio::sync::mpsc::Receiver<claurst_core::voice::VoiceEvent>>,
+    /// A single key event that was drained from the queue during paste-burst
+    /// detection but wasn't part of the burst (e.g. a modifier key that stopped
+    /// the burst). Replayed at the top of the next loop iteration.
+    pending_key: Option<crossterm::event::KeyEvent>,
     /// Receiver for model-list results fetched in the background when the
     /// /model picker opens.  Drained each frame so models appear as soon as
     /// the fetch completes.
@@ -1326,6 +1330,7 @@ impl App {
             },
             voice_recording: false,
             voice_event_rx: None,
+            pending_key: None,
             model_fetch_rx: None,
             user_question_rx: None,
             ask_user_dialog: crate::ask_user_dialog::AskUserDialogState::new(),
@@ -2850,7 +2855,14 @@ impl App {
                 KeyCode::Down | KeyCode::Tab => {
                     self.ask_user_dialog.select_next();
                 }
-                KeyCode::Char(c) if c.is_ascii_digit() && self.ask_user_dialog.options.is_some() => {
+                KeyCode::Char(c)
+                    if c.is_ascii_digit()
+                        && self.ask_user_dialog.options.is_some()
+                        && !self.ask_user_dialog.in_custom_input =>
+                {
+                    // Digit keys select an option by number ONLY when the user
+                    // is not already typing a custom answer.  Once in custom
+                    // mode, digits flow through to push_char like any other char.
                     let n = (c as u8 - b'0') as usize;
                     if n >= 1 {
                         self.ask_user_dialog.select_by_number(n);
@@ -3629,7 +3641,7 @@ impl App {
                 };
                 self.notifications.push(NotificationKind::Info, msg, Some(3));
             } else if let Some(text) = read_clipboard_text().or_else(read_primary_text) {
-                self.prompt_input.paste(&text);
+                self.handle_paste_data(text);
                 self.refresh_prompt_input();
             }
             return false;
@@ -4902,6 +4914,134 @@ impl App {
         false
     }
 
+    /// Handle a paste data string (from `Event::Paste` or Ctrl+V text fallback).
+    ///
+    /// If the pasted text resolves to an existing filesystem path:
+    ///   - image files (png/jpg/gif/webp/bmp) → added as an image attachment pill
+    ///   - other files → inserted as `@path` mention text
+    /// Otherwise the text goes through the normal `prompt_input.paste()` path
+    /// which applies the multi-line summary placeholder for large pastes.
+    fn handle_paste_data(&mut self, data: String) {
+        use crate::prompt_input::detect_pasted_path;
+        use crate::image_paste::PastedImage;
+
+        if let Some(path) = detect_pasted_path(&data) {
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase());
+            let is_image = matches!(
+                ext.as_deref(),
+                Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("webp") | Some("bmp")
+            );
+            if is_image {
+                let label = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("image")
+                    .to_string();
+                let img = PastedImage { path, label: label.clone(), dimensions: None };
+                self.prompt_input.add_image(img);
+                self.notifications.push(
+                    crate::notifications::NotificationKind::Info,
+                    format!("Image attached: {}", label),
+                    Some(3),
+                );
+            } else {
+                // Non-image file: insert as an @mention so the path is visible
+                // but clearly marked as a file reference.
+                let mention = format!("@{}", path.display());
+                self.prompt_input.paste(&mention);
+            }
+        } else {
+            self.prompt_input.paste(&data);
+        }
+    }
+
+    /// Returns `true` when the app is in a state where the prompt can accept
+    /// regular text input — used to gate paste-burst detection.
+    fn prompt_is_accepting_text(&self) -> bool {
+        !self.is_streaming
+            && self.permission_request.is_none()
+            && !self.ask_user_dialog.visible
+            && !self.history_search_overlay.visible
+            && self.history_search.is_none()
+            && !self.settings_screen.visible
+            && !self.theme_screen.visible
+            && self.prompt_input.vim_mode == crate::prompt_input::VimMode::Insert
+    }
+
+    /// Drain any immediately-available key events from the crossterm event
+    /// queue (zero-timeout poll) and return them alongside `first` as a single
+    /// pasted string if the burst is large enough to be a paste.
+    ///
+    /// On Windows Terminal, Ctrl+V causes the terminal emulator to write the
+    /// clipboard content directly to stdin as raw character events — every
+    /// newline becomes an Enter keypress and stray `v` characters trigger
+    /// voice PTT.  Because a paste dumps ALL characters into the queue at
+    /// once, a zero-timeout drain immediately after the first character
+    /// reliably yields 3+ chars for any non-trivial paste, while normal
+    /// keyboard typing (even at 120 WPM) almost never queues more than one
+    /// char in the same 50 ms window.
+    ///
+    /// Returns `Some(text)` when a paste burst is detected (caller should
+    /// route through `handle_paste_data`).  Returns `None` for a normal
+    /// single keystroke.  If a non-character key is encountered while
+    /// draining, it is stored in `self.pending_key` and will be replayed at
+    /// the top of the next event-loop iteration.
+    fn try_detect_paste_burst(
+        &mut self,
+        first: char,
+    ) -> Option<String> {
+        use crossterm::event::{Event, KeyCode, KeyEventKind};
+
+        // Minimum number of chars (including `first`) to classify as a paste.
+        // Two or more is enough: at 120 WPM the inter-key interval is ~60 ms,
+        // so a second char in the same zero-timeout drain is extremely unlikely
+        // from a human typist but guaranteed from a clipboard paste.
+        const BURST_THRESHOLD: usize = 2;
+
+        // Quick exit: don't bother if nothing is queued immediately.
+        if !crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false) {
+            return None;
+        }
+
+        let mut buf = String::new();
+        buf.push(first);
+
+        loop {
+            match crossterm::event::poll(std::time::Duration::ZERO) {
+                Ok(true) => {
+                    match crossterm::event::read() {
+                        Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => {
+                            match k.code {
+                                KeyCode::Char(c) => buf.push(c),
+                                KeyCode::Enter => buf.push('\n'),
+                                _ => {
+                                    // Non-character key — save it for replay.
+                                    self.pending_key = Some(k);
+                                    break;
+                                }
+                            }
+                        }
+                        // Non-key event (mouse, resize, …) — leave in queue by
+                        // not reading it; we already checked poll() so it will
+                        // be re-read next iteration. But we already read it, so
+                        // we just break (the event is consumed but benign).
+                        _ => break,
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        if buf.chars().count() >= BURST_THRESHOLD {
+            Some(buf)
+        } else {
+            None
+        }
+    }
+
     /// Process mouse events (trackpad scroll, text selection, etc.).
     pub fn handle_mouse_event(&mut self, mouse_event: MouseEvent) {
         use crossterm::event::MouseButton;
@@ -5513,9 +5653,21 @@ impl App {
             // Draw the frame
             terminal.draw(|f| render::render_app(f, self))?;
 
+            // Replay a key that was saved by try_detect_paste_burst in a
+            // previous iteration (e.g. a modifier key that terminated a burst).
+            let pending = self.pending_key.take();
+
             // Poll for events with a short timeout so we can redraw for animation
-            if event::poll(std::time::Duration::from_millis(50))? {
-                match event::read()? {
+            let got_event = pending.is_some()
+                || event::poll(std::time::Duration::from_millis(50))?;
+
+            if got_event {
+                let event = if let Some(k) = pending {
+                    Event::Key(k)
+                } else {
+                    event::read()?
+                };
+                match event {
                     Event::Key(key) => {
                         // On Windows crossterm fires both Press and Release events.
                         // We normally skip non-press events, but when voice PTT mode
@@ -5533,6 +5685,30 @@ impl App {
                             }
                             continue;
                         }
+
+                        // ---- Paste-burst detection -----------------------------------------
+                        // On Windows Terminal, Ctrl+V causes the terminal to write clipboard
+                        // content as raw character events (not as Event::Paste).  Every `\n`
+                        // fires as Enter (submitting the prompt) and stray `v` chars trigger
+                        // voice PTT.  We detect this by draining the event queue with a
+                        // zero-timeout immediately after the first character arrives — a paste
+                        // dumps every character at once while normal typing rarely queues more
+                        // than one char in the same 50 ms window.
+                        if key.modifiers == KeyModifiers::NONE
+                            || key.modifiers == KeyModifiers::SHIFT
+                        {
+                            if let KeyCode::Char(c) = key.code {
+                                if self.prompt_is_accepting_text() {
+                                    if let Some(burst) = self.try_detect_paste_burst(c) {
+                                        self.handle_paste_data(burst);
+                                        self.refresh_prompt_input();
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                        // -------------------------------------------------------------------
+
                         let should_submit = self.handle_key_event(key);
                         // Honour `:q`/`:wq` from vim command-line mode
                         if self.prompt_input.vim_quit_requested {
@@ -5565,7 +5741,7 @@ impl App {
                             && !self.history_search_overlay.visible
                             && self.history_search.is_none() =>
                     {
-                        self.prompt_input.paste(&data);
+                        self.handle_paste_data(data);
                         self.refresh_prompt_input();
                     }
                     Event::Mouse(mouse_event) => {

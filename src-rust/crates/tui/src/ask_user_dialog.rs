@@ -132,13 +132,14 @@ impl AskUserDialogState {
     }
 
     /// Append a character to the custom-text input.
+    ///
+    /// Any printable character auto-switches to the custom row regardless of
+    /// where the selection currently is — so the user can just start typing
+    /// without having to navigate down with Tab/↓ first.
     pub fn push_char(&mut self, c: char) {
-        if self.in_custom_input || self.options.is_none() {
-            self.custom_text.push(c);
-            self.in_custom_input = true;
-            // Move selection to the custom row.
-            self.selected_idx = self.options_len();
-        }
+        self.custom_text.push(c);
+        self.in_custom_input = true;
+        self.selected_idx = self.options_len();
     }
 
     /// Backspace in the custom-text input.
@@ -323,14 +324,19 @@ pub fn render_ask_user_dialog(state: &AskUserDialogState, area: Rect, buf: &mut 
         let is_sel = state.in_custom_input || state.options.is_none();
         let prefix = if is_sel { "❯ " } else { "  " };
         let cursor = if is_sel { "█" } else { "" };
-        let display_text = format!("{}{}", state.custom_text, cursor);
         let style_bg = if is_sel { SELECTED_BG } else { CLAURST_PANEL_BG };
         let mut spans = vec![
             Span::styled(prefix, Style::default().fg(if is_sel { SELECTED_FG } else { HINT_FG }).bg(style_bg)),
-            Span::styled(display_text, Style::default().fg(INPUT_FG).bg(style_bg)),
         ];
-        if state.options.is_some() {
-            spans.push(Span::styled("  (custom)", Style::default().fg(HINT_FG).bg(CLAURST_PANEL_BG)));
+        if state.custom_text.is_empty() && !is_sel && state.options.is_some() {
+            // Not yet active: show a subtle prompt so user knows they can type
+            spans.push(Span::styled(
+                "type to fill custom answer…",
+                Style::default().fg(HINT_FG).bg(style_bg),
+            ));
+        } else {
+            let display_text = format!("{}{}", state.custom_text, cursor);
+            spans.push(Span::styled(display_text, Style::default().fg(INPUT_FG).bg(style_bg)));
         }
         write_line!(row, Line::from(spans));
         row += 1;
@@ -340,7 +346,7 @@ pub fn render_ask_user_dialog(state: &AskUserDialogState, area: Rect, buf: &mut 
     row += 1;
     if row < inner.y + inner.height {
         let hint = if state.options.is_some() {
-            "  Tab/↑↓: navigate   Enter: confirm   Esc: skip"
+            "  type: custom   ↑↓/Tab: options   Enter: confirm   Esc: skip"
         } else {
             "  Type answer, then Enter to confirm   Esc: skip"
         };
