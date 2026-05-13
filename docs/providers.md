@@ -242,13 +242,15 @@ Native Cohere API adapter.
 
 ---
 
-### Ollama (local)
+### Ollama
 
 Connects to a locally running Ollama instance. No API key required.
 
 **Base URL:** Reads `OLLAMA_HOST` (defaults to `http://localhost:11434`). Claurst appends `/v1` to construct the OpenAI-compatible endpoint.
 
 **Default model:** `llama3.2`
+
+**Model list:** When using `/connect` or `/model`, the picker queries your local Ollama server via `/api/tags` and shows only the models you have installed (`ollama list`). Cloud models (e.g., `kimi-k2.6:cloud`) appear after you run `ollama pull <model>:cloud`.
 
 **Configuration:**
 

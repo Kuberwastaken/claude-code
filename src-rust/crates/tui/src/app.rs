@@ -249,7 +249,7 @@ fn provider_picker_items() -> Vec<SelectItem> {
         SelectItem { id: "openrouter".into(), title: "OpenRouter".into(), description: "100+ models with one key".into(), category: "Popular".into(), badge: None },
         SelectItem { id: "vercel".into(), title: "Vercel AI Gateway".into(), description: "Gateway for AI SDK models".into(), category: "Popular".into(), badge: None },
         SelectItem { id: "groq".into(), title: "Groq".into(), description: "Fast hosted inference".into(), category: "Popular".into(), badge: Some("FREE".into()) },
-        SelectItem { id: "ollama".into(), title: "Ollama".into(), description: "Run models locally".into(), category: "Popular".into(), badge: Some("LOCAL".into()) },
+        SelectItem { id: "ollama".into(), title: "Ollama".into(), description: "Local inference + cloud models".into(), category: "Popular".into(), badge: None },
         SelectItem { id: "zai".into(), title: "Z.AI".into(), description: "GLM-5.1 / GLM-5 / GLM-4.7 Coding Plan".into(), category: "Popular".into(), badge: None },
         SelectItem { id: "opencode-go".into(), title: "OpenCode Go".into(), description: "$10/mo flat-rate · Kimi · DeepSeek · GLM · MiniMax".into(), category: "Popular".into(), badge: None },
         SelectItem { id: "cerebras".into(), title: "Cerebras".into(), description: "Fast hosted inference".into(), category: "Other".into(), badge: Some("FREE".into()) },
@@ -851,6 +851,9 @@ pub struct App {
     /// When `true`, the main event loop should spawn an async task to fetch
     /// the model list from the current provider's `list_models()` API.
     pub model_picker_fetch_pending: bool,
+    /// The provider ID that the model picker was opened for (used when the
+    /// fetch is triggered from /connect before the provider is activated).
+    pub model_picker_provider_id: Option<String>,
     /// When `true`, the main event loop should spawn an async task to load
     /// the session list from disk and populate the session browser.
     pub session_list_pending: bool,
@@ -1276,6 +1279,7 @@ impl App {
                 reg
             },
             model_picker_fetch_pending: false,
+            model_picker_provider_id: None,
             session_list_pending: false,
             session_list_rx: None,
             auth_store: claurst_core::AuthStore::load(),
@@ -1578,6 +1582,8 @@ impl App {
             &self.model_registry,
         );
         self.model_picker.set_models(models);
+        self.model_picker.loading_models = true;
+        self.model_picker_provider_id = Some(provider_id.to_string());
         self.model_picker_fetch_pending = true;
 
         let provider_prefix = format!("{}/", provider_id);
@@ -1877,6 +1883,7 @@ impl App {
         self.device_auth_pending = None;
         self.pending_mcp_panel_auth = None;
         self.model_picker_fetch_pending = false;
+        self.model_picker_provider_id = None;
         self.has_credentials = has_credentials;
         self.fast_mode = false;
         self.model_name = self.config.effective_model().to_string();

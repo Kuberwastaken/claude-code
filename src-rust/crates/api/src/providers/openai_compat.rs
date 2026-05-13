@@ -1165,7 +1165,14 @@ impl LlmProvider for OpenAiCompatProvider {
             }
         }
 
-        let url = format!("{}/models", self.base_url.trim_end_matches('/'));
+        // For Ollama, prefer the native `/api/tags` endpoint over the
+        // OpenAI-compatible `/v1/models` one — older Ollama versions do not
+        // expose `/v1/models` and would return 404.
+        let url = if let Some(ref host) = self.quirks.ollama_native_host {
+            format!("{}/api/tags", host.trim_end_matches('/'))
+        } else {
+            format!("{}/models", self.base_url.trim_end_matches('/'))
+        };
         let builder = self.http_client.get(&url);
         let builder = self.apply_auth(builder);
         let builder = self.apply_extra_headers(builder);

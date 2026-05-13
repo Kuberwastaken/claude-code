@@ -3082,9 +3082,9 @@ async fn run_interactive(
             match rx.try_recv() {
                 Ok(Ok(entries)) => {
                     let provider = app
-                        .config
-                        .provider
+                        .model_picker_provider_id
                         .clone()
+                        .or_else(|| app.config.provider.clone())
                         .unwrap_or_else(|| "anthropic".to_string());
                     let provider_prefix = format!("{}/", provider);
                     let current = app
@@ -3132,9 +3132,9 @@ async fn run_interactive(
         if app.model_picker_fetch_pending {
             app.model_picker_fetch_pending = false;
             let provider_id_str = app
-                .config
-                .provider
+                .model_picker_provider_id
                 .clone()
+                .or_else(|| app.config.provider.clone())
                 .unwrap_or_else(|| "anthropic".to_string());
             if let Some(ref registry) = app.provider_registry {
                 let pid = claurst_core::ProviderId::new(&provider_id_str);

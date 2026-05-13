@@ -197,7 +197,7 @@ impl ModelPickerState {
                         "anthropic" => "ANTHROPIC".to_string(),
                         "openai" => "OPENAI".to_string(),
                         "google" => "GOOGLE".to_string(),
-                        "ollama" => "OLLAMA (local)".to_string(),
+                        "ollama" => "OLLAMA".to_string(),
                         _ => provider.to_uppercase(),
                     },
                     models,

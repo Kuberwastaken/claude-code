@@ -442,9 +442,9 @@ mod tests {
             SelectItem {
                 id: "ollama".into(),
                 title: "Ollama".into(),
-                description: "Local models".into(),
+                description: "Local inference + cloud models".into(),
                 category: "Local".into(),
-                badge: Some("LOCAL".into()),
+                badge: None,
             },
         ]
     }
