@@ -16,13 +16,11 @@ use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags,
     PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
-// EnableBracketedPaste is intentionally NOT used. On Windows, `EnableBracketedPaste` causes
-// Windows Terminal to wrap Ctrl+V content in VT escape sequences that crossterm's Windows
-// Console API backend doesn't decode as `Event::Paste` — the bytes land as raw key events,
-// turning every `\n` into a prompt submit and triggering PTT on any `v` in the text.
-// Paste is handled cleanly via the Ctrl+V clipboard-reader instead (PowerShell / pbpaste /
-// xclip), which works on all platforms without needing bracketed paste mode.
-#[allow(unused_imports)]
+// EnableBracketedPaste is enabled on macOS and Linux only. On Windows, it causes
+// Windows Terminal to wrap Ctrl+V content in VT escape sequences that crossterm's
+// Windows Console API backend doesn't decode as `Event::Paste` — the bytes land as
+// raw key events, turning every `\n` into a prompt submit. Unix terminals (macOS/Linux)
+// handle bracketed paste correctly, allowing multi-line pastes to preserve newlines.
 use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -174,6 +172,29 @@ pub use device_auth_dialog::{DeviceAuthDialogState, DeviceAuthStatus, DeviceAuth
 // Terminal initialization / teardown helpers (public API)
 // ---------------------------------------------------------------------------
 
+/// Restore terminal capabilities (alternate screen, mouse capture, bracketed paste, keyboard enhancement).
+/// Used by both restore_terminal and the panic hook.
+fn restore_terminal_cleanup() -> io::Result<()> {
+    #[cfg(not(target_os = "windows"))]
+    execute!(
+        io::stdout(),
+        LeaveAlternateScreen,
+        DisableMouseCapture,
+        DisableBracketedPaste,
+        PopKeyboardEnhancementFlags,
+    )?;
+
+    #[cfg(target_os = "windows")]
+    execute!(
+        io::stdout(),
+        LeaveAlternateScreen,
+        DisableMouseCapture,
+        PopKeyboardEnhancementFlags,
+    )?;
+
+    Ok(())
+}
+
 /// Set up the terminal for TUI mode (raw mode + alternate screen + mouse capture).
 ///
 /// Also installs a panic hook that restores the terminal before printing the
@@ -193,19 +214,28 @@ pub fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
         if std::thread::current().id() == main_thread_id {
             // Best-effort restore — ignore errors, we're already unwinding.
             let _ = disable_raw_mode();
-            let _ = execute!(
-                io::stdout(),
-                LeaveAlternateScreen,
-                DisableMouseCapture,
-                PopKeyboardEnhancementFlags,
-                crossterm::cursor::Show,
-            );
+            let _ = restore_terminal_cleanup();
+            let _ = execute!(io::stdout(), crossterm::cursor::Show);
         }
         original_hook(panic_info);
     }));
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
+
+    #[cfg(not(target_os = "windows"))]
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        EnableMouseCapture,
+        EnableBracketedPaste,
+        PushKeyboardEnhancementFlags(
+            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
+        ),
+    )?;
+
+    #[cfg(target_os = "windows")]
     execute!(
         stdout,
         EnterAlternateScreen,
@@ -215,6 +245,7 @@ pub fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
                 | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
         ),
     )?;
+
     set_terminal_title("\u{1f980} Claurst");
     let backend = CrosstermBackend::new(stdout);
     let terminal = Terminal::new(backend)?;
@@ -229,12 +260,7 @@ pub fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io
         terminal.backend_mut(),
         crossterm::terminal::SetTitle(""),
     );
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture,
-        PopKeyboardEnhancementFlags,
-    )?;
+    restore_terminal_cleanup()?;
     terminal.show_cursor()?;
     Ok(())
 }
