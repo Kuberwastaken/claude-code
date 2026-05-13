@@ -1,0 +1,292 @@
+name: Patch Release (re-upload assets to an existing tag)
+
+# Use this workflow when you want to ship a small fix to an already-published
+# release WITHOUT cutting a new version.  It:
+#
+#   1. Rebuilds all five platform binaries from the current `main` HEAD.
+#   2. Force-moves the existing tag forward to that HEAD so the source the
+#      tag points at matches the binaries.
+#   3. Re-uploads the binary archives + install scripts to the existing
+#      release, overwriting the old assets.
+#   4. Leaves the release page's title, body, contributors, and "Full
+#      Changelog" link untouched.
+#
+# Refuses to run if Cargo.toml has been bumped past the patched tag — that's a
+# real release, not a patch, so use `.github/workflows/release.yml` instead.
+#
+# This force-moves a published tag.  Users who already downloaded the old
+# binary are unaffected (they keep what they have); users who install fresh
+# get the patched build.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Existing tag to amend (e.g., v0.1.0)'
+        required: true
+        type: string
+
+# Don't race patches on the same tag.  Also don't race with a regular release
+# of the same tag (concurrency groups share the same name shape).
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Preflight ───────────────────────────────────────────────────────
+  preflight:
+    runs-on: ubuntu-latest
+    name: Preflight checks
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Must be on main branch
+        run: |
+          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+            echo "::error::Patch releases must be triggered from the main branch (got ${{ github.ref }})"
+            exit 1
+          fi
+
+      - name: Target release must already exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "${{ inputs.version }}" \
+               --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::error::Release ${{ inputs.version }} does not exist."
+            echo "::error::To cut a brand-new release, use the regular Release workflow instead."
+            exit 1
+          fi
+
+      - name: Cargo.toml version must still match the patched tag
+        run: |
+          CARGO_VERSION=$(grep '^version' src-rust/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          TAG_VERSION="${{ inputs.version }}"
+          TAG_VERSION="${TAG_VERSION#v}"  # strip leading v
+          if [[ "$CARGO_VERSION" != "$TAG_VERSION" ]]; then
+            echo "::error::Cargo.toml ($CARGO_VERSION) does not match patched tag ($TAG_VERSION)."
+            echo "::error::Patch releases must not bump the version — use the regular Release workflow if you intend to ship a new version."
+            exit 1
+          fi
+          echo "Version still pinned at $CARGO_VERSION — safe to patch in place."
+
+  # ── Build matrix ────────────────────────────────────────────────────
+  # Mirrors release.yml exactly — keep these two job specs in sync.
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact: claurst-windows-x86_64
+            ext: .exe
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: claurst-linux-x86_64
+            ext: ""
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: claurst-linux-aarch64
+            ext: ""
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: claurst-macos-x86_64
+            ext: ""
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: claurst-macos-aarch64
+            ext: ""
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.artifact }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux' && !matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libssl-dev pkg-config
+
+      - name: Install cross (aarch64-linux)
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-rust/target
+          key: ${{ matrix.target }}-cargo-${{ hashFiles('src-rust/Cargo.lock') }}
+          restore-keys: ${{ matrix.target }}-cargo-
+
+      - name: Build release binary (native)
+        if: ${{ !matrix.cross }}
+        working-directory: src-rust
+        run: cargo build --release --locked --package claurst --target ${{ matrix.target }}
+
+      - name: Create Cross.toml for cross-compilation
+        if: matrix.cross
+        working-directory: src-rust
+        run: |
+          cat > Cross.toml << 'EOF'
+          [target.aarch64-unknown-linux-gnu]
+          pre-build = [
+            "dpkg --add-architecture $CROSS_DEB_ARCH",
+            "apt-get update",
+            "apt-get install -y pkg-config libssl-dev:$CROSS_DEB_ARCH libasound2-dev:$CROSS_DEB_ARCH"
+          ]
+          EOF
+
+      - name: Build release binary (cross)
+        if: matrix.cross
+        working-directory: src-rust
+        run: cross build --release --locked --package claurst --target ${{ matrix.target }}
+
+      - name: Verify binary exists
+        shell: bash
+        run: |
+          BINARY="src-rust/target/${{ matrix.target }}/release/claurst${{ matrix.ext }}"
+          if [[ ! -f "$BINARY" ]]; then
+            echo "::error::Binary not found at $BINARY"
+            exit 1
+          fi
+          ls -lh "$BINARY"
+
+      - name: Stage binary for packaging
+        shell: bash
+        run: |
+          mkdir -p "stage/${{ matrix.artifact }}"
+          cp "src-rust/target/${{ matrix.target }}/release/claurst${{ matrix.ext }}" \
+             "stage/${{ matrix.artifact }}/claurst${{ matrix.ext }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: stage/${{ matrix.artifact }}/claurst${{ matrix.ext }}
+
+  # ── Re-upload assets to the existing release ────────────────────────
+  patch:
+    needs: build
+    runs-on: ubuntu-latest
+    name: Replace release assets
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Verify all expected assets exist
+        run: |
+          EXPECTED=(
+            claurst-windows-x86_64
+            claurst-linux-x86_64
+            claurst-linux-aarch64
+            claurst-macos-x86_64
+            claurst-macos-aarch64
+          )
+          MISSING=()
+          for name in "${EXPECTED[@]}"; do
+            if [[ ! -d "artifacts/$name" ]]; then
+              MISSING+=("$name")
+            fi
+          done
+          if [[ ${#MISSING[@]} -gt 0 ]]; then
+            echo "::error::Missing artifacts: ${MISSING[*]}"
+            exit 1
+          fi
+          echo "All 5 artifacts present."
+
+      - name: Prepare release archives
+        run: |
+          mkdir -p release
+          for dir in artifacts/*/; do
+            name=$(basename "$dir")
+            binary=$(find "$dir" -maxdepth 1 -type f | head -1)
+            if [[ -z "$binary" ]]; then
+              echo "::error::No file in $dir"
+              exit 1
+            fi
+            if [[ "$binary" == *.exe ]]; then
+              (cd "$dir" && zip "../../release/${name}.zip" "$(basename "$binary")")
+            else
+              chmod +x "$binary"
+              tar -czf "release/${name}.tar.gz" -C "$dir" "$(basename "$binary")"
+            fi
+          done
+
+          # Restage install scripts in case they changed since the original release.
+          if [[ -f install.sh ]]; then
+            cp install.sh release/install.sh
+          fi
+          if [[ -f install.ps1 ]]; then
+            cp install.ps1 release/install.ps1
+          fi
+
+          echo "Patched release assets:"
+          ls -lh release/
+
+      # Force-move the tag to the current HEAD so that source pinned by the
+      # tag matches the binaries we're about to upload.  Without this, the
+      # tag still points at the original commit and the assets diverge from
+      # the source — confusing for anyone running `git checkout v0.1.0`.
+      - name: Move tag to patched HEAD
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "${{ inputs.version }}" "${{ github.sha }}"
+          git push -f origin "refs/tags/${{ inputs.version }}"
+          echo "Tag ${{ inputs.version }} now points at ${{ github.sha }}."
+
+      # `gh release upload --clobber` overwrites assets one at a time without
+      # touching the release body, name, draft state, or prerelease flag.
+      # That's exactly what we want — the release page reads the same; only
+      # the download links serve fresh bytes.
+      - name: Replace release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for f in release/*; do
+            echo "→ Uploading $(basename "$f")"
+          done
+          gh release upload "${{ inputs.version }}" release/* \
+            --repo "${{ github.repository }}" \
+            --clobber
+
+      - name: Summary
+        run: |
+          {
+            echo "## ✅ Patched ${{ inputs.version }} in place"
+            echo
+            echo "- Tag force-moved to commit \`${{ github.sha }}\`."
+            echo "- 5 binary archives + install scripts rebuilt and re-uploaded."
+            echo "- Release title, body, contributors, and Full Changelog link unchanged."
+            echo
+            echo "Anyone who installs fresh from \`releases/latest/download/…\` will pick up the patched build."
+            echo "Existing installs are **not** auto-updated — users must reinstall or run \`claurst upgrade --force\`."
+          } >> "$GITHUB_STEP_SUMMARY"
