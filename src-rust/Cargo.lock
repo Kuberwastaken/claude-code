@@ -645,6 +645,7 @@ dependencies = [
  "hmac",
  "once_cell",
  "parking_lot",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

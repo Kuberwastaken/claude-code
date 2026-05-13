@@ -12,6 +12,8 @@
 use std::time::Duration;
 
 use claurst_core::provider_id::ProviderId;
+use once_cell::sync::Lazy;
+use regex::RegexSet;
 
 use crate::provider_error::ProviderError;
 
@@ -19,7 +21,12 @@ use crate::provider_error::ProviderError;
 // Overflow pattern table
 // ---------------------------------------------------------------------------
 
-/// 29+ context-overflow patterns that appear across all major providers.
+/// Context-overflow patterns that appear across all major providers.
+///
+/// Patterns are real regexes (compiled once into a [`RegexSet`] for batched
+/// matching). Plain phrases match as literal substrings; entries containing
+/// `.*` / `.+` exercise the regex engine. Matching is case-insensitive via the
+/// `(?i)` prefix applied to every pattern.
 static OVERFLOW_PATTERNS: &[&str] = &[
     "prompt is too long",
     "input is too long for requested model",
@@ -52,20 +59,33 @@ static OVERFLOW_PATTERNS: &[&str] = &[
     "input.*too.*long",
 ];
 
+/// Compiled regex set used by [`is_context_overflow`].
+///
+/// Built once on first use. `(?i)` makes each pattern case-insensitive so the
+/// caller no longer needs to lowercase the input. `RegexSet` evaluates all
+/// patterns in a single pass over the input — typically faster than the prior
+/// per-pattern `.contains()` loop once the set is warmed.
+static OVERFLOW_REGEX: Lazy<RegexSet> = Lazy::new(|| {
+    let with_flags: Vec<String> = OVERFLOW_PATTERNS
+        .iter()
+        .map(|p| format!("(?i){}", p))
+        .collect();
+    RegexSet::new(&with_flags).expect("OVERFLOW_PATTERNS must compile")
+});
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /// Returns `true` if `message` matches any known context-overflow pattern.
 ///
-/// The comparison is case-insensitive.  Patterns are matched as substrings
-/// (not full regexes) for performance — the pattern table is designed so that
-/// simple substring matching is sufficient.
+/// Matching is case-insensitive (each pattern is prefixed with `(?i)` at
+/// compile time). Patterns are real regexes evaluated as a single
+/// [`RegexSet`] pass — entries containing `.*` / `.+` participate as the
+/// author intended (under the previous substring-only matcher they were
+/// silently dead).
 pub fn is_context_overflow(message: &str) -> bool {
-    let lower = message.to_lowercase();
-    OVERFLOW_PATTERNS
-        .iter()
-        .any(|pattern| lower.contains(&pattern.to_lowercase()))
+    OVERFLOW_REGEX.is_match(message)
 }
 
 /// Convert an HTTP error response into the appropriate [`ProviderError`].
@@ -262,8 +282,7 @@ impl RetryConfig {
     /// Applies exponential back-off with ±10 % jitter derived from the
     /// current system time (no external `rand` dependency required).
     pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
-        let base = self.initial_delay.as_secs_f64()
-            * self.backoff_multiplier.powi(attempt as i32);
+        let base = self.initial_delay.as_secs_f64() * self.backoff_multiplier.powi(attempt as i32);
         let jitter = base * 0.1 * time_jitter_f64();
         Duration::from_secs_f64((base + jitter).min(self.max_delay.as_secs_f64()))
     }
@@ -293,6 +312,86 @@ mod tests {
         assert!(is_context_overflow("This exceeds the context window"));
         assert!(is_context_overflow("Maximum context length exceeded"));
         assert!(!is_context_overflow("something else went wrong"));
+    }
+
+    /// Regression: every entry in `OVERFLOW_PATTERNS` containing `.*` was
+    /// silently dead under the previous substring-only matcher because real
+    /// error messages don't contain a literal `.*`. The samples below are
+    /// representative of the messages each pattern was *meant* to capture.
+    #[test]
+    fn test_is_context_overflow_regex_patterns_fire() {
+        // "input token count.*exceeds the maximum" — Anthropic-style.
+        assert!(is_context_overflow(
+            "input token count of 250000 exceeds the maximum allowed"
+        ));
+        // "maximum context length is.*tokens" — generic.
+        assert!(is_context_overflow("maximum context length is 8192 tokens"));
+        // "too large for model with.*maximum context length" — vLLM.
+        assert!(is_context_overflow(
+            "This model's prompt is too large for model with maximum context length 32768"
+        ));
+        // "context length is only.*tokens" — provider-specific.
+        assert!(is_context_overflow(
+            "context length is only 4096 tokens, requested 9000"
+        ));
+        // "input length.*exceeds.*context length" — gemini-compat / OpenAI relay.
+        assert!(is_context_overflow(
+            "input length of 9000 exceeds the context length of 8000"
+        ));
+        // "context.*length.*exceeded" — Together AI.
+        assert!(is_context_overflow(
+            "request rejected: context length has been exceeded"
+        ));
+        // "token.*limit.*exceeded" — generic provider-overflow phrasing.
+        assert!(is_context_overflow(
+            "your request token limit has been exceeded for this model"
+        ));
+        // "prompt.*too.*long" — variant phrasing the literal "prompt too long" misses.
+        assert!(is_context_overflow(
+            "this prompt is way too long, please shorten"
+        ));
+        // "exceeds.*context.*size" — fallback formatter.
+        assert!(is_context_overflow(
+            "request exceeds the context size limit"
+        ));
+        // "context.*window.*exceeded" — bedrock-style.
+        assert!(is_context_overflow("the context window has been exceeded"));
+        // "max.*tokens.*exceeded" — short summary phrasing.
+        assert!(is_context_overflow("max input tokens exceeded"));
+        // "input.*too.*long" — variant phrasing.
+        assert!(is_context_overflow(
+            "the input was too long for the configured limit"
+        ));
+    }
+
+    #[test]
+    fn test_is_context_overflow_case_insensitive() {
+        assert!(is_context_overflow("PROMPT IS TOO LONG"));
+        assert!(is_context_overflow("Maximum Context Length"));
+        assert!(is_context_overflow(
+            "INPUT TOKEN COUNT 9999 EXCEEDS THE MAXIMUM"
+        ));
+    }
+
+    #[test]
+    fn test_is_context_overflow_no_false_positives_on_unrelated_errors() {
+        assert!(!is_context_overflow("invalid api key"));
+        assert!(!is_context_overflow(
+            "rate limit exceeded for requests per minute"
+        ));
+        assert!(!is_context_overflow("model not found"));
+        assert!(!is_context_overflow("billing not active"));
+    }
+
+    #[test]
+    fn test_overflow_regex_compiles() {
+        // Forces lazy initialisation; panics here surface as test failures
+        // rather than runtime crashes inside `parse_error_response`.
+        assert_eq!(
+            OVERFLOW_REGEX.patterns().len(),
+            OVERFLOW_PATTERNS.len(),
+            "RegexSet must contain exactly one entry per OVERFLOW_PATTERNS line"
+        );
     }
 
     #[test]
