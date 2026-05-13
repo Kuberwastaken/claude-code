@@ -8100,7 +8100,7 @@ impl SlashCommand for AgentCommand {
                 output.push_str(&format!("\nSystem prompt prefix:\n  {}\n", prompt));
             }
             output.push_str(&format!(
-                "\nTo activate: claude --agent {}", agent_name
+                "\nTo activate: claurst --agent {}", agent_name
             ));
             CommandResult::Message(output)
         } else {

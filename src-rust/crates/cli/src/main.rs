@@ -113,7 +113,7 @@ impl Tool for McpToolWrapper {
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "claude",
+    name = "claurst",
     version = APP_VERSION,
     about = "Claurst - AI-powered coding assistant",
     long_about = None,
@@ -349,7 +349,7 @@ async fn main() -> anyhow::Result<()> {
     // Fast-path: handle --version before parsing everything
     let raw_args: Vec<String> = std::env::args().collect();
     if raw_args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("claude {}", APP_VERSION);
+        println!("claurst {}", APP_VERSION);
         return Ok(());
     }
 
@@ -3625,7 +3625,7 @@ async fn handle_auth_command(args: &[String]) -> anyhow::Result<()> {
         Some(unknown) => {
             eprintln!("Unknown auth subcommand: '{}'", unknown);
             eprintln!();
-            eprintln!("Usage: claude auth <subcommand>");
+            eprintln!("Usage: claurst auth <subcommand>");
             eprintln!("  login [--console]   Authenticate (claude.ai by default; --console for API key)");
             eprintln!("  logout              Remove stored credentials");
             eprintln!("  status [--json]     Show authentication status");
@@ -3633,7 +3633,7 @@ async fn handle_auth_command(args: &[String]) -> anyhow::Result<()> {
         }
 
         None => {
-            eprintln!("Usage: claude auth <login|logout|status>");
+            eprintln!("Usage: claurst auth <login|logout|status>");
             eprintln!("  login [--console]   Authenticate with Anthropic");
             eprintln!("  logout              Remove stored credentials");
             eprintln!("  status [--json]     Show authentication status");
@@ -3819,7 +3819,7 @@ async fn auth_status(json_output: bool) {
     } else {
         if !logged_in {
             let hint = if active_provider == "anthropic" {
-                "Run `claude auth login` or set ANTHROPIC_API_KEY.".to_string()
+                "Run `claurst auth login` or set ANTHROPIC_API_KEY.".to_string()
             } else if let Some(env_var) =
                 claurst_core::config::primary_api_key_env_var_for_provider(active_provider)
             {

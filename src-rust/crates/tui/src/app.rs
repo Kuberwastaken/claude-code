@@ -868,7 +868,7 @@ pub struct App {
     /// Ctrl+K command palette overlay.
     pub command_palette: DialogSelectState,
     /// Whether Claurst was launched from the user's home directory.
-    /// Shown as a startup notice: "Note: You have launched claude in your home directory…"
+    /// Shown as a startup notice: "Note: You have launched Claurst in your home directory…"
     pub home_dir_warning: bool,
     /// Output style: "auto" | "stream" | "verbose".
     pub output_style: String,

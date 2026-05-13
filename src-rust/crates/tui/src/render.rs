@@ -266,15 +266,13 @@ fn startup_notice_lines(app: &App, width: u16) -> Vec<Line<'static>> {
         ]));
     }
 
-    // Home-directory warning: mirrors TS feedConfigs.tsx warningText.
-    // "Note: You have launched claude in your home directory. For the best
-    //  experience, launch it in a project directory instead."
+    // Home-directory warning: shown when Claurst is launched from $HOME.
     if app.home_dir_warning {
         lines.push(Line::from(vec![
             Span::styled(" note ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(
                 truncate_end(
-                    "You have launched claude in your home directory. \
+                    "You have launched Claurst in your home directory. \
                      For the best experience, launch it in a project directory instead.",
                     max_width,
                 ),
