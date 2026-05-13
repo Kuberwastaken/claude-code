@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g., v0.0.9)'
+        description: 'Version tag (e.g., v0.1.0)'
         required: true
         type: string
 
@@ -235,34 +235,87 @@ jobs:
           echo "Release assets:"
           ls -lh release/
 
+      # Build release notes in two passes:
+      #   1. Pull GitHub's auto-generated notes via the API — this gives us
+      #      the "What's Changed" PR list with @author mentions, the
+      #      "New Contributors" section, the "Full Changelog" link, and the
+      #      label-driven categorisation defined in .github/release.yml.
+      #   2. Append a "Direct commits" section listing non-merge commits
+      #      that did NOT land via a squash-merged PR (those already appear
+      #      in the API output).  This captures direct pushes to main, which
+      #      `generate_release_notes` ignores.
+      #
+      # We don't pass `generate_release_notes: true` on the release action
+      # because it conflicts with `body_path`.  The API call below is the
+      # exact same endpoint the action would have hit.
       - name: Generate release notes
-        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+
           CURRENT_TAG="${{ inputs.version }}"
           PREVIOUS_TAG="$(git tag --sort=-v:refname | grep -vxF "$CURRENT_TAG" | head -n 1 || true)"
-          {
-            echo "# Claurst ${CURRENT_TAG}"
-            echo
-            if [[ -n "$PREVIOUS_TAG" ]]; then
-              echo "## Changes since ${PREVIOUS_TAG}"
-              echo
-              echo "Compare: https://github.com/${{ github.repository }}/compare/${PREVIOUS_TAG}...${{ github.sha }}"
-              echo
-              COMMITS="$(git log --no-merges --pretty=format:'- %s (%h)' "${PREVIOUS_TAG}..${{ github.sha }}")"
-            else
-              echo "## Changes in this release"
-              echo
-              COMMITS="$(git log --no-merges --pretty=format:'- %s (%h)' "${{ github.sha }}")"
-            fi
 
-            if [[ -n "$COMMITS" ]]; then
-              echo "$COMMITS"
-            else
-              echo "- No non-merge commits found in the release range."
+          # ── Pass 1: GitHub-generated PR notes ──────────────────────────
+          # Same endpoint the gh-release action's `generate_release_notes`
+          # toggle hits.  Honours .github/release.yml categories and
+          # surfaces "New Contributors" + "Full Changelog" footer.
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            gh api \
+              -X POST \
+              "/repos/${{ github.repository }}/releases/generate-notes" \
+              -f tag_name="$CURRENT_TAG" \
+              -f previous_tag_name="$PREVIOUS_TAG" \
+              -f target_commitish="${{ github.sha }}" \
+              --jq '.body' \
+              > pr-notes.md
+          else
+            echo "" > pr-notes.md
+          fi
+
+          # ── Pass 2: direct commits not associated with a merged PR ─────
+          # Heuristic: squash-merged PRs land with their PR number appended
+          # to the subject as "(#NN)" — strip those, they're already in the
+          # PR section.  Merge commits are excluded outright.
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            RANGE="${PREVIOUS_TAG}..${{ github.sha }}"
+          else
+            RANGE="${{ github.sha }}"
+          fi
+
+          DIRECT_COMMITS="$(
+            git log --no-merges --pretty=format:'%H%x09%s' "$RANGE" \
+              | grep -Ev '\(#[0-9]+\)$' \
+              | awk -F'\t' -v repo="${{ github.repository }}" '
+                  {
+                    short=substr($1,1,7)
+                    printf("- %s ([`%s`](https://github.com/%s/commit/%s))\n", $2, short, repo, $1)
+                  }
+                ' \
+              || true
+          )"
+
+          # ── Compose final body ─────────────────────────────────────────
+          {
+            cat pr-notes.md
+
+            if [[ -n "$DIRECT_COMMITS" ]]; then
+              # Spacer only when pr-notes already has content — avoids
+              # leading blank lines on a first-release.
+              if [[ -s pr-notes.md ]]; then
+                echo
+                echo
+              fi
+              echo "## 🛠 Direct commits"
+              echo
+              echo "Work pushed to \`main\` outside of pull requests in this release:"
+              echo
+              echo "$DIRECT_COMMITS"
             fi
           } > release-notes.md
 
-          echo "Generated release notes:"
+          echo "── Final release notes ──────────────────────────────"
           cat release-notes.md
 
       - name: Create GitHub Release

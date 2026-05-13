@@ -35,14 +35,14 @@ Usage: install.ps1 [options]
 
 Options:
     -Help                   Show this help
-    -Version <version>      Install a specific version (e.g., 0.0.9)
+    -Version <version>      Install a specific version (e.g., 0.1.0)
     -Binary <path>          Install from a local binary instead of downloading
     -InstallDir <path>      Override install location (default: %USERPROFILE%\.claurst\bin)
     -NoModifyPath           Don't add the install dir to user PATH
 
 Examples:
     irm https://github.com/Kuberwastaken/claurst/releases/latest/download/install.ps1 | iex
-    .\install.ps1 -Version 0.0.9
+    .\install.ps1 -Version 0.1.0
     .\install.ps1 -Binary C:\path\to\claurst.exe
 "@
 }

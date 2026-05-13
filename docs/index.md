@@ -6,7 +6,7 @@
 
 Claurst is a high-performance Rust reimplementation of Claude Code — a terminal-native AI coding agent with streaming responses, 40+ built-in tools, 15+ LLM provider integrations, a full ratatui TUI, and an extensible plugin system.
 
-**Version:** 0.0.9 · **License:** GPL-3.0 · [GitHub](https://github.com/Kuberwastaken/claurst)
+**Version:** 0.1.0 (Beta) · **License:** GPL-3.0 · [GitHub](https://github.com/Kuberwastaken/claurst)
 
 </div>
 

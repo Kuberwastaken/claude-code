@@ -55,13 +55,13 @@ Both scripts accept the same flags:
 
 | Flag (sh) | Flag (ps1) | Effect |
 |---|---|---|
-| `--version 0.0.9` | `-Version 0.0.9` | Install a specific version |
+| `--version 0.1.0` | `-Version 0.1.0` | Install a specific version |
 | `--binary <path>` | `-Binary <path>` | Install from a local file (skip download) |
 | `--install-dir <path>` | `-InstallDir <path>` | Override the install directory |
 | `--no-modify-path` | `-NoModifyPath` | Don't touch shell config / user PATH |
 | `--help` | `-Help` | Show usage |
 
-Example: `curl -fsSL https://.../install.sh | bash -s -- --version 0.0.9`
+Example: `curl -fsSL https://.../install.sh | bash -s -- --version 0.1.0`
 
 ---
 
@@ -71,7 +71,7 @@ Once installed, upgrade in place at any time:
 
 ```bash
 claurst upgrade               # to the latest release
-claurst upgrade --version 0.0.9   # pin to a specific version
+claurst upgrade --version 0.1.0   # pin to a specific version
 claurst upgrade --force       # reinstall the same version
 ```
 
@@ -137,7 +137,7 @@ claurst --version
 A successful installation prints the version string, for example:
 
 ```
-claude 0.0.9
+claurst 0.1.0
 ```
 
 To confirm the binary is the one you installed:

@@ -1,0 +1,49 @@
+# Configuration for GitHub's auto-generated release notes.
+# Consumed by softprops/action-gh-release when `generate_release_notes: true`
+# is set in .github/workflows/release.yml.
+#
+# PRs land in the first matching category.  Anything not matched falls into
+# "Other Changes".  Apply labels to PRs as they merge to keep release notes
+# self-organising — the workflow does not touch labels itself.
+
+changelog:
+  exclude:
+    # Hide bot-generated noise and chores from the user-facing notes.
+    labels:
+      - ignore-for-release
+      - dependencies
+      - chore
+    authors:
+      - dependabot
+      - github-actions
+
+  categories:
+    - title: "✨ Features"
+      labels:
+        - feature
+        - enhancement
+        - feat
+
+    - title: "🐛 Fixes"
+      labels:
+        - bug
+        - fix
+        - bugfix
+
+    - title: "📚 Documentation"
+      labels:
+        - documentation
+        - docs
+
+    - title: "🧰 Internal"
+      labels:
+        - refactor
+        - test
+        - internal
+        - ci
+
+    # Catch-all so unlabelled PRs are still listed and contributors still
+    # get credit — without this they'd silently disappear from the notes.
+    - title: "Other Changes"
+      labels:
+        - "*"

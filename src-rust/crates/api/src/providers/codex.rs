@@ -226,7 +226,7 @@ impl CodexProvider {
     ) -> reqwest::RequestBuilder {
         let builder = builder
             .bearer_auth(token)
-            .header("User-Agent", "claurst/0.0.9");
+            .header("User-Agent", "claurst/0.1.0");
 
         if let Some(id) = account_id {
             builder.header("ChatGPT-Account-Id", id)
@@ -301,54 +301,6 @@ impl CodexProvider {
             })
             .map(|value| value.to_string())
             .unwrap_or_else(|| json_val.to_string())
-    }
-
-    fn parse_stream_frame(
-        provider_id: &ProviderId,
-        event_name: &str,
-        data: &str,
-    ) -> Result<Option<ProviderResponse>, ProviderError> {
-        let trimmed = data.trim();
-        if trimmed.is_empty() || trimmed == "[DONE]" {
-            return Ok(None);
-        }
-
-        let json_val: Value =
-            serde_json::from_str(trimmed).map_err(|e| ProviderError::StreamError {
-                provider: provider_id.clone(),
-                message: format!("Failed to parse Codex stream JSON: {}", e),
-                partial_response: Some(trimmed.to_string()),
-            })?;
-
-        let effective_event = if event_name.is_empty() {
-            json_val
-                .get("type")
-                .and_then(|value| value.as_str())
-                .unwrap_or("")
-        } else {
-            event_name
-        };
-
-        match effective_event {
-            "response.completed" => {
-                let response_json = json_val.get("response").unwrap_or(&json_val);
-                let response =
-                    Self::parse_responses_response(provider_id, response_json).map_err(|e| {
-                        ProviderError::StreamError {
-                            provider: provider_id.clone(),
-                            message: format!("Failed to parse Codex completed event: {}", e),
-                            partial_response: Some(trimmed.to_string()),
-                        }
-                    })?;
-                Ok(Some(response))
-            }
-            "response.failed" | "response.error" | "error" => Err(ProviderError::StreamError {
-                provider: provider_id.clone(),
-                message: Self::extract_stream_error_message(&json_val),
-                partial_response: Some(trimmed.to_string()),
-            }),
-            _ => Ok(None),
-        }
     }
 
     // -----------------------------------------------------------------------
@@ -579,79 +531,6 @@ impl CodexProvider {
         })
     }
 
-    // -----------------------------------------------------------------------
-    // Synthetic streaming  (same pattern as CopilotProvider)
-    // -----------------------------------------------------------------------
-
-    fn stream_synthetic_response(
-        response: ProviderResponse,
-    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
-        use claurst_core::types::ContentBlock;
-
-        let s = stream! {
-            yield Ok(StreamEvent::MessageStart {
-                id: response.id.clone(),
-                model: response.model.clone(),
-                usage: UsageInfo::default(),
-            });
-
-            for (index, block) in response.content.iter().enumerate() {
-                let start_block = match block {
-                    ContentBlock::Text { .. } => ContentBlock::Text { text: String::new() },
-                    ContentBlock::ToolUse { id, name, .. } => ContentBlock::ToolUse {
-                        id: id.clone(),
-                        name: name.clone(),
-                        input: json!({}),
-                    },
-                    ContentBlock::Thinking { .. } => ContentBlock::Thinking {
-                        thinking: String::new(),
-                        signature: String::new(),
-                    },
-                    other => other.clone(),
-                };
-                yield Ok(StreamEvent::ContentBlockStart {
-                    index,
-                    content_block: start_block,
-                });
-
-                match block {
-                    ContentBlock::Text { text } if !text.is_empty() => {
-                        yield Ok(StreamEvent::TextDelta {
-                            index,
-                            text: text.clone(),
-                        });
-                    }
-                    ContentBlock::ToolUse { input, .. } => {
-                        let json_str = serde_json::to_string(input)
-                            .unwrap_or_else(|_| "{}".to_string());
-                        if json_str != "{}" {
-                            yield Ok(StreamEvent::InputJsonDelta {
-                                index,
-                                partial_json: json_str,
-                            });
-                        }
-                    }
-                    ContentBlock::Thinking { thinking, .. } if !thinking.is_empty() => {
-                        yield Ok(StreamEvent::ThinkingDelta {
-                            index,
-                            thinking: thinking.clone(),
-                        });
-                    }
-                    _ => {}
-                }
-
-                yield Ok(StreamEvent::ContentBlockStop { index });
-            }
-
-            yield Ok(StreamEvent::MessageDelta {
-                stop_reason: Some(response.stop_reason.clone()),
-                usage: Some(response.usage.clone()),
-            });
-            yield Ok(StreamEvent::MessageStop);
-        };
-
-        Box::pin(s)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -694,7 +573,7 @@ impl LlmProvider for CodexProvider {
             let mut saw_tool_call = false;
             let mut open_blocks: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
-            'outer: while let Some(chunk_result) = byte_stream.next().await {
+            while let Some(chunk_result) = byte_stream.next().await {
                 let chunk = match chunk_result {
                     Ok(chunk) => chunk,
                     Err(e) => {
@@ -925,7 +804,9 @@ impl LlmProvider for CodexProvider {
                                             model: model_name.clone(),
                                             usage: UsageInfo::default(),
                                         });
-                                        message_started = true;
+                                        // No reassignment: this branch is the
+                                        // stream-completion handler — execution
+                                        // never re-enters the guard below.
                                     }
 
                                     let mut remaining: Vec<usize> = open_blocks.drain().collect();

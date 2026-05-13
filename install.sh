@@ -29,14 +29,14 @@ Usage: install.sh [options]
 
 Options:
     -h, --help              Display this help message
-    -v, --version <version> Install a specific version (e.g., 0.0.9 or v0.0.9)
+    -v, --version <version> Install a specific version (e.g., 0.1.0 or v0.1.0)
     -b, --binary <path>     Install from a local binary instead of downloading
         --no-modify-path    Don't modify shell config files (.zshrc, .bashrc, etc.)
         --install-dir <dir> Override install location (default: ~/.claurst/bin)
 
 Examples:
     curl -fsSL https://github.com/Kuberwastaken/claurst/releases/latest/download/install.sh | bash
-    ./install.sh --version 0.0.9
+    ./install.sh --version 0.1.0
     ./install.sh --binary /path/to/claurst
 EOF
 }

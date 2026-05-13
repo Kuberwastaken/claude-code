@@ -748,7 +748,7 @@ pub async fn run_query_loop(
             None
         };
     // Pre-capture tree hash; refreshed at the start of each turn's tool phase.
-    let mut initial_snapshot: Option<String> = if let Some(ref s) = shadow_snap {
+    let initial_snapshot: Option<String> = if let Some(ref s) = shadow_snap {
         s.track().await
     } else {
         None
