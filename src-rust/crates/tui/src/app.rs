@@ -533,6 +533,10 @@ pub fn try_copy_to_clipboard(text: &str) -> bool {
             }
         }
     }
+    // OSC 52 — works over SSH without any external tools
+    if crate::image_paste::osc52_write(text) {
+        return true;
+    }
     false
 }
 
@@ -3712,7 +3716,7 @@ impl App {
                     | crate::prompt_input::VimMode::VisualBlock
             )
         {
-            use crate::image_paste::{read_clipboard_image, read_clipboard_text, read_primary_text};
+            use crate::image_paste::{osc52_read, read_clipboard_image, read_clipboard_text, read_primary_text};
             if let Some(img) = read_clipboard_image() {
                 let label = img.label.clone();
                 let dims = img.dimensions;
@@ -3723,9 +3727,19 @@ impl App {
                     format!("Image attached: {}", label)
                 };
                 self.notifications.push(NotificationKind::Info, msg, Some(3));
-            } else if let Some(text) = read_clipboard_text().or_else(read_primary_text) {
+            } else if let Some(text) = read_clipboard_text()
+                .or_else(read_primary_text)
+                .or_else(osc52_read)
+            {
                 self.handle_paste_data(text);
                 self.refresh_prompt_input();
+            } else {
+                let msg = if std::env::var("SSH_TTY").is_ok() || std::env::var("SSH_CLIENT").is_ok() {
+                    "Clipboard unavailable via SSH. Right-click to paste using your terminal's context menu."
+                } else {
+                    "Clipboard unavailable. Install xclip or wl-clipboard, or use Ctrl+Shift+V."
+                };
+                self.notifications.push(NotificationKind::Info, msg.to_string(), Some(5));
             }
             return false;
         }
@@ -5290,7 +5304,21 @@ impl App {
                         ContextMenuKind::Selection,
                     );
                 } else {
-                    self.dismiss_context_menu();
+                    // Right-click outside the transcript / selection = paste into prompt.
+                    // This restores the behaviour that EnableMouseCapture takes away from
+                    // terminal emulators that normally use right-click for paste (e.g.
+                    // Windows Terminal, PuTTY) — critical over SSH where Ctrl+V often fails.
+                    use crate::image_paste::{osc52_read, read_clipboard_text, read_primary_text};
+                    if let Some(text) = read_clipboard_text()
+                        .or_else(read_primary_text)
+                        .or_else(osc52_read)
+                    {
+                        self.focus = FocusTarget::Input;
+                        self.prompt_input.paste(&text);
+                        self.refresh_prompt_input();
+                    } else {
+                        self.dismiss_context_menu();
+                    }
                 }
             }
 

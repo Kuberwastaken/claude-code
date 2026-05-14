@@ -431,6 +431,80 @@ pub fn encode_image_base64(path: &PathBuf) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// OSC 52 clipboard access (works over SSH without any external tools)
+// ---------------------------------------------------------------------------
+
+/// Write text to the terminal clipboard via OSC 52.
+/// Works over SSH without xclip/xsel/wl-paste or a display server.
+pub fn osc52_write(text: &str) -> bool {
+    use base64::Engine;
+    use std::io::Write;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+    let seq = format!("\x1b]52;c;{}\x07", b64);
+    let mut stdout = std::io::stdout().lock();
+    stdout.write_all(seq.as_bytes()).is_ok() && stdout.flush().is_ok()
+}
+
+/// Read text from the terminal clipboard via OSC 52.
+/// Sends a query escape and reads the response from stdin with a 200ms timeout.
+/// Returns None if the terminal doesn't respond (not all terminals support OSC 52 reads).
+#[cfg(unix)]
+pub fn osc52_read() -> Option<String> {
+    use base64::Engine;
+    use std::io::Write;
+    use std::os::unix::io::AsRawFd;
+
+    {
+        let mut stdout = std::io::stdout().lock();
+        stdout.write_all(b"\x1b]52;c;?\x07").ok()?;
+        stdout.flush().ok()?;
+    }
+
+    let stdin_fd = std::io::stdin().as_raw_fd();
+    let mut response = Vec::with_capacity(256);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(200);
+
+    loop {
+        let remaining_ms = deadline
+            .saturating_duration_since(std::time::Instant::now())
+            .as_millis()
+            .min(50) as libc::c_int;
+        if remaining_ms == 0 {
+            break;
+        }
+        let mut pfd = libc::pollfd { fd: stdin_fd, events: libc::POLLIN, revents: 0 };
+        let ret = unsafe { libc::poll(&mut pfd, 1, remaining_ms) };
+        if ret <= 0 || pfd.revents & libc::POLLIN == 0 {
+            break;
+        }
+        let mut buf = [0u8; 256];
+        let n = unsafe { libc::read(stdin_fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+        if n <= 0 {
+            break;
+        }
+        response.extend_from_slice(&buf[..n as usize]);
+        if response.iter().any(|&b| b == 0x07) || response.windows(2).any(|w| w == [0x1b, b'\\']) {
+            break;
+        }
+    }
+
+    if response.is_empty() {
+        return None;
+    }
+    let prefix = b"\x1b]52;c;";
+    let start = response.windows(prefix.len()).position(|w| w == prefix)? + prefix.len();
+    let end = response[start..].iter().position(|&b| b == 0x07 || b == 0x1b)?;
+    let b64 = std::str::from_utf8(&response[start..start + end]).ok()?;
+    let decoded = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    String::from_utf8(decoded).ok()
+}
+
+#[cfg(not(unix))]
+pub fn osc52_read() -> Option<String> {
+    None
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

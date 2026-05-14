@@ -176,13 +176,20 @@ pub use device_auth_dialog::{DeviceAuthDialogState, DeviceAuthStatus, DeviceAuth
 /// Used by both restore_terminal and the panic hook.
 fn restore_terminal_cleanup() -> io::Result<()> {
     #[cfg(not(target_os = "windows"))]
-    execute!(
-        io::stdout(),
-        LeaveAlternateScreen,
-        DisableMouseCapture,
-        DisableBracketedPaste,
-        PopKeyboardEnhancementFlags,
-    )?;
+    {
+        let is_ssh = std::env::var("SSH_TTY").is_ok() || std::env::var("SSH_CLIENT").is_ok();
+        if is_ssh {
+            execute!(io::stdout(), LeaveAlternateScreen, DisableBracketedPaste)?;
+        } else {
+            execute!(
+                io::stdout(),
+                LeaveAlternateScreen,
+                DisableMouseCapture,
+                DisableBracketedPaste,
+                PopKeyboardEnhancementFlags,
+            )?;
+        }
+    }
 
     #[cfg(target_os = "windows")]
     execute!(
@@ -220,20 +227,29 @@ pub fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
         original_hook(panic_info);
     }));
 
+    // Over SSH, EnableMouseCapture prevents the terminal emulator's right-click
+    // context menu from appearing, which is the only reliable paste path when
+    // there is no X11/Wayland display available on the remote host.
+    let is_ssh = std::env::var("SSH_TTY").is_ok() || std::env::var("SSH_CLIENT").is_ok();
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
 
     #[cfg(not(target_os = "windows"))]
-    execute!(
-        stdout,
-        EnterAlternateScreen,
-        EnableMouseCapture,
-        EnableBracketedPaste,
-        PushKeyboardEnhancementFlags(
-            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-                | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
-        ),
-    )?;
+    if is_ssh {
+        execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
+    } else {
+        execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableBracketedPaste,
+            PushKeyboardEnhancementFlags(
+                KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                    | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
+            ),
+        )?;
+    }
 
     #[cfg(target_os = "windows")]
     execute!(
