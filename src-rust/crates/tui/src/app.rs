@@ -2929,6 +2929,19 @@ impl App {
                 KeyCode::Backspace => {
                     self.key_input_dialog.backspace();
                 }
+                KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::SUPER) => {
+                    if let Some(text) = crate::image_paste::read_clipboard_text() {
+                        if text.is_empty() {
+                            self.notifications.push(NotificationKind::Warning, "Clipboard is empty".to_string(), Some(2));
+                        } else {
+                            for ch in text.chars() {
+                                self.key_input_dialog.insert_char(ch);
+                            }
+                        }
+                    } else {
+                        self.notifications.push(NotificationKind::Warning, "Could not read clipboard".to_string(), Some(2));
+                    }
+                }
                 KeyCode::Char(c) => {
                     self.key_input_dialog.insert_char(c);
                 }

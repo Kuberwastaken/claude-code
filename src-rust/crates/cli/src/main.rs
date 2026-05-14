@@ -2599,6 +2599,24 @@ async fn run_interactive(
                         session.updated_at = chrono::Utc::now();
                     }
                 }
+                Event::Paste(data) => {
+                    // Cmd+V paste on macOS / Ctrl+Shift+V on Linux (via bracketed paste)
+                    if !app.is_streaming
+                        && app.permission_request.is_none()
+                        && !app.history_search_overlay.visible
+                        && app.history_search.is_none()
+                    {
+                        if app.key_input_dialog.visible {
+                            // Paste into API key input dialog
+                            for ch in data.chars() {
+                                app.key_input_dialog.insert_char(ch);
+                            }
+                        } else {
+                            // Paste into main prompt input
+                            app.prompt_input.paste(&data);
+                        }
+                    }
+                }
                 Event::Mouse(mouse) => {
                     app.handle_mouse_event(mouse);
                 }
