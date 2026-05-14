@@ -831,6 +831,8 @@ pub struct App {
     /// Shown at startup when --dangerously-skip-permissions was passed.
     /// User must explicitly accept or the session exits.
     pub bypass_permissions_dialog: crate::bypass_permissions_dialog::BypassPermissionsDialogState,
+    /// Whether the bypass-permissions dialog has been shown this session.
+    pub bypass_permissions_dialog_shown: bool,
     /// First-launch onboarding welcome dialog.
     pub onboarding_dialog: crate::onboarding_dialog::OnboardingDialogState,
     /// API key input dialog (opened from /connect for key-based providers).
@@ -1266,6 +1268,7 @@ impl App {
             mcp_approval: McpApprovalDialogState::new(),
             go_to_line_dialog: GoToLineDialog::new(),
             bypass_permissions_dialog: crate::bypass_permissions_dialog::BypassPermissionsDialogState::new(),
+            bypass_permissions_dialog_shown: false,
             onboarding_dialog: crate::onboarding_dialog::OnboardingDialogState::new(),
             key_input_dialog: crate::key_input_dialog::KeyInputDialogState::new(),
             custom_provider_dialog: crate::custom_provider_dialog::CustomProviderDialogState::new(),

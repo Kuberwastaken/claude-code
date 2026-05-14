@@ -1708,10 +1708,13 @@ async fn run_interactive(
 
     // Mirror TS BypassPermissionsModeDialog.tsx startup gate
     // Shown as the highest-priority startup dialog (blocks all other UI).
+    // Only show once per session — subsequent sessions in the same directory
+    // will show the dialog again (not persisted across sessions).
     use claurst_core::config::PermissionMode;
-    if live_config.permission_mode == PermissionMode::BypassPermissions {
+    if live_config.permission_mode == PermissionMode::BypassPermissions && !app.bypass_permissions_dialog_shown {
         app.bypass_permissions_dialog.show();
-    } else {
+        app.bypass_permissions_dialog_shown = true;
+    } else if live_config.permission_mode != PermissionMode::BypassPermissions {
         // Show onboarding only if NOT in bypass-permissions mode.
         // Bypass dialog is a mandatory security gate and takes absolute priority.
         if !has_credentials {
