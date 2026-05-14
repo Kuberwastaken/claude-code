@@ -1995,7 +1995,6 @@ async fn run_interactive(
                         || app.settings_screen.visible
                         || app.export_dialog.visible
                         || app.theme_screen.visible
-                        || app.privacy_screen.visible
                         || app.stats_dialog.open
                         || app.invalid_config_dialog.visible
                         || app.context_viz.visible
@@ -3991,4 +3990,3 @@ fn json_null_or_string(opt: &Option<String>) -> serde_json::Value {
         None => serde_json::Value::Null,
     }
 }
-

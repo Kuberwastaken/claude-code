@@ -1,4 +1,4 @@
-﻿// render.rs â€” All ratatui rendering logic.
+// render.rs â€” All ratatui rendering logic.
 
 use std::cell::RefCell;
 
@@ -44,7 +44,6 @@ use crate::overlays::{
     CLAURST_ACCENT,
 };
 use crate::plugin_views::render_plugin_hints;
-use crate::privacy_screen::render_privacy_screen;
 use crate::prompt_input::{InputMode, TypeaheadSource, VimMode, input_height, render_prompt_input};
 use crate::settings_screen::render_settings_screen;
 use crate::stats_dialog::render_stats_dialog;
@@ -98,7 +97,6 @@ fn is_modal_open(app: &App) -> bool {
         || app.history_search.is_some()
         || app.settings_screen.visible
         || app.theme_screen.visible
-        || app.privacy_screen.visible
         || app.stats_dialog.open
         || app.mcp_view.open
         || app.agents_menu.open
@@ -497,11 +495,6 @@ pub fn render_app(frame: &mut Frame, app: &App) {
     // Theme picker overlay
     if app.theme_screen.visible {
         render_theme_screen(frame, &app.theme_screen, size);
-    }
-
-    // Privacy settings dialog
-    if app.privacy_screen.visible {
-        render_privacy_screen(frame, &app.privacy_screen, size);
     }
 
     if app.stats_dialog.open {

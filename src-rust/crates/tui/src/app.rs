@@ -18,7 +18,6 @@ use crate::overlays::{
     RewindFlowOverlay, SelectorMessage,
 };
 use crate::plugin_views::PluginHintBanner;
-use crate::privacy_screen::PrivacyScreen;
 use crate::prompt_input::{InputMode, PromptInputState, VimMode};
 use crate::render;
 use crate::settings_screen::SettingsScreen;
@@ -79,7 +78,6 @@ const PROMPT_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("model", "Change the AI model"),
     ("output-style", "Toggle output style (auto/stream/verbose)"),
     ("plugin", "Manage plugins (list/info/enable/disable/reload)"),
-    ("privacy", "Open privacy settings"),
     ("providers", "List available AI providers and their status"),
     ("caveman", "Caveman speech mode — save big token"),
     ("rocky", "Rocky speech mode — amaze amaze amaze"),
@@ -107,7 +105,7 @@ fn help_command_category(name: &str) -> &'static str {
         "connect" | "model" | "providers" | "refresh" | "fast" | "effort" | "voice" => "Model & Provider",
         "changes" | "diff" | "review" | "rewind" | "export" | "copy" => "Review & History",
         "stats" | "cost" | "context" | "insights" | "heapdump" | "doctor" => "Diagnostics",
-        "config" | "settings" | "theme" | "privacy" | "keybindings" | "hooks" | "mcp" | "import-config" => {
+        "config" | "settings" | "theme" | "keybindings" | "hooks" | "mcp" | "import-config" => {
             "Workspace"
         }
         "agent" | "agents" | "memory" | "plugin" | "feedback" | "survey" => "Tools",
@@ -790,8 +788,6 @@ pub struct App {
     pub settings_screen: SettingsScreen,
     /// Theme picker overlay (/theme).
     pub theme_screen: ThemeScreen,
-    /// Privacy settings dialog (/privacy-settings).
-    pub privacy_screen: PrivacyScreen,
     /// Token/cost analytics dialog.
     pub stats_dialog: StatsDialogState,
     /// MCP server browser and tool detail view.
@@ -1260,7 +1256,6 @@ impl App {
             stall_start: None,
             settings_screen: SettingsScreen::new(),
             theme_screen: ThemeScreen::new(),
-            privacy_screen: PrivacyScreen::new(),
             stats_dialog: StatsDialogState::new(),
             mcp_view: McpViewState::new(),
             agents_menu: AgentsMenuState::new(),
@@ -1946,10 +1941,6 @@ impl App {
                 self.theme_screen.open(current);
                 true
             }
-            "privacy-settings" | "privacy" => {
-                self.privacy_screen.open();
-                true
-            }
             "stats" => {
                 self.stats_dialog.open();
                 true
@@ -2218,7 +2209,6 @@ impl App {
         self.device_auth_dialog.close();
         self.settings_screen.close();
         self.theme_screen.close();
-        self.privacy_screen.close();
     }
 
     /// Perform the export based on the selected format. Returns the path written.
@@ -3509,11 +3499,6 @@ impl App {
         }
 
         // Privacy screen intercepts keys
-        if self.privacy_screen.visible {
-            crate::privacy_screen::handle_privacy_key(&mut self.privacy_screen, key);
-            return false;
-        }
-
         // Rewind flow overlay intercepts keys first
         if self.rewind_flow.visible {
             return self.handle_rewind_flow_key(key);
