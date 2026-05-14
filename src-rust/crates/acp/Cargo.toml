@@ -7,10 +7,22 @@ description = "Agent Client Protocol (ACP) server for Claurst — JSON-RPC 2.0 o
 [dependencies]
 claurst-core = { workspace = true }
 claurst-api = { workspace = true }
+claurst-tools = { workspace = true }
+claurst-query = { workspace = true }
+claurst-mcp = { workspace = true }
+claurst-plugins = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
+uuid = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+futures = { workspace = true }
+dirs = { workspace = true }
+agent-client-protocol-schema = { version = "0.13", default-features = false }

@@ -129,6 +129,47 @@ GPG and SSH forwarding is enabled in the devcontainer, given you have it set up 
 - Post-create setup creates and permissions `.gnupg`, and fixes ownership for `/usr/local/cargo`.
 - VS Code setting `terminal.integrated.inheritEnv` is enabled.
 
+## Editor integration (Agent Client Protocol)
+
+Claurst speaks the [**Agent Client Protocol (ACP)**](https://agentclientprotocol.com) — the open protocol pioneered by Zed for editor-to-agent communication. Any ACP-compatible editor (Zed, Neovim, JetBrains plugins, …) can drive Claurst as a subprocess and present it in the editor's native chat UI.
+
+To use Claurst as the agent in your editor, point its ACP integration at:
+
+```
+command: claurst
+args:    ["acp"]
+```
+
+**Zed example** (`~/.config/zed/settings.json`):
+
+```jsonc
+{
+  "agent_servers": {
+    "claurst": {
+      "command": "claurst",
+      "args": ["acp"]
+    }
+  }
+}
+```
+
+Claurst will run in JSON-RPC 2.0 mode over stdio. It implements `initialize`, `session/new`, `session/prompt`, and `session/cancel`, streams `session/update` notifications (text deltas, agent thinking, tool calls with their progress + results), and routes every tool permission through `session/request_permission` so the editor can show a native approval dialog.
+
+Configure your provider / API key in `~/.claurst/settings.json` (or `claurst auth login` / `claurst /connect`) before launching — the ACP agent uses the same credentials and providers as the interactive TUI.
+
+Enable verbose ACP logging (to stderr — never stdout, which would corrupt the protocol) by setting `CLAURST_ACP_LOG=debug`.
+
+### Listing on the ACP Registry
+
+The [Agent Client Protocol registry](https://github.com/agentclientprotocol/registry) is the canonical directory editors look up when offering "available agents". To get Claurst listed:
+
+1. Fork [`agentclientprotocol/registry`](https://github.com/agentclientprotocol/registry).
+2. Create a `claurst/` folder at the repo root and drop in the prepared manifest from this repo: [`src-rust/crates/acp/registry-template/agent.json`](src-rust/crates/acp/registry-template/agent.json). Bump the `version` and release-archive URLs to match the latest GitHub release.
+3. Add `claurst/icon.svg` (16×16 recommended) — the Rustle logo from [`public/`](public/) is a fine starting point.
+4. Open a PR to the registry. The registry CI validates `agent.json` against [the schema](https://github.com/agentclientprotocol/registry/blob/main/agent.schema.json) before merge.
+
+After merge, Zed and other ACP-aware editors will pick up Claurst on their next registry refresh.
+
 ## Documentation
 
 For more info on how to configure Claurst, [head over to our docs](https://claurst.kuber.studio/docs).

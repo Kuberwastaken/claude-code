@@ -3906,10 +3906,10 @@ async fn auth_logout() {
 /// Helper: convert `Option<String>` to a JSON string or null.
 fn subscription_label(subscription_type: Option<&str>) -> Option<String> {
     match subscription_type? {
-        "enterprise" => Some("Claurst Enterprise Account".to_string()),
-        "team" => Some("Claurst Team Account".to_string()),
-        "max" => Some("Claurst Max Account".to_string()),
-        "pro" => Some("Claurst Pro Account".to_string()),
+        "enterprise" => Some("Claude Enterprise Account".to_string()),
+        "team" => Some("Claude Team Account".to_string()),
+        "max" => Some("Claude Max Account".to_string()),
+        "pro" => Some("Claude Pro Account".to_string()),
         other if !other.is_empty() => Some(format!("{} Account", other)),
         _ => None,
     }
