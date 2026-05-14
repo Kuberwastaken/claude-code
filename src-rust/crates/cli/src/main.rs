@@ -1706,25 +1706,25 @@ async fn run_interactive(
         app.agent_mode = Some(agent_name.clone());
     }
 
-    // Show onboarding: status hint if no credentials, welcome tour if first run.
-    // Skip the welcome tour entirely if the user already has credentials — they've
-    // clearly set things up (via /connect or env vars) and don't need onboarding.
-    if !has_credentials {
-        if !settings.has_completed_onboarding {
-            app.onboarding_dialog.show();
-        } else {
-            app.status_message = Some("No provider configured. Run /connect to set one up.".to_string());
-        }
-    } else if !settings.has_completed_onboarding {
-        // User has credentials but hasn't formally completed onboarding — mark it done
-        // silently so they never see it.
-        let _ = claurst_tui::App::persist_onboarding_complete_pub();
-    }
-
     // Mirror TS BypassPermissionsModeDialog.tsx startup gate
+    // Shown as the highest-priority startup dialog (blocks all other UI).
     use claurst_core::config::PermissionMode;
     if live_config.permission_mode == PermissionMode::BypassPermissions {
         app.bypass_permissions_dialog.show();
+    } else {
+        // Show onboarding only if NOT in bypass-permissions mode.
+        // Bypass dialog is a mandatory security gate and takes absolute priority.
+        if !has_credentials {
+            if !settings.has_completed_onboarding {
+                app.onboarding_dialog.show();
+            } else {
+                app.status_message = Some("No provider configured. Run /connect to set one up.".to_string());
+            }
+        } else if !settings.has_completed_onboarding {
+            // User has credentials but hasn't formally completed onboarding — mark it done
+            // silently so they never see it.
+            let _ = claurst_tui::App::persist_onboarding_complete_pub();
+        }
     }
 
     // Version-upgrade notice: record the current version for future comparisons.
