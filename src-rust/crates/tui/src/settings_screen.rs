@@ -749,14 +749,6 @@ fn build_privacy_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
         "Sends anonymised usage statistics to help improve Claurst.",
     );
 
-    // Usage sharing
-    privacy_toggle_lines(
-        &mut lines,
-        "Usage Sharing",
-        privacy.usage_sharing_enabled(),
-        "Shares aggregate usage data for product improvement.",
-    );
-
     // Verbose (local debug logging)
     privacy_toggle_lines(
         &mut lines,

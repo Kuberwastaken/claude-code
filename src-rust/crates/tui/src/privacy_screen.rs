@@ -41,8 +41,21 @@ impl PrivacyScreen {
     pub fn open(&mut self) {
         self.visible = true;
         self.selected_idx = 0;
-        // Refresh from stored settings
-        self.toggles = default_toggles();
+        // Refresh toggles with current settings values
+        let mut toggles = default_toggles();
+        if let Ok(content) = std::fs::read_to_string(
+            claurst_core::config::Settings::config_dir().join("settings.json")
+        ) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                // Update telemetry from actual setting (inverted: disableTelemetry means enabled=false)
+                if let Some(disable_telemetry) = json.get("disableTelemetry").and_then(|v| v.as_bool()) {
+                    if let Some(t) = toggles.iter_mut().find(|t| t.key == "telemetry") {
+                        t.enabled = !disable_telemetry;
+                    }
+                }
+            }
+        }
+        self.toggles = toggles;
     }
 
     pub fn close(&mut self) {
@@ -104,13 +117,6 @@ fn default_toggles() -> Vec<PrivacyToggle> {
             label: "Telemetry",
             description: "Send anonymised usage statistics to help improve Claurst. \
                           No conversation content is included.",
-            enabled: false,
-        },
-        PrivacyToggle {
-            key: "usage_sharing",
-            label: "Usage Sharing",
-            description: "Share aggregate usage patterns (no personal data) to help \
-                          improve Claurst.",
             enabled: false,
         },
         PrivacyToggle {
