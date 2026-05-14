@@ -717,7 +717,7 @@ fn build_privacy_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
     lines.push(Line::from(""));
 
     lines.push(Line::from(vec![Span::styled(
-        "  These settings control data sharing with Anthropic.",
+        "  These settings control how Claurst handles data.",
         Style::default().fg(Color::DarkGray),
     )]));
     lines.push(Line::from(""));
@@ -738,7 +738,7 @@ fn build_privacy_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
             Style::default().fg(if privacy.has_agreed == Some(true) { Color::Green } else { Color::Yellow }),
         ),
     ]));
-    lines.push(indent_line("  Whether you have agreed to Anthropic's usage policy.", Color::DarkGray));
+    lines.push(indent_line("  Whether you have agreed to the usage policy.", Color::DarkGray));
     lines.push(Line::from(""));
 
     // Telemetry
@@ -772,7 +772,7 @@ fn build_privacy_lines(screen: &SettingsScreen) -> Vec<Line<'static>> {
     )]));
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  For full privacy policy see: https://www.anthropic.com/privacy",
+        "  Check the Claurst documentation for privacy and data handling details.",
         Style::default().fg(Color::DarkGray),
     )]));
 

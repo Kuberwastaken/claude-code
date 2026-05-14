@@ -1,7 +1,7 @@
 // privacy_screen.rs — Privacy settings dialog.
 //
 // A focused overlay with toggle-style controls for privacy preferences.
-// Opened by /privacy-settings. Changes are persisted via Settings::save_sync().
+// Opened by /privacy. Changes are persisted via Settings::save_sync().
 
 use claurst_core::config::Settings;
 use ratatui::layout::Rect;
@@ -102,15 +102,15 @@ fn default_toggles() -> Vec<PrivacyToggle> {
         PrivacyToggle {
             key: "telemetry",
             label: "Telemetry",
-            description: "Send anonymised crash reports and usage statistics to Anthropic \
-                          to help diagnose issues and improve the product.",
+            description: "Send anonymised usage statistics to help improve Claurst. \
+                          No conversation content is included.",
             enabled: false,
         },
         PrivacyToggle {
             key: "usage_sharing",
             label: "Usage Sharing",
             description: "Share aggregate usage patterns (no personal data) to help \
-                          Anthropic understand how Claurst is used.",
+                          improve Claurst.",
             enabled: false,
         },
         PrivacyToggle {
@@ -123,8 +123,8 @@ fn default_toggles() -> Vec<PrivacyToggle> {
         PrivacyToggle {
             key: "error_reporting",
             label: "Error Reporting",
-            description: "Automatically report errors and stack traces to Anthropic. \
-                          Helps fix bugs faster. No conversation content is included.",
+            description: "Log errors and stack traces to a local file for debugging. \
+                          No conversation content is included.",
             enabled: false,
         },
     ]
