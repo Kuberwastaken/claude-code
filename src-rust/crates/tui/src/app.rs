@@ -1165,7 +1165,7 @@ impl App {
         let user_keybindings = UserKeybindings::load(&Settings::config_dir());
         let auto_copy_on_highlight = Settings::load_sync()
             .map(|s| s.auto_copy_on_highlight)
-            .unwrap_or(true);
+            .unwrap_or(false);
         Self {
             config,
             cost_tracker,
