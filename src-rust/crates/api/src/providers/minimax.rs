@@ -1,47 +1,47 @@
 // providers/minimax.rs — MinimaxProvider: Anthropic-compatible provider for MiniMax.
+// Minimax requires API key in Authorization header without Bearer prefix.
 
 use std::pin::Pin;
-use std::sync::Arc;
 
 use async_stream::stream;
 use async_trait::async_trait;
 use claurst_core::provider_id::{ModelId, ProviderId};
 use claurst_core::types::{ContentBlock, UsageInfo};
 use futures::Stream;
+use reqwest::Client;
+use serde_json::Value;
 
-use crate::client::{AnthropicClient, ClientConfig};
 use crate::provider::{LlmProvider, ModelInfo};
 use crate::provider_error::ProviderError;
 use crate::provider_types::{
     ProviderCapabilities, ProviderRequest, ProviderResponse, ProviderStatus, StopReason,
     StreamEvent, SystemPromptStyle,
 };
-use crate::streaming::{AnthropicStreamEvent, ContentDelta, NullStreamHandler};
 use crate::types::{ApiMessage, ApiToolDefinition, CreateMessageRequest};
 
 use super::message_normalization::normalize_anthropic_messages;
 
 pub struct MinimaxProvider {
-    client: Arc<AnthropicClient>,
+    http_client: Client,
+    api_key: String,
+    api_base: String,
     id: ProviderId,
 }
 
 impl MinimaxProvider {
     pub fn new(api_key: String) -> Self {
-        // Default to international endpoint, can be overridden by env var or config
         let api_base = std::env::var("MINIMAX_BASE_URL")
             .unwrap_or_else(|_| "https://api.minimax.io/anthropic".to_string());
 
-        let client = AnthropicClient::new(ClientConfig {
-            api_key,
-            api_base,
-            use_bearer_auth: true,
-            ..Default::default()
-        })
-        .expect("MinimaxProvider: failed to create AnthropicClient");
+        let http_client = Client::builder()
+            .timeout(std::time::Duration::from_secs(600))
+            .build()
+            .expect("MinimaxProvider: failed to build HTTP client");
 
         Self {
-            client: Arc::new(client),
+            http_client,
+            api_key,
+            api_base,
             id: ProviderId::new(ProviderId::MINIMAX),
         }
     }
@@ -99,43 +99,100 @@ impl MinimaxProvider {
         }
     }
 
-    fn map_stream_event(evt: AnthropicStreamEvent) -> Option<StreamEvent> {
-        match evt {
-            AnthropicStreamEvent::MessageStart { id, model, usage } => {
+    fn map_anthropic_event(value: Value) -> Option<StreamEvent> {
+        let event_type = value.get("type")?.as_str()?;
+
+        match event_type {
+            "message_start" => {
+                let id = value.get("message")?.get("id")?.as_str()?.to_string();
+                let model = value.get("message")?.get("model")?.as_str()?.to_string();
+                let usage = UsageInfo {
+                    input_tokens: value.get("message")?.get("usage")?.get("input_tokens")?.as_u64()?,
+                    output_tokens: 0,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0,
+                };
                 Some(StreamEvent::MessageStart { id, model, usage })
             }
-            AnthropicStreamEvent::ContentBlockStart { index, content_block } => {
+            "content_block_start" => {
+                let index = value.get("index")?.as_u64()? as usize;
+                let content_type = value.get("content_block")?.get("type")?.as_str()?;
+
+                let content_block = match content_type {
+                    "text" => ContentBlock::Text {
+                        text: String::new(),
+                    },
+                    "tool_use" => {
+                        let id = value.get("content_block")?.get("id")?.as_str()?.to_string();
+                        let name = value.get("content_block")?.get("name")?.as_str()?.to_string();
+                        ContentBlock::ToolUse {
+                            id,
+                            name,
+                            input: serde_json::Value::Object(Default::default()),
+                        }
+                    }
+                    _ => return None,
+                };
+
                 Some(StreamEvent::ContentBlockStart { index, content_block })
             }
-            AnthropicStreamEvent::ContentBlockDelta { index, delta } => match delta {
-                ContentDelta::TextDelta { text } => {
-                    Some(StreamEvent::TextDelta { index, text })
+            "content_block_delta" => {
+                let index = value.get("index")?.as_u64()? as usize;
+                let delta_type = value.get("delta")?.get("type")?.as_str()?;
+
+                match delta_type {
+                    "text_delta" => {
+                        let text = value.get("delta")?.get("text")?.as_str()?.to_string();
+                        Some(StreamEvent::TextDelta { index, text })
+                    }
+                    "thinking_delta" => {
+                        let thinking = value.get("delta")?.get("thinking")?.as_str()?.to_string();
+                        Some(StreamEvent::ThinkingDelta { index, thinking })
+                    }
+                    "signature_delta" => {
+                        let signature = value.get("delta")?.get("signature")?.as_str()?.to_string();
+                        Some(StreamEvent::SignatureDelta { index, signature })
+                    }
+                    "input_json_delta" => {
+                        let partial_json = value.get("delta")?.get("partial_json")?.as_str()?.to_string();
+                        Some(StreamEvent::InputJsonDelta { index, partial_json })
+                    }
+                    _ => None,
                 }
-                ContentDelta::ThinkingDelta { thinking } => {
-                    Some(StreamEvent::ThinkingDelta { index, thinking })
-                }
-                ContentDelta::SignatureDelta { signature } => {
-                    Some(StreamEvent::SignatureDelta { index, signature })
-                }
-                ContentDelta::InputJsonDelta { partial_json } => {
-                    Some(StreamEvent::InputJsonDelta { index, partial_json })
-                }
-            },
-            AnthropicStreamEvent::ContentBlockStop { index } => {
+            }
+            "content_block_stop" => {
+                let index = value.get("index")?.as_u64()? as usize;
                 Some(StreamEvent::ContentBlockStop { index })
             }
-            AnthropicStreamEvent::MessageDelta { stop_reason, usage } => {
-                let mapped_stop = stop_reason.as_deref().map(Self::map_stop_reason);
+            "message_delta" => {
+                let stop_reason = value.get("delta")?
+                    .get("stop_reason")?
+                    .as_str()
+                    .map(Self::map_stop_reason);
+
+                let usage = value.get("delta")?.get("usage")
+                    .and_then(|u| {
+                        Some(UsageInfo {
+                            input_tokens: u.get("input_tokens")?.as_u64()?,
+                            output_tokens: u.get("output_tokens")?.as_u64()?,
+                            cache_creation_input_tokens: u.get("cache_creation_input_tokens")?.as_u64().unwrap_or(0),
+                            cache_read_input_tokens: u.get("cache_read_input_tokens")?.as_u64().unwrap_or(0),
+                        })
+                    });
+
                 Some(StreamEvent::MessageDelta {
-                    stop_reason: mapped_stop,
+                    stop_reason,
                     usage,
                 })
             }
-            AnthropicStreamEvent::MessageStop => Some(StreamEvent::MessageStop),
-            AnthropicStreamEvent::Error { error_type, message } => {
+            "message_stop" => Some(StreamEvent::MessageStop),
+            "error" => {
+                let error_type = value.get("error")?.get("type")?.as_str()?.to_string();
+                let message = value.get("error")?.get("message")?.as_str()?.to_string();
                 Some(StreamEvent::Error { error_type, message })
             }
-            AnthropicStreamEvent::Ping => None,
+            "ping" => None,
+            _ => None,
         }
     }
 }
@@ -271,25 +328,109 @@ impl LlmProvider for MinimaxProvider {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>>, ProviderError>
     {
         let api_request = Self::build_request(&request);
-        let handler = Arc::new(NullStreamHandler);
 
-        let provider_id = self.id.clone();
-
-        let mut rx = self
-            .client
-            .create_message_stream(api_request, handler)
-            .await
+        let body = serde_json::to_value(&api_request)
             .map_err(|e| ProviderError::Other {
-                provider: provider_id.clone(),
-                message: e.to_string(),
+                provider: self.id.clone(),
+                message: format!("Failed to serialize request: {}", e),
                 status: None,
                 body: None,
             })?;
 
+        let url = format!("{}/v1/messages", self.api_base);
+        let api_key = self.api_key.clone();
+        let http_client = self.http_client.clone();
+        let provider_id = self.id.clone();
+
+        let resp = http_client
+            .post(&url)
+            .header("Authorization", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .header("accept", "text/event-stream")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Other {
+                provider: provider_id.clone(),
+                message: format!("HTTP request failed: {}", e),
+                status: None,
+                body: None,
+            })?;
+
+        let status = resp.status().as_u16();
+        if !resp.status().is_success() {
+            let error_body = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::Other {
+                provider: provider_id.clone(),
+                message: format!("API error: {}", error_body),
+                status: Some(status),
+                body: Some(error_body),
+            });
+        }
+
+        let provider_id_inner = provider_id.clone();
         let s = stream! {
-            while let Some(anthropic_evt) = rx.recv().await {
-                if let Some(unified_evt) = MinimaxProvider::map_stream_event(anthropic_evt) {
-                    yield Ok(unified_evt);
+            let byte_stream = resp.bytes_stream();
+            let mut leftover = String::new();
+
+            use futures::StreamExt;
+            let mut stream = std::pin::pin!(byte_stream);
+
+            while let Some(chunk_result) = stream.next().await {
+                match chunk_result {
+                    Ok(chunk) => {
+                        let text = String::from_utf8_lossy(&chunk);
+                        let combined = if leftover.is_empty() {
+                            text.to_string()
+                        } else {
+                            let mut s = std::mem::take(&mut leftover);
+                            s.push_str(&text);
+                            s
+                        };
+
+                        let mut lines: Vec<&str> = combined.split('\n').collect();
+                        if !combined.ends_with('\n') {
+                            leftover = lines.pop().unwrap_or("").to_string();
+                        }
+
+                        for line in lines {
+                            let line = line.trim_end_matches('\r').trim();
+                            if line.is_empty() {
+                                continue;
+                            }
+
+                            let data = if let Some(rest) = line.strip_prefix("data:") {
+                                rest.trim()
+                            } else {
+                                line
+                            };
+
+                            match serde_json::from_str::<Value>(data) {
+                                Ok(value) => {
+                                    if let Some(stream_evt) = Self::map_anthropic_event(value) {
+                                        yield Ok(stream_evt);
+                                    }
+                                }
+                                Err(e) => {
+                                    yield Err(ProviderError::Other {
+                                        provider: provider_id_inner.clone(),
+                                        message: format!("Failed to parse event: {}", e),
+                                        status: None,
+                                        body: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        yield Err(ProviderError::Other {
+                            provider: provider_id_inner.clone(),
+                            message: format!("Stream error: {}", e),
+                            status: None,
+                            body: None,
+                        });
+                    }
                 }
             }
         };
@@ -318,7 +459,7 @@ impl LlmProvider for MinimaxProvider {
         ProviderCapabilities {
             streaming: true,
             tool_calling: true,
-            thinking: false, // MiniMax doesn't seem to have thinking blocks in Anthropic format yet
+            thinking: false,
             image_input: false,
             pdf_input: false,
             audio_input: false,
