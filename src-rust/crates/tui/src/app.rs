@@ -73,6 +73,7 @@ const PROMPT_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("keybindings", "Show keybinding configuration"),
     ("login", "Log in to Claurst"),
     ("logout", "Log out of Claurst"),
+    ("managed-agents", "Configure manager-executor managed agent system"),
     ("mcp", "Browse configured MCP servers"),
     ("memory", "Browse and open AGENTS.md memory files"),
     ("model", "Change the AI model"),
@@ -870,6 +871,12 @@ pub struct App {
         Option<tokio::sync::mpsc::Receiver<Vec<crate::session_browser::SessionEntry>>>,
     /// Credential store for provider API keys and OAuth tokens.
     pub auth_store: claurst_core::AuthStore,
+    /// Messages typed by the user while a query was streaming. They will be
+    /// auto-submitted in order once the current turn completes (issue #149).
+    pub queued_messages: std::collections::VecDeque<String>,
+    /// When `true`, the main loop will inject a synthetic Enter event on the
+    /// next iteration to dequeue and submit the next queued message.
+    pub pending_auto_submit: bool,
     /// Connect-a-provider dialog (/connect command).
     pub connect_dialog: DialogSelectState,
     /// Import-config source picker (/import-config command).
@@ -1297,6 +1304,8 @@ impl App {
             session_list_pending: false,
             session_list_rx: None,
             auth_store: claurst_core::AuthStore::load(),
+            queued_messages: std::collections::VecDeque::new(),
+            pending_auto_submit: false,
             connect_dialog: DialogSelectState::new("Connect a provider", provider_picker_items()),
             import_config_picker: DialogSelectState::new("Import config", import_config_picker_items()),
             import_config_dialog: ImportConfigDialogState::new(),
@@ -2095,18 +2104,13 @@ impl App {
                 true
             }
             "effort" => {
-                // Only cycle the visual indicator when called with no args (arg-based
-                // effort changes are handled by execute_command + main.rs sync).
-                self.effort_level = match self.effort_level {
-                    EffortLevel::Low => EffortLevel::Normal,
-                    EffortLevel::Normal => EffortLevel::High,
-                    EffortLevel::High => EffortLevel::Max,
-                    EffortLevel::Max => EffortLevel::Low,
-                };
+                // No-args /effort: show current level + available options instead of
+                // cycling blindly (cycling forced users to invoke 3-4 times to reach Max).
+                // Use /effort <low|medium|high|max> to set directly.
+                let current = format!("{} {}", self.effort_level.symbol(), self.effort_level.label());
                 self.status_message = Some(format!(
-                    "Effort: {} {}",
-                    self.effort_level.symbol(),
-                    self.effort_level.label(),
+                    "Effort: {}  ·  Set with: /effort low|medium|high|max",
+                    current
                 ));
                 true
             }
@@ -3893,50 +3897,52 @@ impl App {
                 self.help_overlay.toggle();
             }
 
-            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) && !self.is_streaming => {
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.prompt_input.kill_line_backward();
                 self.refresh_prompt_input();
             }
-            KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) && !self.is_streaming => {
+            KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.prompt_input.kill_word_backward();
                 self.refresh_prompt_input();
             }
-            KeyCode::Char('y') if key.modifiers.contains(KeyModifiers::CONTROL) && !self.is_streaming => {
+            KeyCode::Char('y') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.prompt_input.yank();
                 self.refresh_prompt_input();
             }
 
             // ---- Alt/Meta key text editing operations -------------------
-            KeyCode::Char('y') if key.modifiers.contains(KeyModifiers::ALT) && !self.is_streaming => {
+            KeyCode::Char('y') if key.modifiers.contains(KeyModifiers::ALT) => {
                 self.prompt_input.yank_pop();
                 self.refresh_prompt_input();
             }
-            KeyCode::Backspace if key.modifiers.contains(KeyModifiers::ALT) && !self.is_streaming => {
+            KeyCode::Backspace if key.modifiers.contains(KeyModifiers::ALT) => {
                 self.prompt_input.delete_word_backward();
                 self.refresh_prompt_input();
             }
-            KeyCode::Delete if key.modifiers.contains(KeyModifiers::ALT) && !self.is_streaming => {
+            KeyCode::Backspace if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.prompt_input.delete_word_backward();
+                self.refresh_prompt_input();
+            }
+            KeyCode::Delete if key.modifiers.contains(KeyModifiers::ALT) => {
                 self.prompt_input.delete_word_forward();
                 self.refresh_prompt_input();
             }
-            KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::ALT) && !self.is_streaming => {
+            KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::ALT) => {
                 self.prompt_input.move_word_backward();
                 self.sync_legacy_prompt_fields();
             }
-            KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::ALT) && !self.is_streaming => {
+            KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::ALT) => {
                 self.prompt_input.move_word_forward();
                 self.sync_legacy_prompt_fields();
             }
-            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::ALT) && !self.is_streaming => {
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::ALT) => {
                 self.prompt_input.delete_word_at_cursor();
                 self.refresh_prompt_input();
             }
 
-            // ---- Text entry (blocked while streaming) ------------------
-            KeyCode::Char(c) if !self.is_streaming => {
-                // With the kitty keyboard protocol, Shift+letter is reported as the base
-                // (lowercase) key with the SHIFT modifier.  Apply uppercase so the
-                // correct character is inserted.
+            // ---- Text entry (allowed while streaming so users can queue
+            // the next message; submission queues via Enter at the CLI layer).
+            KeyCode::Char(c) => {
                 let c = if key.modifiers.contains(KeyModifiers::SHIFT) && c.is_ascii_alphabetic() {
                     c.to_ascii_uppercase()
                 } else {
@@ -3949,27 +3955,39 @@ impl App {
                 }
                 self.refresh_prompt_input();
             }
-            KeyCode::Backspace if !self.is_streaming => {
+            KeyCode::Backspace => {
                 self.prompt_input.backspace();
                 self.refresh_prompt_input();
             }
-            KeyCode::Delete if !self.is_streaming => {
+            KeyCode::Delete if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.prompt_input.delete();
                 self.refresh_prompt_input();
             }
-            KeyCode::Left if !self.is_streaming => {
-                self.prompt_input.move_left();
+            KeyCode::Delete if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.prompt_input.delete_word_forward();
+                self.refresh_prompt_input();
+            }
+            KeyCode::Left => {
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.prompt_input.move_word_backward();
+                } else {
+                    self.prompt_input.move_left();
+                }
                 self.sync_legacy_prompt_fields();
             }
-            KeyCode::Right if !self.is_streaming => {
-                self.prompt_input.move_right();
+            KeyCode::Right => {
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.prompt_input.move_word_forward();
+                } else {
+                    self.prompt_input.move_right();
+                }
                 self.sync_legacy_prompt_fields();
             }
-            KeyCode::Home if !self.is_streaming => {
+            KeyCode::Home => {
                 self.prompt_input.cursor = 0;
                 self.sync_legacy_prompt_fields();
             }
-            KeyCode::End if !self.is_streaming => {
+            KeyCode::End => {
                 self.prompt_input.cursor = self.prompt_input.text.len();
                 self.sync_legacy_prompt_fields();
             }
@@ -4077,29 +4095,7 @@ impl App {
             }
 
             // ---- Toggle last thinking block (t key) -------------------
-            KeyCode::Char('t') if !self.is_streaming => {
-                // Find the last thinking block in the message list and toggle it
-                use claurst_core::types::ContentBlock;
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                'outer: for msg in self.messages.iter().rev() {
-                    let blocks = msg.content_blocks();
-                    for block in blocks.iter().rev() {
-                        if let ContentBlock::Thinking { thinking, .. } = block {
-                            let mut h = DefaultHasher::new();
-                            thinking.hash(&mut h);
-                            let hash = h.finish();
-                            if self.thinking_expanded.contains(&hash) {
-                                self.thinking_expanded.remove(&hash);
-                            } else {
-                                self.thinking_expanded.insert(hash);
-                            }
-                            self.invalidate_transcript();
-                            break 'outer;
-                        }
-                    }
-                }
-            }
+            // (Removed: shadowed by KeyCode::Char(c) prompt input handler.)
 
             _ => {}
         }

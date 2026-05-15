@@ -983,6 +983,10 @@ fn render_file_op_result(is_create: bool) -> Vec<Line<'static>> {
 /// Render a tool result (success variant) — generic fallback.
 pub fn render_tool_result_success(output: &str, truncated: bool) -> Vec<Line<'static>> {
     let total_lines = output.lines().count();
+    // Use explicit Gray (brighter than terminal default DarkGray) so tool
+    // output stays legible on themes where the default fg gets dimmed by
+    // surrounding styles. Issue #149: tool result text contrast was too low.
+    let body_style = Style::default().fg(Color::Gray);
     let mut lines: Vec<Line<'static>> = output
         .lines()
         .enumerate()
@@ -990,7 +994,7 @@ pub fn render_tool_result_success(output: &str, truncated: bool) -> Vec<Line<'st
         .map(|(_, l)| {
             Line::from(vec![
                 Span::styled("  ", Style::default()),
-                Span::raw(l.to_string()),
+                Span::styled(l.to_string(), body_style),
             ])
         })
         .collect();

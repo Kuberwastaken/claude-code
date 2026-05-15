@@ -262,6 +262,11 @@ pub fn models_for_provider_from_registry(
     if provider_id == "free" {
         return free_provider_models();
     }
+    // Codex (ChatGPT-authenticated OpenAI) is not in the models.dev catalog —
+    // serve the curated CODEX_MODELS list so the picker isn't empty.
+    if provider_id == "codex" {
+        return codex_provider_models();
+    }
 
     let mut entries = registry.list_visible_by_provider(provider_id);
 
@@ -336,6 +341,28 @@ pub fn default_model_for_provider(
     } else {
         format!("{}/default", provider_id)
     }
+}
+
+/// Curated Codex (ChatGPT-authenticated OpenAI) model list used by
+/// `models_for_provider_from_registry` because models.dev does not catalog
+/// these endpoints.
+fn codex_provider_models() -> Vec<ModelEntry> {
+    claurst_core::codex_oauth::CODEX_MODELS
+        .iter()
+        .map(|(id, name)| {
+            let ctx = match *id {
+                "gpt-5.4" | "gpt-5.2" | "gpt-5.2-codex" | "gpt-5.1-codex"
+                | "gpt-5.1-codex-mini" | "gpt-5.1-codex-max" => "400K ctx",
+                _ => "128K ctx",
+            };
+            ModelEntry {
+                id: id.to_string(),
+                display_name: name.to_string(),
+                description: format!("{} | ChatGPT-authenticated", ctx),
+                is_current: false,
+            }
+        })
+        .collect()
 }
 
 /// Curated free-mode model list used by `models_for_provider_from_registry`.

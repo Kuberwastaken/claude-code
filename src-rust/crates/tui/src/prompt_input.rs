@@ -2446,6 +2446,27 @@ pub fn input_height(state: &PromptInputState) -> u16 {
     base + if state.pending_images.is_empty() { 0 } else { 1 }
 }
 
+/// Wrap a logical line into visual chunks of `width` chars (char-based, not
+/// byte-based, to preserve UTF-8 characters). Empty input yields a single
+/// empty chunk so the caller can still place a cursor.
+fn wrap_line(line: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![line.to_string()];
+    }
+    let chars: Vec<char> = line.chars().collect();
+    if chars.is_empty() {
+        return vec![String::new()];
+    }
+    let mut out = Vec::with_capacity(chars.len() / width + 1);
+    let mut i = 0;
+    while i < chars.len() {
+        let end = (i + width).min(chars.len());
+        out.push(chars[i..end].iter().collect());
+        i = end;
+    }
+    out
+}
+
 /// Render the prompt input widget in the same low-chrome style as Claurst:
 /// multi-line input rows (one per logical line in the text) plus an accent
 /// underline. Suggestions are rendered by the footer, not as a boxed dropdown
@@ -2495,8 +2516,6 @@ pub fn render_prompt_input(
     let prompt_prefix = format!("{PROMPT_POINTER} ");
     let prefix_width = prompt_prefix.chars().count() as u16;
     let available_width = area.width.saturating_sub(prefix_width) as usize;
-    // Blink the cursor at ~1 Hz (530 ms on, 530 ms off).  We use wall-clock
-    // time so the period is stable regardless of frame rate.
     let cursor_blink_on = {
         let ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2504,21 +2523,19 @@ pub fn render_prompt_input(
             .as_millis();
         (ms / 530) % 2 == 0
     };
-    let cursor = if focused && cursor_blink_on { "\u{2588}" } else { "" };
+    // Render cursor as an overlay so its blink state never shifts the
+    // underlying text (issue #149: cursor blink shifted the prompt).
+    let show_cursor = focused && cursor_blink_on;
 
-    // Build the full content string (with cursor embedded).
-    let full_content: String = if state.text.is_empty() {
+    // Use the raw text — no inline cursor character — so layout is stable.
+    let display_text: String = if state.text.is_empty() {
         if focused {
-            cursor.to_string()
+            String::new()
         } else if mode == InputMode::Default {
             "How can I help you?".to_string()
         } else {
             String::new()
         }
-    } else if focused && state.cursor <= state.text.len() {
-        let mut text = state.text.clone();
-        text.insert_str(state.cursor, cursor);
-        text
     } else {
         state.text.clone()
     };
@@ -2537,8 +2554,14 @@ pub fn render_prompt_input(
 
     // Split into logical lines; guarantee at least one.
     let logical_lines: Vec<String> = {
-        let collected: Vec<String> = full_content.lines().map(|l| l.to_string()).collect();
-        if collected.is_empty() { vec![String::new()] } else { collected }
+        let collected: Vec<String> = display_text.lines().map(|l| l.to_string()).collect();
+        if display_text.ends_with('\n') || collected.is_empty() {
+            let mut v = collected;
+            v.push(String::new());
+            v
+        } else {
+            collected
+        }
     };
 
     let text_style = if state.text.is_empty() && !focused {
@@ -2547,34 +2570,102 @@ pub fn render_prompt_input(
         Style::default().fg(Color::White)
     };
 
-    // Render each logical line (truncated to available width from the right).
-    // Reserve 1 row at top (separator) + 1 at bottom (underline).
-    let max_text_rows = area.height.saturating_sub(2) as usize;
-    for (i, line_text) in logical_lines.iter().enumerate() {
-        if i >= max_text_rows {
-            break;
+    // Wrap each logical line into visual rows that fit `available_width`,
+    // and remember the (logical_idx, intra_line_char_offset) for each row
+    // so we can later compute where the cursor lives.
+    let mut visual_rows: Vec<(usize, usize, String)> = Vec::new();
+    for (li, line_text) in logical_lines.iter().enumerate() {
+        let chunks = wrap_line(line_text, available_width.max(1));
+        let mut col_offset = 0usize;
+        for chunk in chunks {
+            let chunk_len = chunk.chars().count();
+            visual_rows.push((li, col_offset, chunk));
+            col_offset += chunk_len;
         }
-        let row_y = text_start_y + i as u16;
+    }
 
-        let visible: String = line_text
-            .chars()
-            .rev()
-            .take(available_width)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
+    // Compute cursor's visual (row, col) within `visual_rows`.
+    // We map state.cursor (a byte offset into state.text) to (logical_line, char_offset).
+    let cursor_pos: Option<(usize, usize)> = if focused && !state.text.is_empty() {
+        let mut byte_idx = 0usize;
+        let mut found: Option<(usize, usize)> = None;
+        'outer: for (li, line_text) in logical_lines.iter().enumerate() {
+            let line_bytes = line_text.len();
+            // The +1 accounts for the '\n' between logical lines (last line has no trailing \n).
+            let line_end_byte = byte_idx + line_bytes;
+            if state.cursor <= line_end_byte {
+                let intra_byte = state.cursor - byte_idx;
+                let char_offset = line_text[..intra_byte.min(line_bytes)].chars().count();
+                found = Some((li, char_offset));
+                break 'outer;
+            }
+            byte_idx = line_end_byte + 1; // newline
+        }
+        // Fallback: cursor at end of text.
+        found.or_else(|| {
+            let li = logical_lines.len().saturating_sub(1);
+            let col = logical_lines.get(li).map(|s| s.chars().count()).unwrap_or(0);
+            Some((li, col))
+        })
+    } else if focused && state.text.is_empty() {
+        Some((0, 0))
+    } else {
+        None
+    };
 
-        let spans: Vec<Span<'static>> = if i == 0 {
+    let cursor_visual: Option<(usize, usize)> = cursor_pos.and_then(|(li, col)| {
+        // Find the visual row whose logical_idx == li and contains `col`.
+        let mut last_match: Option<(usize, usize)> = None;
+        for (vi, (row_li, row_col_start, chunk)) in visual_rows.iter().enumerate() {
+            if *row_li != li {
+                continue;
+            }
+            let chunk_len = chunk.chars().count();
+            let row_col_end = row_col_start + chunk_len;
+            if col >= *row_col_start && col <= row_col_end {
+                last_match = Some((vi, col - row_col_start));
+            }
+        }
+        last_match
+    });
+
+    // Render each visual row (truncated to area height).
+    let max_text_rows = area.height.saturating_sub(2) as usize;
+    // Scroll so the cursor row is visible.
+    let scroll_offset = match cursor_visual {
+        Some((vi, _)) if visual_rows.len() > max_text_rows && vi >= max_text_rows => {
+            vi + 1 - max_text_rows
+        }
+        _ => 0,
+    };
+
+    for (display_idx, (vi, (li, _col_start, chunk))) in visual_rows
+        .iter()
+        .enumerate()
+        .skip(scroll_offset)
+        .take(max_text_rows)
+        .map(|(idx, item)| (idx - scroll_offset, item))
+        .enumerate()
+        .map(|(d, (idx, item))| (d, (idx + scroll_offset, item)))
+    {
+        let _ = vi;
+        let _ = li;
+        let row_y = text_start_y + display_idx as u16;
+
+        // Determine if this is the first visual row of the first logical line —
+        // that's the only row that gets the prompt prefix; continuation rows
+        // (whether from logical line breaks or wrapping) get whitespace.
+        let is_first_row_of_first_logical = display_idx == 0 && scroll_offset == 0;
+
+        let spans: Vec<Span<'static>> = if is_first_row_of_first_logical {
             vec![
                 Span::styled(prompt_prefix.clone(), Style::default().fg(accent).add_modifier(Modifier::BOLD)),
-                Span::styled(visible, text_style),
+                Span::styled(chunk.clone(), text_style),
             ]
         } else {
-            // Continuation lines: indent to align with text after prefix
             vec![
                 Span::raw(" ".repeat(prefix_width as usize)),
-                Span::styled(visible, text_style),
+                Span::styled(chunk.clone(), text_style),
             ]
         };
 
@@ -2584,8 +2675,31 @@ pub fn render_prompt_input(
         );
     }
 
+    // Overlay the cursor block on top of the rendered text. We modify the
+    // buffer cell directly so the cursor occupies the same column whether
+    // it is currently blinking on or off.
+    if show_cursor {
+        if let Some((vi, col_in_row)) = cursor_visual {
+            if vi >= scroll_offset {
+                let display_idx = vi - scroll_offset;
+                if display_idx < max_text_rows {
+                    let row_y = text_start_y + display_idx as u16;
+                    let x = area.x + prefix_width + col_in_row as u16;
+                    if x < area.x + area.width && row_y < area.y + area.height {
+                        let cell = &mut buf[(x, row_y)];
+                        cell.set_symbol("\u{2588}");
+                        cell.set_style(Style::default().fg(text_style.fg.unwrap_or(Color::White)));
+                    }
+                }
+            }
+        }
+    }
+
     // Vim command / search row (shown below text lines, before underline).
-    let text_rows_rendered = logical_lines.len().min(max_text_rows);
+    let text_rows_rendered = visual_rows
+        .len()
+        .saturating_sub(scroll_offset)
+        .min(max_text_rows);
     let cmd_line: Option<Line<'static>> = match state.vim_mode {
         VimMode::Command => {
             let buf_text = format!(":{}\u{2588}", state.vim_command_buf);

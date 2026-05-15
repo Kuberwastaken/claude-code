@@ -1242,6 +1242,14 @@ pub fn handle_settings_key(
         KeyCode::BackTab => {
             screen.prev_tab();
         }
+        // Left/Right also switch tabs so users can navigate sections
+        // (General/Display/Privacy/Advanced/KeyBindings) without Tab.
+        KeyCode::Left => {
+            screen.prev_tab();
+        }
+        KeyCode::Right => {
+            screen.next_tab();
+        }
         KeyCode::Up => {
             screen.scroll_up();
         }

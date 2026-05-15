@@ -1706,7 +1706,7 @@ fn render_input(frame: &mut Frame, app: &App, area: Rect, focused: bool) {
         let dim = Color::Rgb(110, 110, 124);
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(1), Constraint::Length(status_area.width.min(36))])
+            .constraints([Constraint::Min(1), Constraint::Length(status_area.width.min(50))])
             .split(status_area);
 
         let left_line = if app.has_credentials {
