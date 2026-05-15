@@ -21,6 +21,7 @@ use crossterm::event::{
 // Windows Console API backend doesn't decode as `Event::Paste` — the bytes land as
 // raw key events, turning every `\n` into a prompt submit. Unix terminals (macOS/Linux)
 // handle bracketed paste correctly, allowing multi-line pastes to preserve newlines.
+#[cfg(not(target_os = "windows"))]
 use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -186,13 +187,14 @@ fn restore_terminal_cleanup() -> io::Result<()> {
         PopKeyboardEnhancementFlags,
     )?;
 
+    // On Windows, KeyboardEnhancementFlags may not have been pushed
+    // (conhost / older terminals reject the escape).  Pop is harmless
+    // whether it succeeded or not — ignore errors on restore.
     #[cfg(target_os = "windows")]
-    execute!(
-        io::stdout(),
-        LeaveAlternateScreen,
-        DisableMouseCapture,
-        PopKeyboardEnhancementFlags,
-    )?;
+    {
+        execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+        let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
+    }
 
     Ok(())
 }
@@ -237,16 +239,27 @@ pub fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
         ),
     )?;
 
+    // On Windows, keyboard enhancement is best-effort: conhost and older
+    // terminal builds do not support the kitty keyboard protocol.
+    // crossterm 0.29 improved detection but may still reject in some
+    // configurations.  Warn the user when it fails, then continue.
     #[cfg(target_os = "windows")]
-    execute!(
-        stdout,
-        EnterAlternateScreen,
-        EnableMouseCapture,
-        PushKeyboardEnhancementFlags(
-            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-                | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
-        ),
-    )?;
+    {
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        if let Err(e) = execute!(
+            stdout,
+            PushKeyboardEnhancementFlags(
+                KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                    | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
+            ),
+        ) {
+            eprintln!(
+                "claurst: keyboard enhancement unavailable ({e}). \
+                 Some key combinations may not be recognised. \
+                 Try Windows Terminal, WezTerm, or Alacritty for full support."
+            );
+        }
+    }
 
     set_terminal_title("\u{1f980} Claurst");
     let backend = CrosstermBackend::new(stdout);
