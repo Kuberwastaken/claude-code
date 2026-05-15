@@ -1,0 +1,6 @@
+# Exclude downloaded native binaries (installed at `npm install` time, not shipped with the package)
+native/
+
+# Temp files
+*.zip
+*.tar.gz

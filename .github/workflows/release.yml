@@ -15,6 +15,7 @@ concurrency:
 
 permissions:
   contents: write
+  id-token: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -328,3 +329,36 @@ jobs:
           prerelease: false
           body_path: release-notes.md
           files: release/*
+
+  # ── Publish to npm ──────────────────────────────────────────────────
+  npm-publish:
+    needs: release
+    runs-on: ubuntu-latest
+    name: Publish to npm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Stamp the exact release version into the npm package.json so the
+      # postinstall script downloads matching binaries from GitHub Releases.
+      - name: Set npm package version
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"   # strip leading v
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('npm/package.json', 'utf8'));
+            pkg.version = '${VERSION}';
+            fs.writeFileSync('npm/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "npm package.json version set to ${VERSION}"
+
+      - name: Publish to npm
+        working-directory: npm
+        run: npm publish --access public --provenance

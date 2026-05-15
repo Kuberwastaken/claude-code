@@ -6,7 +6,7 @@
 
 <p>
     <a href="https://github.com/kuberwastaken/claurst"><img src="https://img.shields.io/badge/Built_with-Rust-CE4D2B?style=for-the-badge&logo=rust&logoColor=white" alt="Built with Rust"></a>
-    <a href="https://github.com/kuberwastaken/claurst"><img src="https://img.shields.io/badge/Version-0.1.0-2E8B57?style=for-the-badge" alt="Version 0.1.0"></a>
+    <a href="https://github.com/kuberwastaken/claurst"><img src="https://img.shields.io/badge/Version-0.1.1-2E8B57?style=for-the-badge" alt="Version 0.1.1"></a>
     <a href="https://github.com/kuberwastaken/claurst/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=for-the-badge" alt="GPL-3.0 License"></a>
 </p>
 
@@ -24,7 +24,7 @@ It's fast, it's memory-efficient, it's yours to run however you want, and there'
 ---
 
 > [!IMPORTANT]
-> **Claurst is now officially in Beta (v0.1.0).** The core agent, multi-provider routing, and TUI are stable enough for daily driving — expect rough edges around experimental features (flagged below). Bug reports and PRs welcome.
+> **Claurst is now officially in Beta (v0.1.1).** The core agent, multi-provider routing, and TUI are stable enough for daily driving — expect rough edges around experimental features (flagged below). Bug reports and PRs welcome.
 
 > [!NOTE]
 > **Recent Updates:**
@@ -55,6 +55,22 @@ irm https://github.com/kuberwastaken/claurst/releases/latest/download/install.ps
 ```
 
 This drops `claurst` into `~/.claurst/bin` (or `%USERPROFILE%\.claurst\bin` on Windows) and adds it to your `PATH` automatically. Open a new terminal and run `claurst`.
+
+## Via npm / bun
+
+If you have Node.js or Bun installed, you can install Claurst as a global package. The postinstall script automatically downloads the right pre-built binary for your platform.
+
+```bash
+# npm
+npm install -g claurst
+
+# bun
+bun install -g claurst
+
+# or run without installing
+npx claurst
+bunx claurst
+```
 
 To upgrade later, run:
 

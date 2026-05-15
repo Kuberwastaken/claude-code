@@ -594,6 +594,8 @@
                                 <button class="os-tab active" data-os="macOS">macOS</button>
                                 <button class="os-tab" data-os="Linux">Linux</button>
                                 <button class="os-tab" data-os="Windows">Windows</button>
+                                <button class="os-tab" data-os="npm">npm</button>
+                                <button class="os-tab" data-os="bun">bun</button>
                             </div>
                         </div>
                         <div class="cmd-body">
@@ -652,6 +654,14 @@
                 'windows': {
                     comment: '# Windows (PowerShell). One-liner installer.',
                     code: 'irm https://github.com/Kuberwastaken/claurst/releases/latest/download/install.ps1 | iex'
+                },
+                'npm': {
+                    comment: '# All platforms. Requires Node.js.',
+                    code: 'npm install -g claurst'
+                },
+                'bun': {
+                    comment: '# All platforms. Requires Bun.',
+                    code: 'bun install -g claurst'
                 }
             };
 
@@ -697,13 +707,17 @@
                 'mac-arm': 'macOS',
                 'mac-intel': 'macOS',
                 'linux-x64': 'Linux',
-                'linux-arm': 'Linux'
+                'linux-arm': 'Linux',
+                'npm': 'npm',
+                'bun': 'bun'
             };
-            
+
             const fallbackMap = {
                 'Windows': 'windows',
                 'macOS': 'mac-arm',
-                'Linux': 'linux-x64'
+                'Linux': 'linux-x64',
+                'npm': 'npm',
+                'bun': 'bun'
             };
 
             function updateCmdUI(osKey) {

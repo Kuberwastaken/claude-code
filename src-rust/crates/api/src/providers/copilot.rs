@@ -12,7 +12,7 @@
 //
 // Required headers on model/chat requests:
 //   Authorization: Bearer <github_token>
-//   User-Agent: claurst/0.1.0
+//   User-Agent: claurst/<version>
 //   Openai-Intent: conversation-edits
 //   x-initiator: user | agent
 //
@@ -114,7 +114,7 @@ impl CopilotProvider {
     fn copilot_headers(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         builder
             .bearer_auth(&self.token)
-            .header("User-Agent", "claurst/0.1.0")
+            .header("User-Agent", concat!("claurst/", env!("CARGO_PKG_VERSION")))
     }
 
     fn copilot_request_headers(

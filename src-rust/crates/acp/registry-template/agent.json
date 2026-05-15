@@ -1,7 +1,7 @@
 {
   "id": "claurst",
   "name": "Claurst",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Open-source, multi-provider terminal coding agent built in Rust. Multi-provider routing (Anthropic, OpenAI, Google, Groq, Ollama, OpenAI-compatible, …), full MCP support, plugin system, Rustle companion, chat forking, memory consolidation. No telemetry.",
   "repository": "https://github.com/kuberwastaken/claurst",
   "website": "https://claurst.kuber.studio",
@@ -12,27 +12,27 @@
   "distribution": {
     "binary": {
       "darwin-aarch64": {
-        "archive": "https://github.com/kuberwastaken/claurst/releases/download/v0.1.0/claurst-macos-aarch64.tar.gz",
+        "archive": "https://github.com/kuberwastaken/claurst/releases/download/v0.1.1/claurst-macos-aarch64.tar.gz",
         "cmd": "./claurst",
         "args": ["acp"]
       },
       "darwin-x86_64": {
-        "archive": "https://github.com/kuberwastaken/claurst/releases/download/v0.1.0/claurst-macos-x86_64.tar.gz",
+        "archive": "https://github.com/kuberwastaken/claurst/releases/download/v0.1.1/claurst-macos-x86_64.tar.gz",
         "cmd": "./claurst",
         "args": ["acp"]
       },
       "linux-aarch64": {
-        "archive": "https://github.com/kuberwastaken/claurst/releases/download/v0.1.0/claurst-linux-aarch64.tar.gz",
+        "archive": "https://github.com/kuberwastaken/claurst/releases/download/v0.1.1/claurst-linux-aarch64.tar.gz",
         "cmd": "./claurst",
         "args": ["acp"]
       },
       "linux-x86_64": {
-        "archive": "https://github.com/kuberwastaken/claurst/releases/download/v0.1.0/claurst-linux-x86_64.tar.gz",
+        "archive": "https://github.com/kuberwastaken/claurst/releases/download/v0.1.1/claurst-linux-x86_64.tar.gz",
         "cmd": "./claurst",
         "args": ["acp"]
       },
       "windows-x86_64": {
-        "archive": "https://github.com/kuberwastaken/claurst/releases/download/v0.1.0/claurst-windows-x86_64.zip",
+        "archive": "https://github.com/kuberwastaken/claurst/releases/download/v0.1.1/claurst-windows-x86_64.zip",
         "cmd": "./claurst.exe",
         "args": ["acp"]
       }

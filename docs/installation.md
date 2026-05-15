@@ -65,6 +65,39 @@ Example: `curl -fsSL https://.../install.sh | bash -s -- --version 0.1.0`
 
 ---
 
+## Via npm / bun
+
+If you have Node.js or Bun installed, you can install Claurst as a global
+package. The postinstall script automatically downloads the correct pre-built
+native binary for your platform from GitHub Releases — no compilation needed.
+
+```bash
+# npm
+npm install -g claurst
+
+# bun
+bun install -g claurst
+```
+
+After installation, run `claurst` directly from your terminal.
+
+You can also run Claurst without a permanent install:
+
+```bash
+npx claurst          # via npm
+bunx claurst         # via bun
+```
+
+**Supported platforms via npm:**
+
+| Platform | Architecture |
+|----------|-------------|
+| Linux    | x86_64, aarch64 |
+| macOS    | x86_64 (Intel), aarch64 (Apple Silicon) |
+| Windows  | x86_64 |
+
+---
+
 ## Upgrading
 
 Once installed, upgrade in place at any time:
@@ -137,7 +170,7 @@ claurst --version
 A successful installation prints the version string, for example:
 
 ```
-claurst 0.1.0
+claurst 0.1.1
 ```
 
 To confirm the binary is the one you installed:
