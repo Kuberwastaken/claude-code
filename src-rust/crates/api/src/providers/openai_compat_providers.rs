@@ -46,6 +46,9 @@ pub fn provider_for_id(provider_id: &str) -> Option<OpenAiCompatProvider> {
         "fireworks" => Some(fireworks()),
         "opencode-go" | "opencode_go" => Some(opencode_go()),
         "opencode-zen" | "opencode_zen" => Some(opencode_zen()),
+        "synthetic" => Some(synthetic()),
+        "routing" => Some(routing()),
+        "neuralwatt" => Some(neuralwatt()),
         _ => None,
     }
 }
@@ -506,6 +509,54 @@ pub fn opencode_zen() -> OpenAiCompatProvider {
         ProviderId::OPENCODE_ZEN,
         "OpenCode Zen",
         "https://opencode.ai/zen/v1",
+    )
+    .with_api_key(key)
+    .with_quirks(ProviderQuirks {
+        include_usage_in_stream: true,
+        ..Default::default()
+    })
+}
+
+/// Synthetic.dev — OpenAI-compatible endpoint with curated model selection.
+/// Reads `SYNTHETIC_API_KEY` for authentication.
+pub fn synthetic() -> OpenAiCompatProvider {
+    let key = std::env::var("SYNTHETIC_API_KEY").unwrap_or_default();
+    OpenAiCompatProvider::new(
+        ProviderId::SYNTHETIC,
+        "Synthetic.dev",
+        "https://api.synthetic.new/openai/v1",
+    )
+    .with_api_key(key)
+    .with_quirks(ProviderQuirks {
+        include_usage_in_stream: true,
+        ..Default::default()
+    })
+}
+
+/// routing.run — OpenAI-compatible endpoint for model routing.
+/// Reads `ROUTING_API_KEY` for authentication.
+pub fn routing() -> OpenAiCompatProvider {
+    let key = std::env::var("ROUTING_API_KEY").unwrap_or_default();
+    OpenAiCompatProvider::new(
+        ProviderId::ROUTING,
+        "routing.run",
+        "https://api.routing.run/v1",
+    )
+    .with_api_key(key)
+    .with_quirks(ProviderQuirks {
+        include_usage_in_stream: true,
+        ..Default::default()
+    })
+}
+
+/// NeuralWatt — OpenAI-compatible endpoint for fast inference.
+/// Reads `NEURALWATT_API_KEY` for authentication.
+pub fn neuralwatt() -> OpenAiCompatProvider {
+    let key = std::env::var("NEURALWATT_API_KEY").unwrap_or_default();
+    OpenAiCompatProvider::new(
+        ProviderId::NEURALWATT,
+        "NeuralWatt",
+        "https://api.neuralwatt.com/v1",
     )
     .with_api_key(key)
     .with_quirks(ProviderQuirks {

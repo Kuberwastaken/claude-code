@@ -74,6 +74,9 @@ impl ProviderId {
     pub const CODEX: &'static str = "codex";
     pub const OPENCODE_GO: &'static str = "opencode-go";
     pub const OPENCODE_ZEN: &'static str = "opencode-zen";
+    pub const SYNTHETIC: &'static str = "synthetic";
+    pub const ROUTING: &'static str = "routing";
+    pub const NEURALWATT: &'static str = "neuralwatt";
     pub const FREE: &'static str = "free";
 }
 
