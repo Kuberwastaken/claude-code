@@ -2515,7 +2515,13 @@ pub fn render_prompt_input(
     };
     let prompt_prefix = format!("{PROMPT_POINTER} ");
     let prefix_width = prompt_prefix.chars().count() as u16;
-    let available_width = area.width.saturating_sub(prefix_width) as usize;
+    // Reserve a 2-cell right margin so wrapped text doesn't kiss the right edge
+    // of the box (issue #149: padding too tight).
+    let right_pad: u16 = 2;
+    let available_width = area
+        .width
+        .saturating_sub(prefix_width)
+        .saturating_sub(right_pad) as usize;
     let cursor_blink_on = {
         let ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

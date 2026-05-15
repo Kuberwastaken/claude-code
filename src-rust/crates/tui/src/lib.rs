@@ -114,6 +114,8 @@ pub mod invalid_config_dialog;
 pub mod bypass_permissions_dialog;
 /// First-launch onboarding / welcome dialog.
 pub mod onboarding_dialog;
+/// Effort-level picker dialog (/effort).
+pub mod effort_picker;
 /// Reusable fuzzy-search selection dialog widget.
 pub mod dialog_select;
 /// Masked text input overlay for entering API keys.

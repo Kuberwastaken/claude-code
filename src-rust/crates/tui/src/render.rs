@@ -601,6 +601,11 @@ pub fn render_app(frame: &mut Frame, app: &App) {
         render_onboarding_dialog(frame, &app.onboarding_dialog, size);
     }
 
+    // /effort picker
+    if app.effort_picker.visible {
+        crate::effort_picker::render_effort_picker(frame, &app.effort_picker, size);
+    }
+
     // Import-config source picker
     if app.import_config_picker.visible {
         render_dialog_select(frame, &app.import_config_picker, size);
@@ -1002,13 +1007,17 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
     if content_height > visible_height {
         use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
 
-        let mut scrollbar_state = ScrollbarState::new(content_height as usize)
+        // Use max_scroll+1 as the content length so position=max_scroll
+        // maps to the very bottom of the track (so the thumb visibly meets
+        // the bottom arrow when scrolled all the way down — issue #149).
+        let track_len = (max_scroll + 1).max(1);
+        let mut scrollbar_state = ScrollbarState::new(track_len)
             .position(scroll)
-            .viewport_content_length(visible_height as usize);
+            .viewport_content_length(1);
 
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .thumb_style(Style::default().fg(app.accent_color))  // accent thumb
-            .track_style(Style::default().fg(Color::Rgb(40, 40, 50)));  // dark track
+            .thumb_style(Style::default().fg(app.accent_color))
+            .track_style(Style::default().fg(Color::Rgb(40, 40, 50)));
 
         frame.render_stateful_widget(scrollbar, msg_area, &mut scrollbar_state);
     }
@@ -1757,10 +1766,11 @@ fn render_input(frame: &mut Frame, app: &App, area: Rect, focused: bool) {
             let mut hint = vec![Span::styled("Ctrl+A model", Style::default().fg(dim))];
             hint.push(Span::styled(" · ", Style::default().fg(dim)));
             hint.push(Span::styled("Ctrl+K commands", Style::default().fg(dim)));
-            if !app.is_streaming && app.prompt_input.text.is_empty() {
-                hint.push(Span::styled(" · ", Style::default().fg(dim)));
-                hint.push(Span::styled("? shortcuts", Style::default().fg(dim)));
-            }
+            // Always show the ? shortcut hint — previously hidden while
+            // typing or streaming, but users want it visible at all times
+            // (issue #149 follow-up).
+            hint.push(Span::styled(" · ", Style::default().fg(dim)));
+            hint.push(Span::styled("? shortcuts", Style::default().fg(dim)));
             Line::from(hint)
         } else {
             Line::from(vec![Span::styled("Ctrl+K commands", Style::default().fg(dim))])

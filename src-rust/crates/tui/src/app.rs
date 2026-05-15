@@ -842,6 +842,8 @@ pub struct App {
     pub bypass_permissions_dialog_shown: bool,
     /// First-launch onboarding welcome dialog.
     pub onboarding_dialog: crate::onboarding_dialog::OnboardingDialogState,
+    /// Effort-level picker (/effort with no args).
+    pub effort_picker: crate::effort_picker::EffortPickerState,
     /// API key input dialog (opened from /connect for key-based providers).
     pub key_input_dialog: crate::key_input_dialog::KeyInputDialogState,
     /// Custom provider dialog for URL + API key input.
@@ -1283,6 +1285,7 @@ impl App {
             bypass_permissions_dialog: crate::bypass_permissions_dialog::BypassPermissionsDialogState::new(),
             bypass_permissions_dialog_shown: false,
             onboarding_dialog: crate::onboarding_dialog::OnboardingDialogState::new(),
+            effort_picker: crate::effort_picker::EffortPickerState::new(),
             key_input_dialog: crate::key_input_dialog::KeyInputDialogState::new(),
             custom_provider_dialog: crate::custom_provider_dialog::CustomProviderDialogState::new(),
             free_mode_dialog: crate::free_mode_dialog::FreeModeDialogState::new(),
@@ -2104,14 +2107,9 @@ impl App {
                 true
             }
             "effort" => {
-                // No-args /effort: show current level + available options instead of
-                // cycling blindly (cycling forced users to invoke 3-4 times to reach Max).
-                // Use /effort <low|medium|high|max> to set directly.
-                let current = format!("{} {}", self.effort_level.symbol(), self.effort_level.label());
-                self.status_message = Some(format!(
-                    "Effort: {}  ·  Set with: /effort low|medium|high|max",
-                    current
-                ));
+                // Open the picker dialog so users can pick an effort level
+                // visually instead of cycling/typing the level (issue #149).
+                self.effort_picker.open(self.effort_level);
                 true
             }
             "voice" => {
@@ -2571,9 +2569,10 @@ impl App {
     }
 
     fn prompt_mode(&self) -> InputMode {
-        if self.is_streaming {
-            InputMode::Readonly
-        } else if self.plan_mode {
+        // Note: previously returned Readonly while streaming, but the prompt
+        // now accepts input during streaming so the user can compose / queue
+        // a follow-up message. Plan mode still wins.
+        if self.plan_mode {
             InputMode::Plan
         } else {
             InputMode::Default
@@ -2834,6 +2833,27 @@ impl App {
                 }
                 KeyCode::Left => {
                     self.onboarding_dialog.prev_page();
+                }
+                _ => {}
+            }
+            return false;
+        }
+
+        // Effort picker dialog (/effort).
+        if self.effort_picker.visible {
+            match key.code {
+                KeyCode::Esc => self.effort_picker.close(),
+                KeyCode::Up | KeyCode::Char('k') => self.effort_picker.select_prev(),
+                KeyCode::Down | KeyCode::Char('j') => self.effort_picker.select_next(),
+                KeyCode::Enter => {
+                    let chosen = self.effort_picker.current();
+                    self.effort_level = chosen;
+                    self.effort_picker.close();
+                    self.status_message = Some(format!(
+                        "Effort set to {} {}.",
+                        chosen.symbol(),
+                        chosen.label()
+                    ));
                 }
                 _ => {}
             }
@@ -3838,6 +3858,10 @@ impl App {
                     self.streaming_thinking.clear();
                     self.tool_use_blocks.clear();
                     self.status_message = Some("Cancelled.".to_string());
+                } else if !self.prompt_input.is_empty() {
+                    // Non-empty prompt — clear it (matches bash/readline Ctrl+C).
+                    self.prompt_input.clear();
+                    self.refresh_prompt_input();
                 } else {
                     self.should_quit = true;
                 }
@@ -3943,7 +3967,14 @@ impl App {
             // ---- Text entry (allowed while streaming so users can queue
             // the next message; submission queues via Enter at the CLI layer).
             KeyCode::Char(c) => {
-                let c = if key.modifiers.contains(KeyModifiers::SHIFT) && c.is_ascii_alphabetic() {
+                // Crossterm normally delivers the already-shifted character
+                // (e.g. SHIFT+1 → '!'). On terminals that emit the unshifted
+                // key with SHIFT modifier set, we still need to uppercase
+                // ASCII letters so SHIFT+a → 'A'. Don't try to map other
+                // unshifted chars — the layout is locale dependent.
+                let c = if key.modifiers.contains(KeyModifiers::SHIFT)
+                    && c.is_ascii_lowercase()
+                {
                     c.to_ascii_uppercase()
                 } else {
                     c
