@@ -95,6 +95,8 @@ const PROMPT_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("survey", "Open session feedback survey"),
     ("theme", "Open the theme picker"),
     ("ultrareview", "Run an exhaustive multi-dimensional code review"),
+    ("update", "Check for updates and upgrade to the latest version"),
+    ("upgrade", "Check for updates and upgrade to the latest version"),
     ("vim", "Toggle vim keybindings"),
     ("voice", "Toggle voice input mode"),
 ];

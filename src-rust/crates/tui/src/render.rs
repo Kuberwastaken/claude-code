@@ -2243,17 +2243,6 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             parts.push(Span::styled(clean, Style::default().fg(Color::DarkGray)));
         }
 
-        // 8b. Update available indicator — shown when a newer version was found.
-        if let Some(ref version) = app.update_available {
-            if !parts.is_empty() {
-                parts.push(Span::raw("  "));
-            }
-            parts.push(Span::styled(
-                format!("⬆ v{} available — /update", version),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            ));
-        }
-
         // 8. Bridge badge
         if let Some(badge) = app.bridge_state.status_badge(app.frame_count) {
             if !parts.is_empty() {
