@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use claurst_core::provider_id::{ModelId, ProviderId};
 use claurst_core::types::{ContentBlock, UsageInfo};
 use futures::Stream;
-use reqwest::Client;
+use reqwest::{Client, header};
 use serde_json::Value;
 
 use crate::provider::{LlmProvider, ModelInfo};
@@ -32,8 +32,10 @@ impl MinimaxProvider {
     pub fn new(api_key: String) -> Self {
         let api_base = std::env::var("MINIMAX_BASE_URL")
             .unwrap_or_else(|_| "https://api.minimax.io/anthropic".to_string());
-
+        let mut headers = header::HeaderMap::new();
+        headers.insert("X-Api-Key", header::HeaderValue::from_str(&api_key).expect("unable to parse api key for http header"));
         let http_client = Client::builder()
+            .default_headers(headers)
             .timeout(std::time::Duration::from_secs(600))
             .build()
             .expect("MinimaxProvider: failed to build HTTP client");
