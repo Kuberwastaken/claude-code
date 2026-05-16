@@ -954,6 +954,7 @@ dependencies = [
  "hound",
  "icy_sixel",
  "image",
+ "libc",
  "once_cell",
  "parking_lot",
  "ratatui",

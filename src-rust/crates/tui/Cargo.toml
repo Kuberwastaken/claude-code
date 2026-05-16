@@ -70,6 +70,7 @@ similar = { workspace = true }
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
 once_cell = { workspace = true }
 base64 = { workspace = true }
+libc = { workspace = true }
 reqwest = { workspace = true }
 dashmap = { workspace = true }
 icy_sixel = { workspace = true }

@@ -67,6 +67,7 @@ dashmap = "6"
 indexmap = { version = "2", features = ["serde"] }
 bytes = "1"
 base64 = "0.22"
+libc = "0.2"
 sha2 = "0.10"
 hex = "0.4"
 getrandom = "0.2"
