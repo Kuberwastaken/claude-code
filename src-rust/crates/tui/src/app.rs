@@ -581,6 +581,54 @@ fn layout_to_latin(c: char) -> String {
     mapped.unwrap_or(lower).to_string()
 }
 
+/// Apply shift transformation to a character based on standard US QWERTY layout.
+/// Handles both ASCII lowercase letters and number/symbol keys.
+///
+/// **Why this exists**: Terminals that support the kitty keyboard protocol send
+/// unshifted characters with modifier flags instead of pre-shifted characters
+/// (e.g., Shift+1 arrives as '1' + SHIFT instead of '!'). This function normalizes
+/// them to the expected shifted characters.
+///
+/// **Keyboard layout limitation**: This only works correctly for US QWERTY keyboards.
+/// Other layouts (AZERTY, QWERTZ, etc.) have different shift mappings. For non-US
+/// layouts, we rely on the terminal to send the correctly shifted character, which
+/// most modern terminals do (especially with kitty protocol enabled).
+fn normalize_char_with_shift(c: char, modifiers: KeyModifiers) -> char {
+    if !modifiers.contains(KeyModifiers::SHIFT) {
+        return c;
+    }
+
+    if c.is_ascii_lowercase() {
+        return c.to_ascii_uppercase();
+    }
+
+    // Map unshifted number/symbol keys to their shifted equivalents (US QWERTY)
+    match c {
+        '1' => '!',
+        '2' => '@',
+        '3' => '#',
+        '4' => '$',
+        '5' => '%',
+        '6' => '^',
+        '7' => '&',
+        '8' => '*',
+        '9' => '(',
+        '0' => ')',
+        '-' => '_',
+        '=' => '+',
+        '[' => '{',
+        ']' => '}',
+        ';' => ':',
+        '\'' => '"',
+        ',' => '<',
+        '.' => '>',
+        '/' => '?',
+        '\\' => '|',
+        '`' => '~',
+        _ => c,
+    }
+}
+
 fn key_event_to_keystroke(key: &KeyEvent) -> Option<ParsedKeystroke> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt  = key.modifiers.contains(KeyModifiers::ALT);
@@ -2934,6 +2982,7 @@ impl App {
                     }
                 }
                 KeyCode::Char(c) => {
+                    let c = normalize_char_with_shift(c, key.modifiers);
                     self.ask_user_dialog.push_char(c);
                 }
                 KeyCode::Backspace => {
@@ -2978,6 +3027,7 @@ impl App {
                     }
                 }
                 KeyCode::Char(c) => {
+                    let c = normalize_char_with_shift(c, key.modifiers);
                     self.key_input_dialog.insert_char(c);
                 }
                 _ => {}
@@ -3022,6 +3072,7 @@ impl App {
                     self.free_mode_dialog.backspace();
                 }
                 KeyCode::Char(c) => {
+                    let c = normalize_char_with_shift(c, key.modifiers);
                     self.free_mode_dialog.insert_char(c);
                 }
                 _ => {}
@@ -3060,6 +3111,7 @@ impl App {
                     self.custom_provider_dialog.backspace();
                 }
                 KeyCode::Char(c) => {
+                    let c = normalize_char_with_shift(c, key.modifiers);
                     self.custom_provider_dialog.insert_char(c);
                 }
                 _ => {}
@@ -3654,6 +3706,7 @@ impl App {
                     return false;
                 }
                 KeyCode::Char(c) => {
+                    let c = normalize_char_with_shift(c, key.modifiers);
                     self.elicitation.insert_char(c);
                     return false;
                 }
@@ -3966,18 +4019,7 @@ impl App {
             // ---- Text entry (allowed while streaming so users can queue
             // the next message; submission queues via Enter at the CLI layer).
             KeyCode::Char(c) => {
-                // Crossterm normally delivers the already-shifted character
-                // (e.g. SHIFT+1 → '!'). On terminals that emit the unshifted
-                // key with SHIFT modifier set, we still need to uppercase
-                // ASCII letters so SHIFT+a → 'A'. Don't try to map other
-                // unshifted chars — the layout is locale dependent.
-                let c = if key.modifiers.contains(KeyModifiers::SHIFT)
-                    && c.is_ascii_lowercase()
-                {
-                    c.to_ascii_uppercase()
-                } else {
-                    c
-                };
+                let c = normalize_char_with_shift(c, key.modifiers);
                 if self.prompt_input.vim_enabled && self.prompt_input.vim_mode != VimMode::Insert {
                     self.prompt_input.vim_command(&c.to_string());
                 } else {
@@ -4257,6 +4299,7 @@ impl App {
                     }
                 }
                 KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    let ch = normalize_char_with_shift(ch, key.modifiers);
                     self.agents_menu.editor_insert_char(ch);
                 }
                 _ => {}
@@ -4395,6 +4438,7 @@ impl App {
                 self.history_search_overlay.toggle_pin();
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                let c = normalize_char_with_shift(c, key.modifiers);
                 let history = self.prompt_input.history.clone();
                 self.history_search_overlay.push_char(c, &history);
                 if let Some(hs) = self.history_search.as_mut() {
@@ -4466,6 +4510,7 @@ impl App {
                 self.refresh_global_search();
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                let c = normalize_char_with_shift(c, key.modifiers);
                 self.global_search.push_char(c);
                 self.refresh_global_search();
             }
@@ -6146,6 +6191,80 @@ mod tests {
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
         }
+    }
+
+    // ---- normalize_char_with_shift tests ----
+
+    #[test]
+    fn test_normalize_char_no_shift_returns_unchanged() {
+        assert_eq!(normalize_char_with_shift('a', KeyModifiers::NONE), 'a');
+        assert_eq!(normalize_char_with_shift('1', KeyModifiers::NONE), '1');
+        assert_eq!(normalize_char_with_shift('!', KeyModifiers::NONE), '!');
+    }
+
+    #[test]
+    fn test_normalize_char_shift_uppercase_letters() {
+        assert_eq!(normalize_char_with_shift('a', KeyModifiers::SHIFT), 'A');
+        assert_eq!(normalize_char_with_shift('z', KeyModifiers::SHIFT), 'Z');
+        assert_eq!(normalize_char_with_shift('m', KeyModifiers::SHIFT), 'M');
+    }
+
+    #[test]
+    fn test_normalize_char_shift_numbers() {
+        assert_eq!(normalize_char_with_shift('1', KeyModifiers::SHIFT), '!');
+        assert_eq!(normalize_char_with_shift('2', KeyModifiers::SHIFT), '@');
+        assert_eq!(normalize_char_with_shift('3', KeyModifiers::SHIFT), '#');
+        assert_eq!(normalize_char_with_shift('4', KeyModifiers::SHIFT), '$');
+        assert_eq!(normalize_char_with_shift('5', KeyModifiers::SHIFT), '%');
+        assert_eq!(normalize_char_with_shift('6', KeyModifiers::SHIFT), '^');
+        assert_eq!(normalize_char_with_shift('7', KeyModifiers::SHIFT), '&');
+        assert_eq!(normalize_char_with_shift('8', KeyModifiers::SHIFT), '*');
+        assert_eq!(normalize_char_with_shift('9', KeyModifiers::SHIFT), '(');
+        assert_eq!(normalize_char_with_shift('0', KeyModifiers::SHIFT), ')');
+    }
+
+    #[test]
+    fn test_normalize_char_shift_symbols() {
+        assert_eq!(normalize_char_with_shift('-', KeyModifiers::SHIFT), '_');
+        assert_eq!(normalize_char_with_shift('=', KeyModifiers::SHIFT), '+');
+        assert_eq!(normalize_char_with_shift('[', KeyModifiers::SHIFT), '{');
+        assert_eq!(normalize_char_with_shift(']', KeyModifiers::SHIFT), '}');
+        assert_eq!(normalize_char_with_shift(';', KeyModifiers::SHIFT), ':');
+        assert_eq!(normalize_char_with_shift('\'', KeyModifiers::SHIFT), '"');
+        assert_eq!(normalize_char_with_shift(',', KeyModifiers::SHIFT), '<');
+        assert_eq!(normalize_char_with_shift('.', KeyModifiers::SHIFT), '>');
+        assert_eq!(normalize_char_with_shift('/', KeyModifiers::SHIFT), '?');
+        assert_eq!(normalize_char_with_shift('\\', KeyModifiers::SHIFT), '|');
+        assert_eq!(normalize_char_with_shift('`', KeyModifiers::SHIFT), '~');
+    }
+
+    #[test]
+    fn test_normalize_char_shift_already_shifted_chars_unchanged() {
+        // Characters that don't have shift equivalents remain unchanged
+        assert_eq!(normalize_char_with_shift('!', KeyModifiers::SHIFT), '!');
+        assert_eq!(normalize_char_with_shift('@', KeyModifiers::SHIFT), '@');
+        assert_eq!(normalize_char_with_shift('A', KeyModifiers::SHIFT), 'A');
+    }
+
+    #[test]
+    fn test_normalize_char_other_modifiers_ignored() {
+        // CTRL or ALT without SHIFT should not shift the character
+        assert_eq!(normalize_char_with_shift('a', KeyModifiers::CONTROL), 'a');
+        assert_eq!(normalize_char_with_shift('1', KeyModifiers::ALT), '1');
+        assert_eq!(normalize_char_with_shift('a', KeyModifiers::CONTROL | KeyModifiers::ALT), 'a');
+    }
+
+    #[test]
+    fn test_normalize_char_shift_with_other_modifiers() {
+        // SHIFT + CTRL should still apply shift transformation
+        assert_eq!(
+            normalize_char_with_shift('a', KeyModifiers::SHIFT | KeyModifiers::CONTROL),
+            'A'
+        );
+        assert_eq!(
+            normalize_char_with_shift('1', KeyModifiers::SHIFT | KeyModifiers::ALT),
+            '!'
+        );
     }
 
     #[test]
