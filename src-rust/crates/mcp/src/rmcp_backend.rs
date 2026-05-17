@@ -92,6 +92,14 @@ impl ClientHandler for RmcpNotificationClient {
     }
 }
 
+fn build_stdio_command(command: &str, config: &claurst_core::config::McpServerConfig) -> Command {
+    let program = which::which(command).unwrap_or_else(|_| command.into());
+    Command::new(program).configure(|cmd| {
+        cmd.args(&config.args);
+        cmd.envs(&config.env);
+    })
+}
+
 pub struct RmcpClientBackend {
     snapshot: McpClientSnapshot,
     peer: rmcp::Peer<RoleClient>,
@@ -109,10 +117,7 @@ impl RmcpClientBackend {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("MCP server '{}' has no command configured", config.name))?;
 
-        let transport = TokioChildProcess::new(Command::new(&command).configure(|cmd| {
-            cmd.args(&config.args);
-            cmd.envs(&config.env);
-        }))
+        let transport = TokioChildProcess::new(build_stdio_command(&command, config))
         .map_err(|e| anyhow::anyhow!("failed to spawn rmcp stdio child for '{}': {}", config.name, e))?;
 
         let client_info = build_client_info(rmcp_model::ProtocolVersion::default());
@@ -896,6 +901,29 @@ mod tests {
             .send()
             .await
             .expect("fetch test response")
+    }
+
+    #[test]
+    fn build_stdio_command_includes_configured_env() {
+        let config = McpServerConfig {
+            name: "mcp-router".to_string(),
+            command: Some("pnpx".to_string()),
+            args: vec!["@mcp_router/cli@latest".to_string(), "connect".to_string()],
+            env: HashMap::from([("MCPR_TOKEN".to_string(), "test-token".to_string())]),
+            url: None,
+            server_type: "stdio".to_string(),
+        };
+
+        let command = build_stdio_command("definitely-missing-mcp-command", &config);
+        let envs = command.as_std().get_envs().collect::<Vec<_>>();
+
+        assert_eq!(command.as_std().get_program().to_string_lossy(), "definitely-missing-mcp-command");
+        assert!(envs.iter().any(|(key, value)| {
+            key.to_string_lossy() == "MCPR_TOKEN"
+                && value
+                    .as_ref()
+                    .is_some_and(|value| value.to_string_lossy() == "test-token")
+        }));
     }
 
     #[test]
